@@ -1,13 +1,34 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
 import { adminApi } from '@/api/admin'
-import { Users, Activity, FileText, Zap, Calendar, CheckCircle, XCircle } from 'lucide-react'
-import { usePermissions } from '@/hooks/usePermissions'
+import { Users, Activity, CheckCircle, XCircle, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+
+type SortField = 'total' | 'cached' | 'no_cache'
+type SortDirection = 'asc' | 'desc'
 
 export default function Admin() {
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null)
-  const { hasPermission } = usePermissions()
+  const [showAllEndpoints, setShowAllEndpoints] = useState(false)
+  const [sortField, setSortField] = useState<SortField>('total')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle direction if same field
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      // New field, default to desc
+      setSortField(field)
+      setSortDirection('desc')
+    }
+  }
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown size={14} className="opacity-40" />
+    }
+    return sortDirection === 'desc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />
+  }
 
   const { data: statsResponse } = useQuery({
     queryKey: ['admin-stats'],
@@ -18,7 +39,15 @@ export default function Admin() {
   const stats = statsResponse?.success ? (statsResponse.data as any) : null
 
   return (
-    <div className="space-y-8 w-full">
+    <div className="w-full">
+      <div className="space-y-8 w-full">
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Tableau de bord Administration</h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Vue d'ensemble et statistiques de la plateforme
+          </p>
+        </div>
+
       {/* Notification Toast */}
       {notification && (
         <div className={`p-4 rounded-lg flex items-start gap-3 ${
@@ -47,111 +76,6 @@ export default function Admin() {
           </button>
         </div>
       )}
-
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Tableau de bord Administration</h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Vue d'ensemble et statistiques de la plateforme
-        </p>
-      </div>
-
-      {/* Admin Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        {hasPermission('users') && (
-          <Link
-            to="/admin/users"
-            className="card hover:shadow-lg transition-shadow border-2 border-blue-200 dark:border-blue-800"
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <Users className="text-blue-600 dark:text-blue-400" size={32} />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Utilisateurs</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Gérer les quotas
-                </p>
-              </div>
-            </div>
-          </Link>
-        )}
-
-        {hasPermission('users') && (
-          <Link
-            to="/admin/add-pdl"
-            className="card hover:shadow-lg transition-shadow border-2 border-amber-200 dark:border-amber-800"
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
-                <Activity className="text-amber-600 dark:text-amber-400" size={32} />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Ajouter PDL</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Sans consentement
-                </p>
-              </div>
-            </div>
-          </Link>
-        )}
-
-        {hasPermission('tempo') && (
-          <Link
-            to="/admin/tempo"
-            className="card hover:shadow-lg transition-shadow border-2 border-purple-200 dark:border-purple-800"
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                <Calendar className="text-purple-600 dark:text-purple-400" size={32} />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-1">TEMPO</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Cache RTE
-                </p>
-              </div>
-            </div>
-          </Link>
-        )}
-
-        {hasPermission('contributions') && (
-          <Link
-            to="/admin/contributions"
-            className="card hover:shadow-lg transition-shadow border-2 border-primary-200 dark:border-primary-800"
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-primary-100 dark:bg-primary-900/30 rounded-lg">
-                <FileText className="text-primary-600 dark:text-primary-400" size={32} />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Contributions</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Valider les offres
-                </p>
-              </div>
-            </div>
-          </Link>
-        )}
-
-        {hasPermission('offers') && (
-          <Link
-            to="/admin/offers"
-            className="card hover:shadow-lg transition-shadow border-2 border-green-200 dark:border-green-800"
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                <Zap className="text-green-600 dark:text-green-400" size={32} />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Offres</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Éditer/Supprimer
-                </p>
-              </div>
-            </div>
-          </Link>
-        )}
-      </div>
 
       {/* Global Stats */}
       {stats && (
@@ -193,6 +117,213 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      {/* Top Users */}
+      {stats && stats.top_users && stats.top_users.length > 0 && (
+        <div>
+          <h2 className="text-2xl font-bold mb-4">Top 20 utilisateurs (aujourd'hui)</h2>
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                      #
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                      Email
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                      Rôle
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                      Total
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                      Cache
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                      No Cache
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {stats.top_users.map((user: any, index: number) => (
+                    <tr key={user.user_id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-medium">
+                        {index + 1}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-gray-900 dark:text-gray-100 font-medium">
+                          {user.email}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
+                          {user.role.display_name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">
+                          {user.total_calls}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-green-600 dark:text-green-400 font-medium">
+                          {user.cached_calls}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-orange-600 dark:text-orange-400 font-medium">
+                          {user.no_cache_calls}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Endpoint Stats */}
+      {stats && stats.endpoint_stats && (
+        <div>
+          <div className="flex items-center justify-between mb-4 gap-4">
+            <h2 className="text-2xl font-bold">Statistiques par endpoint (aujourd'hui)</h2>
+            <button
+              onClick={() => setShowAllEndpoints(!showAllEndpoints)}
+              className="btn-secondary flex items-center gap-2 whitespace-nowrap px-4 py-2"
+            >
+              {showAllEndpoints ? (
+                <>
+                  <ChevronUp size={18} />
+                  Afficher moins
+                </>
+              ) : (
+                <>
+                  <ChevronDown size={18} />
+                  Afficher tout ({Object.keys(stats.endpoint_stats).filter(e => e !== 'cached').length})
+                </>
+              )}
+            </button>
+          </div>
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                      Endpoint
+                    </th>
+                    <th
+                      className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors select-none"
+                      onClick={() => handleSort('total')}
+                    >
+                      <div className="flex items-center justify-end gap-1">
+                        Total
+                        {getSortIcon('total')}
+                      </div>
+                    </th>
+                    <th
+                      className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors select-none"
+                      onClick={() => handleSort('cached')}
+                    >
+                      <div className="flex items-center justify-end gap-1">
+                        Cache
+                        {getSortIcon('cached')}
+                      </div>
+                    </th>
+                    <th
+                      className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors select-none"
+                      onClick={() => handleSort('no_cache')}
+                    >
+                      <div className="flex items-center justify-end gap-1">
+                        No Cache
+                        {getSortIcon('no_cache')}
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                      Ratio Cache
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {Object.entries(stats.endpoint_stats)
+                    .filter(([endpoint]) => endpoint !== 'cached')
+                    .sort(([, a]: [string, any], [, b]: [string, any]) => {
+                      const aValue = a[sortField]
+                      const bValue = b[sortField]
+                      return sortDirection === 'desc' ? bValue - aValue : aValue - bValue
+                    })
+                    .slice(0, showAllEndpoints ? undefined : 10)
+                    .map(([endpoint, endpointStats]: [string, any]) => {
+                      const hasTraffic = endpointStats.total > 0
+                      const cacheRatio = hasTraffic ? Math.round((endpointStats.cached / endpointStats.total) * 100) : 0
+
+                      return (
+                        <tr
+                          key={endpoint}
+                          className={`${
+                            hasTraffic
+                              ? 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                              : 'opacity-40'
+                          }`}
+                        >
+                          <td className="px-4 py-3">
+                            <code className={`text-sm font-mono ${
+                              hasTraffic
+                                ? 'text-primary-600 dark:text-primary-400'
+                                : 'text-gray-500 dark:text-gray-600'
+                            }`}>
+                              {endpoint}
+                            </code>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className={`font-semibold ${
+                              hasTraffic
+                                ? 'text-gray-900 dark:text-gray-100'
+                                : 'text-gray-400 dark:text-gray-600'
+                            }`}>
+                              {endpointStats.total}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="text-green-600 dark:text-green-400 font-medium">
+                              {endpointStats.cached}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="text-orange-600 dark:text-orange-400 font-medium">
+                              {endpointStats.no_cache}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {hasTraffic && (
+                              <div className="flex items-center justify-center gap-2">
+                                <div className="flex-1 max-w-[120px] bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className="bg-green-500 h-full rounded-full transition-all"
+                                    style={{ width: `${cacheRatio}%` }}
+                                  />
+                                </div>
+                                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 w-12 text-right">
+                                  {cacheRatio}%
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
 
     </div>
   )

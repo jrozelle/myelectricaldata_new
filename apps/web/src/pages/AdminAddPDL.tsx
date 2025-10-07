@@ -72,7 +72,18 @@ export default function AdminAddPDL() {
   }
 
   return (
-    <div className="space-y-6 w-full max-w-3xl mx-auto">
+    <div className="w-full">
+      <div className="space-y-6 w-full max-w-3xl mx-auto">
+        <div>
+          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
+            <Activity className="text-amber-600 dark:text-amber-400" size={32} />
+            Ajouter un PDL à un utilisateur
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Fonction d'administration : ajouter un PDL à n'importe quel utilisateur sans consentement
+          </p>
+        </div>
+
       {/* Notification Toast */}
       {notification && (
         <div className={`p-4 rounded-lg flex items-start gap-3 ${
@@ -101,16 +112,6 @@ export default function AdminAddPDL() {
           </button>
         </div>
       )}
-
-      <div>
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <Activity className="text-amber-600 dark:text-amber-400" size={32} />
-          Ajouter un PDL à un utilisateur
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Fonction d'administration : ajouter un PDL à n'importe quel utilisateur sans consentement
-        </p>
-      </div>
 
       {/* Warning */}
       <div className="bg-orange-50 dark:bg-orange-900/20 border-l-4 border-orange-500 p-4">
@@ -208,6 +209,7 @@ export default function AdminAddPDL() {
           <li>L'utilisateur pourra ensuite lier son compte Enedis normalement</li>
           <li>Seuls les administrateurs peuvent accéder à cette fonctionnalité</li>
         </ul>
+      </div>
       </div>
     </div>
   )

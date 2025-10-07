@@ -8,19 +8,22 @@ from ..config import settings
 class RateLimiterService:
     """Service to track and limit user API calls per day"""
 
-    def _get_daily_key(self, user_id: str, cache_used: bool) -> str:
+    def _get_daily_key(self, user_id: str, cache_used: bool, endpoint: str = None) -> str:
         """Generate Redis key for daily counter"""
         today = datetime.now(UTC).strftime("%Y-%m-%d")
         cache_type = "cached" if cache_used else "no_cache"
+        if endpoint:
+            return f"rate_limit:{user_id}:{endpoint}:{cache_type}:{today}"
         return f"rate_limit:{user_id}:{cache_type}:{today}"
 
-    async def increment_and_check(self, user_id: str, cache_used: bool, is_admin: bool = False) -> Tuple[bool, int, int]:
+    async def increment_and_check(self, user_id: str, cache_used: bool, is_admin: bool = False, endpoint: str = None) -> Tuple[bool, int, int]:
         """
         Increment counter and check if limit is reached
 
         Returns:
             (is_allowed, current_count, limit)
         """
+        # Global counter (for rate limiting)
         key = self._get_daily_key(user_id, cache_used)
         limit = settings.USER_DAILY_LIMIT_WITH_CACHE if cache_used else settings.USER_DAILY_LIMIT_NO_CACHE
 
@@ -48,6 +51,13 @@ class RateLimiterService:
         ttl_seconds = int((end_of_day - now).total_seconds())
 
         await cache_service.redis_client.setex(key, ttl_seconds, str(new_count))
+
+        # Also track per-endpoint stats if endpoint is provided
+        if endpoint:
+            endpoint_key = self._get_daily_key(user_id, cache_used, endpoint)
+            endpoint_current = await cache_service.redis_client.get(endpoint_key)
+            endpoint_count = int(endpoint_current) if endpoint_current else 0
+            await cache_service.redis_client.setex(endpoint_key, ttl_seconds, str(endpoint_count + 1))
 
         return True, new_count, limit
 

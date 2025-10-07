@@ -142,7 +142,18 @@ export default function AdminRoles() {
   }
 
   return (
-    <div className="space-y-6 w-full">
+    <div className="w-full">
+      <div className="space-y-6 w-full">
+        <div>
+          <h1 className="text-2xl font-bold mb-1 flex items-center gap-2">
+            <Shield className="text-primary-600 dark:text-primary-400" size={28} />
+            Gestion des rôles et permissions
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Configurez les permissions pour chaque rôle (le rôle Admin ne peut pas être modifié)
+          </p>
+        </div>
+
       {/* Notification */}
       {notification && (
         <div className={`p-3 rounded-lg flex items-center gap-3 ${
@@ -164,16 +175,6 @@ export default function AdminRoles() {
           <button onClick={() => setNotification(null)} className="text-gray-500 hover:text-gray-700">✕</button>
         </div>
       )}
-
-      <div>
-        <h1 className="text-2xl font-bold mb-1 flex items-center gap-2">
-          <Shield className="text-primary-600 dark:text-primary-400" size={28} />
-          Gestion des rôles et permissions
-        </h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Configurez les permissions pour chaque rôle (le rôle Admin ne peut pas être modifié)
-        </p>
-      </div>
 
       {rolesLoading || permissionsLoading ? (
         <div className="card p-4">
@@ -319,6 +320,7 @@ export default function AdminRoles() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 from datetime import datetime, UTC
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import User, Token, PDL
@@ -21,11 +21,11 @@ async def verify_pdl_ownership(usage_point_id: str, user: User, db: AsyncSession
     return pdl is not None
 
 
-async def check_rate_limit(user_id: str, use_cache: bool, is_admin: bool = False) -> tuple[bool, APIResponse | None]:
+async def check_rate_limit(user_id: str, use_cache: bool, is_admin: bool = False, endpoint: str = None) -> tuple[bool, APIResponse | None]:
     """
     Check rate limit for user. Returns (is_allowed, error_response_or_none)
     """
-    is_allowed, current_count, limit = await rate_limiter.increment_and_check(user_id, use_cache, is_admin)
+    is_allowed, current_count, limit = await rate_limiter.increment_and_check(user_id, use_cache, is_admin, endpoint)
     if not is_allowed:
         error_response = APIResponse(
             success=False,
@@ -118,6 +118,7 @@ async def get_valid_token(usage_point_id: str, user: User, db: AsyncSession) -> 
 # Metering endpoints
 @router.get("/consumption/daily/{usage_point_id}", response_model=APIResponse)
 async def get_consumption_daily(
+    request: Request,
     usage_point_id: str,
     start: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end: str = Query(..., description="End date (YYYY-MM-DD)"),
@@ -136,8 +137,9 @@ async def get_consumption_daily(
             )
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 
@@ -162,6 +164,7 @@ async def get_consumption_daily(
 
 @router.get("/consumption/detail/{usage_point_id}", response_model=APIResponse)
 async def get_consumption_detail(
+    request: Request,
     usage_point_id: str,
     start: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end: str = Query(..., description="End date (YYYY-MM-DD)"),
@@ -180,8 +183,9 @@ async def get_consumption_detail(
             )
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 
@@ -206,6 +210,7 @@ async def get_consumption_detail(
 
 @router.get("/power/{usage_point_id}", response_model=APIResponse)
 async def get_max_power(
+    request: Request,
     usage_point_id: str,
     start: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end: str = Query(..., description="End date (YYYY-MM-DD)"),
@@ -220,8 +225,9 @@ async def get_max_power(
             success=False, error=ErrorDetail(code="ACCESS_DENIED", message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent.")
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 
@@ -246,6 +252,7 @@ async def get_max_power(
 
 @router.get("/production/daily/{usage_point_id}", response_model=APIResponse)
 async def get_production_daily(
+    request: Request,
     usage_point_id: str,
     start: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end: str = Query(..., description="End date (YYYY-MM-DD)"),
@@ -260,8 +267,9 @@ async def get_production_daily(
             success=False, error=ErrorDetail(code="ACCESS_DENIED", message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent.")
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 
@@ -286,6 +294,7 @@ async def get_production_daily(
 
 @router.get("/production/detail/{usage_point_id}", response_model=APIResponse)
 async def get_production_detail(
+    request: Request,
     usage_point_id: str,
     start: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end: str = Query(..., description="End date (YYYY-MM-DD)"),
@@ -300,8 +309,9 @@ async def get_production_detail(
             success=False, error=ErrorDetail(code="ACCESS_DENIED", message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent.")
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 
@@ -327,6 +337,7 @@ async def get_production_detail(
 # Customer data endpoints
 @router.get("/contract/{usage_point_id}", response_model=APIResponse)
 async def get_contract(
+    request: Request,
     usage_point_id: str,
     use_cache: bool = Query(False, description="Use cached data if available"),
     current_user: User = Depends(get_current_user),
@@ -339,8 +350,9 @@ async def get_contract(
             success=False, error=ErrorDetail(code="ACCESS_DENIED", message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent.")
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 
@@ -373,6 +385,7 @@ async def get_contract(
 
 @router.get("/address/{usage_point_id}", response_model=APIResponse)
 async def get_address(
+    request: Request,
     usage_point_id: str,
     use_cache: bool = Query(False, description="Use cached data if available"),
     current_user: User = Depends(get_current_user),
@@ -385,8 +398,9 @@ async def get_address(
             success=False, error=ErrorDetail(code="ACCESS_DENIED", message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent.")
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 
@@ -411,6 +425,7 @@ async def get_address(
 
 @router.get("/customer/{usage_point_id}", response_model=APIResponse)
 async def get_customer(
+    request: Request,
     usage_point_id: str,
     use_cache: bool = Query(False, description="Use cached data if available"),
     current_user: User = Depends(get_current_user),
@@ -423,8 +438,9 @@ async def get_customer(
             success=False, error=ErrorDetail(code="ACCESS_DENIED", message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent.")
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 
@@ -449,6 +465,7 @@ async def get_customer(
 
 @router.get("/contact/{usage_point_id}", response_model=APIResponse)
 async def get_contact(
+    request: Request,
     usage_point_id: str,
     use_cache: bool = Query(False, description="Use cached data if available"),
     current_user: User = Depends(get_current_user),
@@ -461,8 +478,9 @@ async def get_contact(
             success=False, error=ErrorDetail(code="ACCESS_DENIED", message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent.")
         )
 
-    # Check rate limit
-    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin)
+    # Check rate limit - use route path template instead of actual path
+    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         return error_response
 

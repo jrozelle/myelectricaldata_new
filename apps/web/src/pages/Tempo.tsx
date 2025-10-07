@@ -10,7 +10,7 @@ export default function Tempo() {
   if (isLoading) {
     return (
       <div className="w-full">
-        <h1 className="text-3xl font-bold mb-6">Calendrier TEMPO</h1>
+        <h1 className="text-3xl font-bold mb-6">Calendrier Tempo</h1>
         <p>Chargement des données...</p>
       </div>
     )
@@ -22,8 +22,8 @@ export default function Tempo() {
   if (!tempoData?.success || allDays.length === 0) {
     return (
       <div className="w-full">
-        <h1 className="text-3xl font-bold mb-6">Calendrier TEMPO</h1>
-        <p className="text-red-600">Erreur lors du chargement des données TEMPO ou aucune donnée disponible.</p>
+        <h1 className="text-3xl font-bold mb-6">Calendrier Tempo</h1>
+        <p className="text-red-600">Erreur lors du chargement des données Tempo ou aucune donnée disponible.</p>
       </div>
     )
   }
@@ -197,9 +197,9 @@ export default function Tempo() {
 
   return (
     <div className="w-full">
-      <h1 className="text-3xl font-bold mb-2">Calendrier TEMPO</h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-8">
-        Historique des jours TEMPO bleus, blancs et rouges fourni par RTE
+      <h1 className="text-3xl font-bold mb-1">Calendrier Tempo</h1>
+      <p className="text-gray-600 dark:text-gray-400 mb-6">
+        Historique des jours Tempo bleus, blancs et rouges fourni par RTE
       </p>
 
       {/* Current Season Summary */}
@@ -296,7 +296,7 @@ export default function Tempo() {
 
       {seasons.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-gray-600 dark:text-gray-400">Aucune donnée TEMPO disponible</p>
+          <p className="text-gray-600 dark:text-gray-400">Aucune donnée Tempo disponible</p>
         </div>
       ) : (
         <div className="space-y-12">
@@ -314,7 +314,7 @@ export default function Tempo() {
             return (
               <div key={season}>
                 <div className="mb-4">
-                  <h2 className="text-2xl font-bold">Saison TEMPO {season}</h2>
+                  <h2 className="text-2xl font-bold">Saison Tempo {season}</h2>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                     Du 1er septembre au 31 août
                   </p>

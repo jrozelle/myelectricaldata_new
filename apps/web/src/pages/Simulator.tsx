@@ -1180,7 +1180,7 @@ export default function Simulator() {
 
   return (
     <div className="w-full">
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
           <Calculator className="text-primary-600 dark:text-primary-400" size={32} />
           Comparateur des abonnements par fournisseur
@@ -1188,6 +1188,13 @@ export default function Simulator() {
         <p className="text-gray-600 dark:text-gray-400">
           Cet outil vous permet de comparer automatiquement le coût de toutes les offres disponibles
           en utilisant vos données de consommation réelles récupérées chez Enedis sur les 12 derniers mois.
+        </p>
+      </div>
+
+      {/* Cache Warning - Important */}
+      <div className="mb-6 bg-yellow-100 dark:bg-yellow-900/30 border-l-4 border-yellow-500 p-4">
+        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+          <strong>⚠️ Information importante :</strong> L'utilisation du simulateur active automatiquement le cache. Vos données de consommation seront stockées temporairement sur la passerelle pour améliorer les performances et éviter de solliciter excessivement l'API Enedis. Les données en cache expirent automatiquement après 24 heures.
         </p>
       </div>
 
@@ -1219,22 +1226,6 @@ export default function Simulator() {
         {/* Configuration Header */}
         <div className="bg-primary-600 text-white px-4 py-3 -mx-6 -mt-6 rounded-t-lg">
           <h2 className="text-xl font-semibold">Configuration</h2>
-        </div>
-
-        {/* Warning */}
-        <div className="bg-yellow-100 dark:bg-yellow-900/30 border-l-4 border-yellow-500 p-4 space-y-2">
-          <p className="text-sm text-yellow-800 dark:text-yellow-200">
-            <strong>Dernière mise à jour des tarifs :</strong> 1er février 2024
-          </p>
-        </div>
-
-        {/* Cache Warning */}
-        <div className="bg-blue-100 dark:bg-blue-900/30 border-l-4 border-blue-500 p-4">
-          <p className="text-sm text-blue-800 dark:text-blue-200">
-            <strong>ℹ️ Information importante :</strong> L'utilisation du simulateur active automatiquement le cache.
-            Vos données de consommation seront stockées temporairement sur la passerelle pour améliorer les performances
-            et éviter de solliciter excessivement l'API Enedis. Les données en cache expirent automatiquement après 24 heures.
-          </p>
         </div>
 
         {/* PDL Selection */}

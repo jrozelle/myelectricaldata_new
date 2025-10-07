@@ -144,22 +144,133 @@ async def get_global_stats(
     pdl_count_result = await db.execute(select(func.count()).select_from(PDL))
     total_pdls = pdl_count_result.scalar()
 
+    # Define all API endpoints
+    all_endpoints = [
+        "/ping",
+        "/",
+        "/consent",
+        "/accounts/signup",
+        "/accounts/login",
+        "/accounts/verify-email",
+        "/accounts/resend-verification",
+        "/accounts/forgot-password",
+        "/accounts/reset-password",
+        "/accounts/token",
+        "/accounts/me",
+        "/accounts/update-password",
+        "/accounts/regenerate-secret",
+        "/pdl/",
+        "/pdl/{pdl_id}",
+        "/pdl/{pdl_id}/name",
+        "/pdl/{pdl_id}/subscribed-power",
+        "/pdl/{pdl_id}/offpeak-hours",
+        "/oauth/authorize",
+        "/oauth/verify-state",
+        "/consumption/detail",
+        "/consumption/daily",
+        "/consumption/max-power",
+        "/production/detail",
+        "/production/daily",
+        "/addresses",
+        "/contract",
+        "/admin/users",
+        "/admin/users/{user_id}/reset-quota",
+        "/admin/users/{user_id}/clear-cache",
+        "/admin/stats",
+        "/admin/tempo",
+        "/admin/tempo/refresh",
+        "/admin/contributions",
+        "/admin/contributions/{contribution_id}",
+        "/admin/contributions/{contribution_id}/approve",
+        "/admin/contributions/{contribution_id}/reject",
+        "/admin/energy-offers",
+        "/admin/energy-offers/{offer_id}",
+        "/admin/roles",
+        "/admin/roles/{role_id}",
+        "/admin/users/{user_id}/role",
+        "/energy-offers/",
+        "/energy-offers/{offer_id}",
+        "/energy-offers/contribute",
+        "/tempo/calendar",
+        "/tempo/current",
+        "/tempo/next",
+        "/roles/",
+    ]
+
     # Calculate total API calls today
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     total_cached_calls = 0
     total_no_cache_calls = 0
+    endpoint_stats = {}
+    user_stats = {}  # Track calls per user
+
+    # Initialize all endpoints with 0
+    for endpoint in all_endpoints:
+        endpoint_stats[endpoint] = {"cached": 0, "no_cache": 0, "total": 0}
 
     if cache_service.redis_client:
         # Get all rate limit keys for today
-        pattern = f"rate_limit:*:*:{today}"
+        pattern = f"rate_limit:*:*:*:{today}"
         async for key in cache_service.redis_client.scan_iter(match=pattern):
             value = await cache_service.redis_client.get(key)
             if value:
                 count = int(value)
-                if b'cached' in key:
-                    total_cached_calls += count
-                else:
-                    total_no_cache_calls += count
+                # Extract from key: rate_limit:user_id:endpoint:cache_type:date
+                key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+                parts = key_str.split(':')
+                if len(parts) >= 5:
+                    user_id = parts[1]
+                    endpoint = parts[2]
+                    cache_type = parts[3]  # "cached" or "no_cache"
+
+                    # Track per-endpoint stats
+                    if endpoint not in endpoint_stats:
+                        endpoint_stats[endpoint] = {"cached": 0, "no_cache": 0, "total": 0}
+
+                    if cache_type == "cached":
+                        total_cached_calls += count
+                        endpoint_stats[endpoint]["cached"] += count
+                    else:
+                        total_no_cache_calls += count
+                        endpoint_stats[endpoint]["no_cache"] += count
+
+                    endpoint_stats[endpoint]["total"] += count
+
+                    # Track per-user stats
+                    if user_id not in user_stats:
+                        user_stats[user_id] = {"cached": 0, "no_cache": 0, "total": 0}
+
+                    if cache_type == "cached":
+                        user_stats[user_id]["cached"] += count
+                    else:
+                        user_stats[user_id]["no_cache"] += count
+
+                    user_stats[user_id]["total"] += count
+
+    # Get top 20 users by total calls
+    top_users = []
+    if user_stats:
+        # Get user details from DB
+        sorted_user_ids = sorted(user_stats.items(), key=lambda x: x[1]["total"], reverse=True)[:20]
+
+        for user_id, stats in sorted_user_ids:
+            user_result = await db.execute(
+                select(User).options(selectinload(User.role)).where(User.id == user_id)
+            )
+            user = user_result.scalar_one_or_none()
+
+            if user:
+                top_users.append({
+                    "user_id": user.id,
+                    "email": user.email,
+                    "role": {
+                        "name": user.role.name if user.role else "visitor",
+                        "display_name": user.role.display_name if user.role else "Visiteur"
+                    },
+                    "cached_calls": stats["cached"],
+                    "no_cache_calls": stats["no_cache"],
+                    "total_calls": stats["total"]
+                })
 
     return APIResponse(
         success=True,
@@ -172,6 +283,8 @@ async def get_global_stats(
                 "no_cache": total_no_cache_calls,
                 "total": total_cached_calls + total_no_cache_calls
             },
+            "endpoint_stats": endpoint_stats,
+            "top_users": top_users,
             "date": today
         }
     )

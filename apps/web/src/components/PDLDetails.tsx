@@ -281,70 +281,50 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
                   <h3 className="font-semibold">Tester les endpoints Enedis</h3>
                 </div>
 
-                {/* Consommation */}
-                <div className="mb-4">
-                  <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                    <Zap size={16} className="text-orange-600" />
-                    Consommation
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <button
-                      onClick={() => { setTestError(null); testConsumptionDaily.mutate(); }}
-                      disabled={isTesting}
-                      className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
-                    >
-                      <Zap size={16} />
-                      Journalière (30j)
-                    </button>
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Consommation */}
+                  <button
+                    onClick={() => { setTestError(null); testConsumptionDaily.mutate(); }}
+                    disabled={isTesting}
+                    className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
+                  >
+                    <Zap size={16} />
+                    Journalière (30j)
+                  </button>
 
-                    <button
-                      onClick={() => { setTestError(null); testConsumptionDetail.mutate(); }}
-                      disabled={isTesting}
-                      className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
-                    >
-                      <TrendingUp size={16} />
-                      Détaillée (7j)
-                    </button>
-                  </div>
-                </div>
+                  <button
+                    onClick={() => { setTestError(null); testConsumptionDetail.mutate(); }}
+                    disabled={isTesting}
+                    className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
+                  >
+                    <TrendingUp size={16} />
+                    Détaillée (7j)
+                  </button>
 
-                {/* Production */}
-                <div className="mb-4">
-                  <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                    <Sun size={16} className="text-yellow-600" />
-                    Production
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <button
-                      onClick={() => { setTestError(null); testProductionDaily.mutate(); }}
-                      disabled={isTesting}
-                      className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
-                    >
-                      <Sun size={16} />
-                      Journalière (30j)
-                    </button>
+                  {/* Production */}
+                  <button
+                    onClick={() => { setTestError(null); testProductionDaily.mutate(); }}
+                    disabled={isTesting}
+                    className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
+                  >
+                    <Sun size={16} />
+                    Journalière (30j)
+                  </button>
 
-                    <button
-                      onClick={() => { setTestError(null); testProductionDetail.mutate(); }}
-                      disabled={isTesting}
-                      className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
-                    >
-                      <Sun size={16} />
-                      Détaillée (7j)
-                    </button>
-                  </div>
-                </div>
+                  <button
+                    onClick={() => { setTestError(null); testProductionDetail.mutate(); }}
+                    disabled={isTesting}
+                    className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
+                  >
+                    <Sun size={16} />
+                    Détaillée (7j)
+                  </button>
 
-                {/* Puissance */}
-                <div className="mb-4">
-                  <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                    <Battery size={16} className="text-green-600" />
-                    Puissance
-                  </h4>
+                  {/* Puissance */}
                   <button
                     onClick={() => { setTestError(null); testMaxPower.mutate(); }}
                     disabled={isTesting}
-                    className="btn btn-secondary text-sm flex items-center gap-2 justify-start w-full md:w-auto"
+                    className="btn btn-secondary text-sm flex items-center gap-2 justify-start col-span-2"
                   >
                     <Battery size={16} />
                     Puissance max (30j)

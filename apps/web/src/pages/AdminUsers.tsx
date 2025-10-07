@@ -85,7 +85,18 @@ export default function AdminUsers() {
   }
 
   return (
-    <div className="space-y-6 w-full">
+    <div className="w-full">
+      <div className="space-y-6 w-full">
+        <div>
+          <h1 className="text-2xl font-bold mb-1 flex items-center gap-2">
+            <Users className="text-primary-600 dark:text-primary-400" size={28} />
+            Gestion des utilisateurs
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Gérez les utilisateurs, leurs quotas et leurs rôles
+          </p>
+        </div>
+
       {/* Notification */}
       {notification && (
         <div className={`p-3 rounded-lg flex items-center gap-3 ${
@@ -107,16 +118,6 @@ export default function AdminUsers() {
           <button onClick={() => setNotification(null)} className="text-gray-500 hover:text-gray-700">✕</button>
         </div>
       )}
-
-      <div>
-        <h1 className="text-2xl font-bold mb-1 flex items-center gap-2">
-          <Users className="text-primary-600 dark:text-primary-400" size={28} />
-          Gestion des utilisateurs
-        </h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Gérez les utilisateurs, leurs quotas et leurs rôles
-        </p>
-      </div>
 
       {/* Role Change Modal */}
       {editingRole && (
@@ -264,6 +265,7 @@ export default function AdminUsers() {
             </table>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

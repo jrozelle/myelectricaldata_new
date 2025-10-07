@@ -22,6 +22,8 @@ import AdminAddPDL from './pages/AdminAddPDL'
 import AdminRoles from './pages/AdminRoles'
 import Tempo from './pages/Tempo'
 import FAQ from './pages/FAQ'
+import ApiDocs from './pages/ApiDocs'
+import ApiAuth from './pages/ApiAuth'
 import NotFound from './pages/NotFound'
 import Forbidden from './pages/Forbidden'
 
@@ -128,6 +130,26 @@ function App() {
           <ProtectedRoute>
             <Layout>
               <FAQ />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/api-docs"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ApiDocs />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/api-docs/auth"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ApiAuth />
             </Layout>
           </ProtectedRoute>
         }

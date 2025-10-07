@@ -311,7 +311,7 @@ export default function Contribute() {
       )}
 
       <div className="mb-8">
-        <div className="flex justify-between items-start">
+        <div className="flex flex-col gap-4">
           <div>
             <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
               <Users className="text-primary-600 dark:text-primary-400" size={32} />
@@ -324,7 +324,7 @@ export default function Contribute() {
           </div>
           <button
             onClick={() => setShowJsonImport(!showJsonImport)}
-            className="btn btn-secondary flex items-center gap-2"
+            className="btn btn-secondary flex items-center justify-center gap-2 w-full sm:w-auto sm:self-start whitespace-nowrap min-w-[160px]"
           >
             <FileJson size={20} />
             Import JSON

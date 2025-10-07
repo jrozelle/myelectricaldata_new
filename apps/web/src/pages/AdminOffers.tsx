@@ -444,15 +444,16 @@ export default function AdminOffers() {
         </div>
       )}
 
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <Zap className="text-primary-600 dark:text-primary-400" size={32} />
-          Gestion des offres
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Gérez les offres d'énergie : éditer, supprimer ou désactiver
-        </p>
-      </div>
+      <div className="space-y-6 w-full">
+        <div>
+          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
+            <Zap className="text-primary-600 dark:text-primary-400" size={32} />
+            Gestion des offres
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Gérez les offres d'énergie : éditer, supprimer ou désactiver
+          </p>
+        </div>
 
       {/* Filters */}
       <div className="card mb-6">
@@ -1371,6 +1372,7 @@ export default function AdminOffers() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

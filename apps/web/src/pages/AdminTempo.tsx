@@ -92,7 +92,18 @@ export default function AdminTempo() {
     .slice(0, 7)
 
   return (
-    <div className="space-y-8 w-full">
+    <div className="w-full">
+      <div className="space-y-8 w-full">
+        <div>
+          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
+            <Calendar className="text-primary-600 dark:text-primary-400" size={32} />
+            Gestion Tempo
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Gérez le cache des données Tempo EDF
+          </p>
+        </div>
+
       {/* Notification Toast */}
       {notification && (
         <div className={`p-4 rounded-lg flex items-start gap-3 ${
@@ -121,16 +132,6 @@ export default function AdminTempo() {
           </button>
         </div>
       )}
-
-      <div>
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <Calendar className="text-primary-600 dark:text-primary-400" size={32} />
-          Gestion Tempo
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Gérez le cache des données Tempo EDF
-        </p>
-      </div>
 
       {/* Tempo Management */}
       <div className="card">
@@ -299,6 +300,7 @@ export default function AdminTempo() {
             Aucune donnée TEMPO disponible. Cliquez sur "Rafraîchir le cache" pour récupérer les données.
           </div>
         )}
+      </div>
       </div>
     </div>
   )
