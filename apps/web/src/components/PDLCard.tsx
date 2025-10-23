@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Info, Trash2, RefreshCw, Edit2, Save, X, Zap, Clock, Factory, Plus, Minus, Eye, EyeOff } from 'lucide-react'
+import { Info, Trash2, RefreshCw, Edit2, Save, X, Zap, Clock, Factory, Plus, Minus, Eye, EyeOff, Calendar, MoreVertical, AlertCircle } from 'lucide-react'
 import { pdlApi } from '@/api/pdl'
 import { oauthApi } from '@/api/oauth'
 import type { PDL } from '@/types/api'
@@ -16,10 +16,12 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
   const [showSyncWarning, setShowSyncWarning] = useState(false)
   const [showDeleteWarning, setShowDeleteWarning] = useState(false)
   const [hasConsentError, setHasConsentError] = useState(false)
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [editedName, setEditedName] = useState(pdl.name || '')
   const [editedPower, setEditedPower] = useState(pdl.subscribed_power?.toString() || '')
   const [isSaving, setIsSaving] = useState(false)
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null)
   const [offpeakRanges, setOffpeakRanges] = useState<Array<{startHour: string, startMin: string, endHour: string, endMin: string}>>(() => {
     const parseRange = (range: string) => {
       // Try format "HH:MM-HH:MM" (array format)
@@ -162,6 +164,20 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
     }
   }, [])
 
+  // Close mobile menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
+        setShowMobileMenu(false)
+      }
+    }
+
+    if (showMobileMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showMobileMenu])
+
 
   const fetchContractMutation = useMutation({
     mutationFn: () => pdlApi.fetchContract(pdl.id),
@@ -275,7 +291,28 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
 
   const handleRemoveOffpeakRange = (index: number) => {
     if (offpeakRanges.length > 1) {
-      setOffpeakRanges(offpeakRanges.filter((_, i) => i !== index))
+      const newRanges = offpeakRanges.filter((_, i) => i !== index)
+      setOffpeakRanges(newRanges)
+
+      // Clear previous timeout
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+
+      // Auto-save after a short delay
+      saveTimeoutRef.current = setTimeout(() => {
+        const validRanges = newRanges
+          .filter(r => r.startHour !== '00' || r.startMin !== '00' || r.endHour !== '00' || r.endMin !== '00')
+          .map(r => `${r.startHour}:${r.startMin}-${r.endHour}:${r.endMin}`)
+
+        const data: { offpeak_hours?: string[] } = {}
+        if (validRanges.length > 0) {
+          data.offpeak_hours = validRanges
+        }
+
+        setIsSaving(true)
+        updateContractMutation.mutate(data)
+      }, 500)
     }
   }
 
@@ -319,12 +356,12 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
       hasConsentError
         ? 'border-red-300 dark:border-red-800'
         : 'border-gray-200 dark:border-gray-700'
-    } ${fetchContractMutation.isPending ? 'opacity-50 pointer-events-none' : ''} ${
+    } ${fetchContractMutation.isPending ? 'pointer-events-none' : ''} ${
       !(pdl.is_active ?? true) ? 'opacity-60 bg-gray-100 dark:bg-gray-800' : ''
     }`}>
       {/* Loading overlay */}
       {fetchContractMutation.isPending && (
-        <div className="absolute inset-0 bg-gray-500/10 dark:bg-gray-900/20 rounded-lg flex items-center justify-center z-10">
+        <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm rounded-lg flex items-center justify-center z-10">
           <div className="flex items-center gap-2 text-primary-600 dark:text-primary-400">
             <RefreshCw size={20} className="animate-spin" />
             <span className="text-sm font-medium">Récupération en cours...</span>
@@ -332,10 +369,11 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
         </div>
       )}
       {/* Header */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex-1">
+      <div className="space-y-2 mb-3">
+        {/* First line: Name + Edit button + Action buttons */}
+        <div className="flex items-center justify-between">
           {isEditingName ? (
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 flex-1">
               <input
                 type="text"
                 value={editedName}
@@ -368,7 +406,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2">
               <p className="text-base font-semibold text-gray-900 dark:text-gray-100">
                 {pdl.name || pdl.usage_point_id}
               </p>
@@ -386,58 +424,193 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
               </button>
             </div>
           )}
-          {pdl.name && (
+          <div className="flex gap-2 items-center flex-shrink-0">
+            {isSaving && (
+              <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                <RefreshCw size={12} className="animate-spin" />
+                <span className="hidden sm:inline">Enregistrement...</span>
+              </span>
+            )}
+
+            {/* Desktop: Show all buttons */}
+            <div className="hidden md:flex gap-2" data-tour="pdl-actions">
+              <button
+                onClick={onViewDetails}
+                className="px-3 py-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex items-center gap-1.5 text-sm"
+                title="Voir les détails"
+                data-tour="pdl-details-btn"
+              >
+                <Info size={16} />
+                <span>Détails</span>
+              </button>
+              <button
+                onClick={() => setShowSyncWarning(true)}
+                className="px-3 py-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded flex items-center gap-1.5 text-sm font-medium"
+                title="Synchroniser avec Enedis"
+                data-tour="pdl-sync-btn"
+              >
+                <RefreshCw size={16} />
+                <span>Sync</span>
+              </button>
+              <button
+                onClick={() => toggleActiveMutation.mutate(!(pdl.is_active ?? true))}
+                disabled={toggleActiveMutation.isPending}
+                className={`px-3 py-2 rounded flex items-center gap-1.5 text-sm font-medium ${
+                  pdl.is_active ?? true
+                    ? 'hover:bg-orange-100 dark:hover:bg-orange-900/30 text-orange-600 dark:text-orange-400'
+                    : 'hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400'
+                }`}
+                title={pdl.is_active ?? true ? 'Désactiver ce PDL' : 'Activer ce PDL'}
+                data-tour="pdl-toggle-btn"
+              >
+                {pdl.is_active ?? true ? <EyeOff size={16} /> : <Eye size={16} />}
+                <span>{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
+              </button>
+              <button
+                onClick={() => setShowDeleteWarning(true)}
+                className="px-3 py-2 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex items-center gap-1.5 text-sm"
+                title="Supprimer"
+                data-tour="pdl-delete-btn"
+              >
+                <Trash2 size={16} />
+                <span>Supprimer</span>
+              </button>
+            </div>
+
+            {/* Mobile: Show menu button */}
+            <div className="md:hidden relative" ref={mobileMenuRef}>
+              <button
+                onClick={() => setShowMobileMenu(!showMobileMenu)}
+                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex items-center justify-center"
+                title="Actions"
+                aria-label="Menu d'actions"
+              >
+                <MoreVertical size={20} />
+              </button>
+
+              {/* Mobile dropdown menu */}
+              {showMobileMenu && (
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 py-1">
+                  <button
+                    onClick={() => {
+                      onViewDetails()
+                      setShowMobileMenu(false)
+                    }}
+                    className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-left"
+                  >
+                    <Info size={16} className="flex-shrink-0" />
+                    <span>Voir les détails</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowSyncWarning(true)
+                      setShowMobileMenu(false)
+                    }}
+                    className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-blue-600 dark:text-blue-400 text-left"
+                  >
+                    <RefreshCw size={16} className="flex-shrink-0" />
+                    <span>Synchroniser</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      toggleActiveMutation.mutate(!(pdl.is_active ?? true))
+                      setShowMobileMenu(false)
+                    }}
+                    disabled={toggleActiveMutation.isPending}
+                    className={`w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-left ${
+                      pdl.is_active ?? true
+                        ? 'text-orange-600 dark:text-orange-400'
+                        : 'text-green-600 dark:text-green-400'
+                    }`}
+                  >
+                    {pdl.is_active ?? true ? <EyeOff size={16} className="flex-shrink-0" /> : <Eye size={16} className="flex-shrink-0" />}
+                    <span>{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
+                  </button>
+                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                  <button
+                    onClick={() => {
+                      setShowDeleteWarning(true)
+                      setShowMobileMenu(false)
+                    }}
+                    className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-red-600 dark:text-red-400 text-left"
+                  >
+                    <Trash2 size={16} className="flex-shrink-0" />
+                    <span>Supprimer</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Second line: PDL number + Dates */}
+        {pdl.name && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
             <p className="font-mono font-medium text-sm text-gray-600 dark:text-gray-400">{pdl.usage_point_id}</p>
-          )}
-          <p className="text-xs text-gray-500">
-            Ajouté le {new Date(pdl.created_at).toLocaleDateString('fr-FR')}
-          </p>
-        </div>
-        <div className="flex gap-2 items-center">
-          {isSaving && (
-            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-              <RefreshCw size={12} className="animate-spin" />
-              Enregistrement...
-            </span>
-          )}
-          <button
-            onClick={onViewDetails}
-            className="px-3 py-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex items-center gap-1.5 text-sm"
-            title="Voir les détails"
-          >
-            <Info size={16} />
-            <span className="hidden sm:inline">Détails</span>
-          </button>
-          <button
-            onClick={() => setShowSyncWarning(true)}
-            className="px-3 py-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded flex items-center gap-1.5 text-sm font-medium"
-            title="Synchroniser avec Enedis"
-          >
-            <RefreshCw size={16} />
-            <span className="hidden sm:inline">Sync</span>
-          </button>
-          <button
-            onClick={() => toggleActiveMutation.mutate(!(pdl.is_active ?? true))}
-            disabled={toggleActiveMutation.isPending}
-            className={`px-3 py-2 rounded flex items-center gap-1.5 text-sm font-medium ${
-              pdl.is_active ?? true
-                ? 'hover:bg-orange-100 dark:hover:bg-orange-900/30 text-orange-600 dark:text-orange-400'
-                : 'hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400'
-            }`}
-            title={pdl.is_active ?? true ? 'Désactiver ce PDL' : 'Activer ce PDL'}
-          >
-            {pdl.is_active ?? true ? <EyeOff size={16} /> : <Eye size={16} />}
-            <span className="hidden sm:inline">{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
-          </button>
-          <button
-            onClick={() => setShowDeleteWarning(true)}
-            className="px-3 py-2 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex items-center gap-1.5 text-sm"
-            title="Supprimer"
-          >
-            <Trash2 size={16} />
-            <span className="hidden sm:inline">Supprimer</span>
-          </button>
-        </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              {pdl.oldest_available_data_date && (
+                <div className="flex items-center gap-1 whitespace-nowrap">
+                  <Calendar size={12} className="text-blue-500 dark:text-blue-400 flex-shrink-0" />
+                  <span className="text-gray-600 dark:text-gray-400">
+                    <span className="hidden sm:inline">Données depuis le </span>
+                    <span className="sm:hidden">Données: </span>
+                    {new Date(pdl.oldest_available_data_date).toLocaleDateString('fr-FR')}
+                  </span>
+                </div>
+              )}
+              {pdl.activation_date && (
+                <div className="flex items-center gap-1 whitespace-nowrap">
+                  <Calendar size={12} className="text-green-500 dark:text-green-400 flex-shrink-0" />
+                  <span className="text-gray-600 dark:text-gray-400">
+                    <span className="hidden sm:inline">Activé le </span>
+                    <span className="sm:hidden">Activé: </span>
+                    {new Date(pdl.activation_date).toLocaleDateString('fr-FR')}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center gap-1 whitespace-nowrap">
+                <Calendar size={12} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <span className="text-gray-600 dark:text-gray-400">
+                  <span className="hidden sm:inline">Ajouté le </span>
+                  <span className="sm:hidden">Ajouté: </span>
+                  {new Date(pdl.created_at).toLocaleDateString('fr-FR')}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+        {!pdl.name && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            {pdl.oldest_available_data_date && (
+              <div className="flex items-center gap-1 whitespace-nowrap">
+                <Calendar size={12} className="text-blue-500 dark:text-blue-400 flex-shrink-0" />
+                <span className="text-gray-600 dark:text-gray-400">
+                  <span className="hidden sm:inline">Données depuis le </span>
+                  <span className="sm:hidden">Données: </span>
+                  {new Date(pdl.oldest_available_data_date).toLocaleDateString('fr-FR')}
+                </span>
+              </div>
+            )}
+            {pdl.activation_date && (
+              <div className="flex items-center gap-1 whitespace-nowrap">
+                <Calendar size={12} className="text-green-500 dark:text-green-400 flex-shrink-0" />
+                <span className="text-gray-600 dark:text-gray-400">
+                  <span className="hidden sm:inline">Activé le </span>
+                  <span className="sm:hidden">Activé: </span>
+                  {new Date(pdl.activation_date).toLocaleDateString('fr-FR')}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center gap-1 whitespace-nowrap">
+              <Calendar size={12} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
+              <span className="text-gray-600 dark:text-gray-400">
+                <span className="hidden sm:inline">Ajouté le </span>
+                <span className="sm:hidden">Ajouté: </span>
+                {new Date(pdl.created_at).toLocaleDateString('fr-FR')}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Consent Error Warning */}
@@ -478,7 +651,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
         {/* PDL Type - Consumption - Only show if no consent error */}
         {!hasConsentError && (
           <>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between" data-tour="pdl-consumption">
               <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                 <Zap size={16} />
                 <span>Consommation :</span>
@@ -504,7 +677,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
 
             {/* Subscribed Power - Only show if consumption is enabled */}
             {(pdl.has_consumption ?? true) && (
-              <div className="flex items-center justify-between pl-7">
+              <div className="flex items-center justify-between pl-7" data-tour="pdl-power">
                 <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                   <Zap size={16} />
                   <span>Puissance souscrite :</span>
@@ -530,7 +703,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
 
             {/* Offpeak Hours - Only show if consumption is enabled */}
             {(pdl.has_consumption ?? true) && (
-              <div className="space-y-2">
+              <div className="space-y-2" data-tour="pdl-offpeak">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                     <Clock size={16} />
@@ -627,7 +800,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete }: PDLCardProps) 
 
         {/* PDL Type - Production - Only show if no consent error */}
         {!hasConsentError && (
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between" data-tour="pdl-production">
             <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
               <Factory size={16} />
               <span>Production :</span>

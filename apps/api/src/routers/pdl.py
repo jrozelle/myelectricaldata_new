@@ -74,6 +74,8 @@ async def list_pdls(
             has_consumption=pdl.has_consumption,
             has_production=pdl.has_production,
             is_active=pdl.is_active,
+            oldest_available_data_date=pdl.oldest_available_data_date,
+            activation_date=pdl.activation_date,
         )
         for pdl in pdls
     ]
@@ -203,6 +205,21 @@ async def create_pdl(
                                 elif isinstance(offpeak, dict):
                                     pdl.offpeak_hours = offpeak
 
+                        # Get contract activation date if available
+                        if "last_activation_date" in contract:
+                            from datetime import datetime as dt
+                            activation_str = contract["last_activation_date"]
+                            try:
+                                # Parse ISO date format (e.g., "2020-01-15T00:00:00+01:00", "2018-08-31+02:00", or "2020-01-15")
+                                if isinstance(activation_str, str):
+                                    # Remove timezone info and time if present
+                                    # Handle both "T" separator and "+" timezone separator
+                                    date_part = activation_str.split('T')[0] if 'T' in activation_str else activation_str.split('+')[0]
+                                    pdl.activation_date = dt.strptime(date_part, "%Y-%m-%d").date()
+                                    logger.info(f"[CREATE PDL] Set activation_date: {pdl.activation_date}")
+                            except Exception as e:
+                                logger.warning(f"[CREATE PDL] Could not parse activation date '{activation_str}': {e}")
+
             # Detect PDL type (production and/or consumption) by testing Enedis endpoints
             from datetime import datetime, timedelta
             yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -265,6 +282,8 @@ async def create_pdl(
         has_consumption=pdl.has_consumption,
         has_production=pdl.has_production,
         is_active=pdl.is_active,
+        oldest_available_data_date=pdl.oldest_available_data_date,
+        contract_end_date=pdl.contract_end_date,
     )
 
     return APIResponse(success=True, data=pdl_response.model_dump())
@@ -290,7 +309,18 @@ async def get_pdl(
         return APIResponse(success=False, error=ErrorDetail(code="PDL_NOT_FOUND", message="PDL not found"))
 
     pdl_response = PDLResponse(
-        id=pdl.id, usage_point_id=pdl.usage_point_id, name=pdl.name, created_at=pdl.created_at
+        id=pdl.id,
+        usage_point_id=pdl.usage_point_id,
+        name=pdl.name,
+        created_at=pdl.created_at,
+        display_order=pdl.display_order,
+        subscribed_power=pdl.subscribed_power,
+        offpeak_hours=pdl.offpeak_hours,
+        has_consumption=pdl.has_consumption,
+        has_production=pdl.has_production,
+        is_active=pdl.is_active,
+        oldest_available_data_date=pdl.oldest_available_data_date,
+        contract_end_date=pdl.contract_end_date,
     )
 
     return APIResponse(success=True, data=pdl_response.model_dump())
@@ -553,6 +583,8 @@ async def admin_add_pdl(
         has_consumption=pdl.has_consumption,
         has_production=pdl.has_production,
         is_active=pdl.is_active,
+        oldest_available_data_date=pdl.oldest_available_data_date,
+        contract_end_date=pdl.contract_end_date,
     )
 
     return APIResponse(success=True, data=pdl_response.model_dump())
@@ -670,6 +702,21 @@ async def fetch_contract_from_enedis(
                             elif isinstance(offpeak, dict):
                                 pdl.offpeak_hours = offpeak
 
+                    # Get contract activation date if available
+                    if "last_activation_date" in contract:
+                        from datetime import datetime
+                        activation_str = contract["last_activation_date"]
+                        try:
+                            # Parse ISO date format (e.g., "2020-01-15T00:00:00+01:00", "2018-08-31+02:00", or "2020-01-15")
+                            if isinstance(activation_str, str):
+                                # Remove timezone info and time if present
+                                # Handle both "T" separator and "+" timezone separator
+                                date_part = activation_str.split('T')[0] if 'T' in activation_str else activation_str.split('+')[0]
+                                pdl.activation_date = datetime.strptime(date_part, "%Y-%m-%d").date()
+                                logger.info(f"[FETCH CONTRACT] Set activation_date: {pdl.activation_date}")
+                        except Exception as e:
+                            logger.warning(f"[FETCH CONTRACT] Could not parse activation date '{activation_str}': {e}")
+
                         logger.info(f"[FETCH CONTRACT] Set offpeak_hours: {pdl.offpeak_hours}")
 
         # Detect PDL type (production and/or consumption) by testing Enedis endpoints
@@ -731,6 +778,7 @@ async def fetch_contract_from_enedis(
                 "offpeak_hours": pdl.offpeak_hours,
                 "has_consumption": pdl.has_consumption,
                 "has_production": pdl.has_production,
+                "activation_date": pdl.activation_date.isoformat() if pdl.activation_date else None,
             },
         )
 

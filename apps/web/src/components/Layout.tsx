@@ -86,6 +86,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
                 title={sidebarCollapsed ? item.label : ''}
+                data-tour={item.to === '/consumption' ? 'nav-consumption' :
+                          item.to === '/simulator' ? 'nav-simulator' :
+                          item.to === '/contribute' ? 'nav-contribute' : undefined}
               >
                 <item.icon size={20} className="flex-shrink-0" />
                 {!sidebarCollapsed && <span className="font-medium">{item.label}</span>}
@@ -150,6 +153,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   : 'hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
               title={sidebarCollapsed ? 'Documentation API' : ''}
+              data-tour="nav-api-docs"
             >
               <BookOpen size={20} className="flex-shrink-0" />
               {!sidebarCollapsed && <span className="font-medium">Documentation API</span>}
@@ -175,6 +179,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   : 'hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
               title={sidebarCollapsed ? 'Mon compte' : ''}
+              data-tour="nav-settings"
             >
               <UserCircle size={20} className="flex-shrink-0" />
               {!sidebarCollapsed && <span className="font-medium">Mon compte</span>}
@@ -351,7 +356,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-          <div className={`container mx-auto px-3 sm:px-4 lg:px-6 max-w-[1920px] ${location.pathname.startsWith('/admin') || location.pathname.startsWith('/api-docs') ? 'pt-3 pb-6' : 'py-6'}`}>
+          <div className={`container mx-auto px-3 sm:px-4 lg:px-6 max-w-[1920px] pb-6`}>
             {children}
 
             {/* Spacer to push footer down - only on desktop */}

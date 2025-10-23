@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { adminApi } from '@/api/admin'
-import { Users, Activity, CheckCircle, XCircle, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, Trash2, AlertTriangle, Key } from 'lucide-react'
+import { Users, Activity, CheckCircle, XCircle, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, Trash2, AlertTriangle } from 'lucide-react'
 
 type SortField = 'total' | 'cached' | 'no_cache'
 type SortDirection = 'asc' | 'desc'
@@ -42,19 +42,6 @@ export default function Admin() {
     setTimeout(() => setNotification(null), 5000)
   }
 
-  const copyTokenToClipboard = () => {
-    const token = localStorage.getItem('access_token')
-    if (token) {
-      navigator.clipboard.writeText(token).then(() => {
-        showNotification('success', 'Token API copié dans le presse-papier')
-      }).catch(() => {
-        showNotification('error', 'Erreur lors de la copie du token')
-      })
-    } else {
-      showNotification('error', 'Aucun token trouvé')
-    }
-  }
-
   const clearAllCacheMutation = useMutation({
     mutationFn: () => adminApi.clearAllConsumptionCache(),
     onSuccess: (response) => {
@@ -73,20 +60,11 @@ export default function Admin() {
   return (
     <div className="w-full">
       <div className="space-y-8 w-full">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Tableau de bord Administration</h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              Vue d'ensemble et statistiques de la plateforme
-            </p>
-          </div>
-          <button
-            onClick={copyTokenToClipboard}
-            className="btn-secondary flex items-center gap-2 whitespace-nowrap"
-          >
-            <Key size={18} />
-            Copier mon token API
-          </button>
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Tableau de bord Administration</h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            Vue d'ensemble et statistiques de la plateforme
+          </p>
         </div>
 
       {/* Notification Toast */}

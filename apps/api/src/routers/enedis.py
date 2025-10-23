@@ -624,6 +624,34 @@ async def get_consumption_detail(
 
                 data = await enedis_adapter.get_consumption_detail(usage_point_id, range_start, range_end, access_token)
 
+                # Check for Enedis error ADAM-ERR0123 (data older than meter activation)
+                if isinstance(data, dict) and "error" in data and data["error"] == "ADAM-ERR0123":
+                    logger.warning(f"[ENEDIS ERROR] {usage_point_id} - {range_start} to {range_end}: Data anterior to meter activation date")
+
+                    # Save the oldest available date in PDL to avoid future requests
+                    from datetime import datetime as dt
+                    oldest_date = dt.strptime(range_start, "%Y-%m-%d").date()
+
+                    # Get the PDL and update the oldest_available_data_date
+                    pdl_query = await db.execute(
+                        select(PDL).where(PDL.usage_point_id == usage_point_id, PDL.user_id == current_user.id)
+                    )
+                    pdl = pdl_query.scalar_one_or_none()
+
+                    if pdl:
+                        pdl.oldest_available_data_date = oldest_date
+                        await db.commit()
+                        logger.info(f"[PDL UPDATE] Set oldest_available_data_date to {oldest_date} for PDL {usage_point_id}")
+
+                    # Return error to stop further fetching
+                    return APIResponse(
+                        success=False,
+                        error=ErrorDetail(
+                            code="ADAM-ERR0123",
+                            message=f"The requested period ({range_start}) cannot be anterior to the meter's last activation date"
+                        )
+                    )
+
                 # Extract readings
                 readings = []
                 if isinstance(data, dict):

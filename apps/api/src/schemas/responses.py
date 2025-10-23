@@ -1,6 +1,6 @@
 from typing import Any, Optional, Union
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, date
 
 
 class ErrorDetail(BaseModel):
@@ -53,6 +53,8 @@ class PDLResponse(BaseModel):
     has_consumption: bool = True
     has_production: bool = False
     is_active: bool = True
+    oldest_available_data_date: Optional[date] = None  # Oldest date where Enedis has data (meter activation)
+    activation_date: Optional[date] = None  # Contract activation date (from Enedis)
 
 
 class CacheDeleteResponse(BaseModel):

@@ -66,6 +66,8 @@ export interface PDL {
   has_consumption?: boolean
   has_production?: boolean
   is_active?: boolean
+  oldest_available_data_date?: string // ISO date string (YYYY-MM-DD) - Oldest date where Enedis has data
+  activation_date?: string // ISO date string (YYYY-MM-DD) - Contract activation date (from Enedis)
 }
 
 export interface CacheDeleteResponse {

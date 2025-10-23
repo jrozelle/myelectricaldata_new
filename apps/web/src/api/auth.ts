@@ -37,4 +37,8 @@ export const authApi = {
   resetPassword: async (token: string, new_password: string) => {
     return apiClient.post('accounts/reset-password', { token, new_password })
   },
+
+  changePassword: async (old_password: string, new_password: string) => {
+    return apiClient.post('accounts/update-password', { old_password, new_password })
+  },
 }

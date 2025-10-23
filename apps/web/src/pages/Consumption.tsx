@@ -52,24 +52,53 @@ export default function Consumption() {
   const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, currentRange: '' })
   const [isLoadingDetailed, setIsLoadingDetailed] = useState(false)
   const [isLoadingDaily, setIsLoadingDaily] = useState(false)
+  const [dailyLoadingComplete, setDailyLoadingComplete] = useState(false)
+  const [powerLoadingComplete, setPowerLoadingComplete] = useState(false)
+  const [allLoadingComplete, setAllLoadingComplete] = useState(false)
   const [hcHpCalculationTrigger, setHcHpCalculationTrigger] = useState(0)
   const [hcHpCalculationComplete, setHcHpCalculationComplete] = useState(false)
   const [selectedHcHpPeriod, setSelectedHcHpPeriod] = useState(0)
+  const [dataLimitWarning, setDataLimitWarning] = useState<string | null>(null)
   const [selectedMonthlyHcHpYear, setSelectedMonthlyHcHpYear] = useState(0)
   const [showYearComparison, setShowYearComparison] = useState(false)
   const [showDetailYearComparison, setShowDetailYearComparison] = useState(false)
   const [showDetailWeekComparison, setShowDetailWeekComparison] = useState(false)
+  const [isDarkMode, setIsDarkMode] = useState(false)
+
+  // Detect dark mode
+  useEffect(() => {
+    const checkDarkMode = () => {
+      setIsDarkMode(document.documentElement.classList.contains('dark'))
+    }
+
+    checkDarkMode()
+
+    // Watch for changes
+    const observer = new MutationObserver(checkDarkMode)
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class']
+    })
+
+    return () => observer.disconnect()
+  }, [])
 
   // Fetch PDLs
-  const { data: pdlsResponse } = useQuery({
+  const { data: pdlsData } = useQuery({
     queryKey: ['pdls'],
-    queryFn: () => pdlApi.list(),
+    queryFn: async () => {
+      const response = await pdlApi.list()
+      if (response.success && Array.isArray(response.data)) {
+        return response.data as PDL[]
+      }
+      return []
+    },
   })
 
-  const pdls = pdlsResponse?.success && Array.isArray(pdlsResponse.data) ? pdlsResponse.data : []
+  const pdls = Array.isArray(pdlsData) ? pdlsData : []
 
-  // Filter only active PDLs
-  const activePdls = pdls.filter(p => p.is_active)
+  // Filter only active PDLs (if is_active is undefined, consider it as active)
+  const activePdls = pdls.filter(p => p.is_active !== false)
 
   // Get selected PDL details
   const selectedPDLDetails = pdls.find(p => p.usage_point_id === selectedPDL)
@@ -270,10 +299,131 @@ export default function Consumption() {
     }
   }, [selectedPDL, hasAttemptedAutoLoad, queryClient])
 
+  // Show warning if PDL has limited data availability
+  useEffect(() => {
+    if (!selectedPDL || !selectedPDLDetails) {
+      setDataLimitWarning(null)
+      return
+    }
+
+    const today = new Date()
+    const threeYearsAgo = new Date(today.getFullYear() - 3, today.getMonth(), today.getDate())
+
+    // Check if we have oldest_available_data_date or activation_date
+    const oldestDate = selectedPDLDetails.oldest_available_data_date
+    const activationDate = selectedPDLDetails.activation_date
+    const limitDate = oldestDate || activationDate
+
+    if (limitDate) {
+      const limitDateObj = new Date(limitDate + 'T00:00:00Z')
+
+      // If the limit date is less than 3 years ago, show a warning
+      if (limitDateObj > threeYearsAgo) {
+        const limitDateFormatted = new Date(limitDate).toLocaleDateString('fr-FR', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        })
+
+        // Build the warning message
+        let message = ''
+
+        if (oldestDate && activationDate && oldestDate !== activationDate) {
+          // Both dates exist and are different
+          const activationDateFormatted = new Date(activationDate).toLocaleDateString('fr-FR', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          })
+
+          message = `L'activation du contrat date du ${activationDateFormatted}, mais aucune donnée n'est disponible avant le ${limitDateFormatted}. Les appels API ont donc été limités à partir du ${limitDateFormatted}.`
+        } else if (oldestDate) {
+          // Only oldest_available_data_date
+          message = `Aucune donnée disponible avant le ${limitDateFormatted} (date de mise en service du compteur). Les appels API ont été limités en conséquence.`
+        } else {
+          // Only activation_date
+          message = `Le contrat a été activé le ${limitDateFormatted}. Aucune donnée n'est disponible avant cette date.`
+        }
+
+        setDataLimitWarning(message)
+      } else {
+        setDataLimitWarning(null)
+      }
+    } else {
+      setDataLimitWarning(null)
+    }
+  }, [selectedPDL, selectedPDLDetails])
+
+  // Mark daily consumption loading as complete (whether success or error)
+  useEffect(() => {
+    if (dateRange && !isLoadingConsumption && consumptionResponse) {
+      setDailyLoadingComplete(true)
+
+      // If error, invalidate PDL cache to get updated oldest_available_data_date
+      if (consumptionResponse.success === false) {
+        console.log('⚠️ Consumption error detected, refreshing PDL data...')
+        queryClient.invalidateQueries({ queryKey: ['pdls'] })
+      }
+    }
+  }, [dateRange, isLoadingConsumption, consumptionResponse, queryClient])
+
+  // Mark power loading as complete (whether success or error)
+  useEffect(() => {
+    if (dateRange && !isLoadingPower && maxPowerResponse) {
+      setPowerLoadingComplete(true)
+    }
+  }, [dateRange, isLoadingPower, maxPowerResponse])
+
+  // Reset loading states when PDL or date range changes
+  useEffect(() => {
+    setDailyLoadingComplete(false)
+    setPowerLoadingComplete(false)
+    setAllLoadingComplete(false)
+  }, [selectedPDL, dateRange])
+
+  // Detect if data is loaded from cache (instant load)
+  useEffect(() => {
+    if (dateRange && !isLoadingConsumption && !isLoadingPower && !isLoadingDetailed &&
+        consumptionResponse && maxPowerResponse) {
+      // Data came from cache, mark as complete immediately
+      setDailyLoadingComplete(true)
+      setPowerLoadingComplete(true)
+      setAllLoadingComplete(true)
+    }
+  }, [dateRange, isLoadingConsumption, isLoadingPower, isLoadingDetailed, consumptionResponse, maxPowerResponse])
+
+  // Mark all loading as complete when everything is done
+  useEffect(() => {
+    // Check if all loading is complete (daily, power, and detailed if it was started)
+    const dailyAndPowerDone = dailyLoadingComplete && powerLoadingComplete
+    const detailedDone = !isLoadingDetailed || loadingProgress.total === 0
+
+    if (dailyAndPowerDone && detailedDone) {
+      // Wait a bit to show the completed status before hiding
+      const timer = setTimeout(() => {
+        setAllLoadingComplete(true)
+      }, 1000) // 1 second delay
+      return () => clearTimeout(timer)
+    }
+  }, [dailyLoadingComplete, powerLoadingComplete, isLoadingDetailed, loadingProgress.total])
+
+  // Auto-expand all sections when loading is complete
+  useEffect(() => {
+    if (allLoadingComplete) {
+      setIsStatsSectionExpanded(true)
+      setIsChartsExpanded(true)
+      setIsDetailSectionExpanded(true)
+      setIsPowerSectionExpanded(true)
+    }
+  }, [allLoadingComplete])
+
   // Reset charts when PDL changes
   useEffect(() => {
     setIsChartsExpanded(false)
     setDateRange(null)
+    setDailyLoadingComplete(false)
+    setPowerLoadingComplete(false)
+    setAllLoadingComplete(false)
     // Use setTimeout to ensure the reset happens before auto-load
     setTimeout(() => {
       setHasAttemptedAutoLoad(false)
@@ -292,6 +442,9 @@ export default function Consumption() {
     setIsStatsSectionExpanded(false)
     setIsPowerSectionExpanded(false)
     setHcHpCalculationComplete(false)
+    setDailyLoadingComplete(false)
+    setPowerLoadingComplete(false)
+    setAllLoadingComplete(false)
 
     // Calculate dates for consumption and power (3 years max - 1095 days)
     // Use yesterday as end date because Enedis data is only available in J-1
@@ -309,12 +462,25 @@ export default function Consumption() {
     const yesterday = yesterdayUTC
 
     // Start date: 1095 days before yesterday (Enedis API max limit for daily data)
-    const startDate_obj = new Date(Date.UTC(
+    let startDate_obj = new Date(Date.UTC(
       yesterdayUTC.getUTCFullYear(),
       yesterdayUTC.getUTCMonth(),
       yesterdayUTC.getUTCDate() - 1095,
       0, 0, 0, 0
     ))
+
+    // Apply limits: never go before oldest_available_data_date or activation_date
+    console.log('🔍 PDL Details:', {
+      selectedPDL,
+      oldest_available_data_date: selectedPDLDetails?.oldest_available_data_date,
+      activation_date: selectedPDLDetails?.activation_date,
+      calculatedStartDate: startDate_obj.toISOString().split('T')[0]
+    })
+
+    // For now, don't apply oldest_available_data_date or activation_date limits
+    // Let the API handle the error and we'll display it to the user
+    // TODO: Implement proper retry logic with progressive date advancement
+    console.log(`📅 Daily consumption: Requesting full 3 years (API will return error if too old)`)
 
     // Format dates as YYYY-MM-DD in UTC
     const startDate = startDate_obj.getUTCFullYear() + '-' +
@@ -323,6 +489,8 @@ export default function Consumption() {
     const endDate = yesterday.getUTCFullYear() + '-' +
                     String(yesterday.getUTCMonth() + 1).padStart(2, '0') + '-' +
                     String(yesterday.getUTCDate()).padStart(2, '0')
+
+    console.log(`📊 Final date range for API: ${startDate} → ${endDate}`)
 
     // Setting dateRange will trigger React Query to fetch data
     setDateRange({ start: startDate, end: endDate })
@@ -333,19 +501,66 @@ export default function Consumption() {
       setIsLoadingDetailed(true)
 
       // Calculate 2 years back from yesterday in UTC (730 days max)
-      const twoYearsAgo = new Date(Date.UTC(
+      let twoYearsAgo = new Date(Date.UTC(
         yesterday.getUTCFullYear() - 2,
         yesterday.getUTCMonth(),
         yesterday.getUTCDate(),
         0, 0, 0, 0
       ))
 
+      // For now, don't apply date limits - let the retry logic handle it
+      console.log(`📅 Detailed data: Requesting full 2 years (retry logic will adjust if needed)`)
+
       // Calculate number of weeks in 2 years (approximately 104 weeks)
       const totalWeeks = Math.ceil(730 / 7)
 
-      // Prepare list of weeks to fetch
+      // Check which days are already in cache
+      const allDates = []
+      const currentDate = new Date(twoYearsAgo)
+      while (currentDate <= yesterday) {
+        const dateStr = currentDate.getUTCFullYear() + '-' +
+                       String(currentDate.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                       String(currentDate.getUTCDate()).padStart(2, '0')
+        allDates.push(dateStr)
+        currentDate.setUTCDate(currentDate.getUTCDate() + 1)
+      }
+
+      // Check cache for each day
+      const missingDates = []
+      for (const dateStr of allDates) {
+        const cachedData = queryClient.getQueryData(['consumptionDetail', selectedPDL, dateStr, dateStr]) as any
+        const hasCompleteData = cachedData?.data?.meter_reading?.interval_reading?.length >= 40 // At least 40 points for a complete day
+        if (!hasCompleteData) {
+          missingDates.push(dateStr)
+        }
+      }
+
+      console.log(`📊 Cache check: ${allDates.length - missingDates.length}/${allDates.length} days cached, ${missingDates.length} missing`)
+
+      if (missingDates.length === 0) {
+        console.log('✅ All data already in cache!')
+        const totalDays = allDates.length
+        const years = Math.floor(totalDays / 365)
+        const remainingDays = totalDays % 365
+        const yearsText = years > 0 ? `${years} an${years > 1 ? 's' : ''}` : ''
+        const daysText = remainingDays > 0 ? `${remainingDays} jour${remainingDays > 1 ? 's' : ''}` : ''
+        const periodText = [yearsText, daysText].filter(Boolean).join(' et ')
+
+        const message = `✓ Historique complet déjà en cache (${periodText} de données)`
+        console.log('Toast message:', message)
+        toast.success(message, {
+          duration: 3000,
+        })
+        setIsLoadingDetailed(false)
+        // Invalidate to refresh the display
+        queryClient.invalidateQueries({ queryKey: ['consumptionDetail'] })
+        return
+      }
+
+      // Group missing dates into weeks to fetch
       const weeksToFetch = []
 
+      // Convert missing dates to week ranges
       for (let weekOffset = 0; weekOffset < totalWeeks; weekOffset++) {
         // Calculate offset in days
         const offsetDays = weekOffset * 7
@@ -374,6 +589,7 @@ export default function Consumption() {
         // Only fetch if:
         // 1. Week end date is not in the future (max = yesterday)
         // 2. Week start date is within the 2-year range (>= 2 years ago from yesterday)
+        // 3. At least one day in this week is missing from cache
         if (weekEndDate <= yesterday && weekStartDate >= twoYearsAgo) {
           const weekStart = weekStartDate.getUTCFullYear() + '-' +
                            String(weekStartDate.getUTCMonth() + 1).padStart(2, '0') + '-' +
@@ -382,9 +598,25 @@ export default function Consumption() {
                          String(weekEndDate.getUTCMonth() + 1).padStart(2, '0') + '-' +
                          String(weekEndDate.getUTCDate()).padStart(2, '0')
 
-          weeksToFetch.push({ weekStart, weekEnd })
+          // Check if any day in this week is missing
+          const weekDates = []
+          const tempDate = new Date(weekStartDate)
+          while (tempDate <= weekEndDate) {
+            const tempDateStr = tempDate.getUTCFullYear() + '-' +
+                               String(tempDate.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                               String(tempDate.getUTCDate()).padStart(2, '0')
+            weekDates.push(tempDateStr)
+            tempDate.setUTCDate(tempDate.getUTCDate() + 1)
+          }
+
+          // Only add this week if at least one day is missing
+          if (weekDates.some(d => missingDates.includes(d))) {
+            weeksToFetch.push({ weekStart, weekEnd })
+          }
         }
       }
+
+      console.log(`📥 Need to fetch ${weeksToFetch.length} weeks (out of ${totalWeeks} total)`)
 
       // Fetch weeks sequentially to show progress
       setLoadingProgress({ current: 0, total: weeksToFetch.length, currentRange: 'Démarrage...' })
@@ -399,12 +631,76 @@ export default function Consumption() {
             currentRange: `${weekStart} → ${weekEnd}`
           })
 
-          // Fetch the weekly data from API
-          const weeklyData = await enedisApi.getConsumptionDetail(selectedPDL, {
-            start: weekStart,
-            end: weekEnd,
-            use_cache: true,
-          })
+          // Fetch the weekly data from API with retry mechanism for ADAM-ERR0123
+          let weeklyData = null
+          let currentStartDate = new Date(weekStart + 'T00:00:00Z')
+          const endDateObj = new Date(weekEnd + 'T00:00:00Z')
+          let retryCount = 0
+          const maxRetries = 7 // Max 7 days to try forward from start
+
+          while (currentStartDate <= endDateObj && retryCount < maxRetries) {
+            const currentStartStr = currentStartDate.getUTCFullYear() + '-' +
+                                   String(currentStartDate.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                                   String(currentStartDate.getUTCDate()).padStart(2, '0')
+
+            // IMPORTANT: Add 1 day to get the 23:30 reading of the last day
+            // (Enedis returns 23:30 reading with next day's 00:00 timestamp)
+            const fetchEndDate = new Date(endDateObj)
+            fetchEndDate.setUTCDate(fetchEndDate.getUTCDate() + 1)
+            const fetchEndStr = fetchEndDate.getUTCFullYear() + '-' +
+                               String(fetchEndDate.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                               String(fetchEndDate.getUTCDate()).padStart(2, '0')
+
+            try {
+              weeklyData = await enedisApi.getConsumptionDetail(selectedPDL, {
+                start: currentStartStr,
+                end: fetchEndStr,
+                use_cache: true,
+              })
+
+              console.log(`📦 Response for ${currentStartStr} → ${fetchEndStr}:`, {
+                success: weeklyData?.success,
+                hasError: !!weeklyData?.error,
+                errorCode: weeklyData?.error?.code,
+                hasData: !!weeklyData?.data
+              })
+
+              // Check for ADAM-ERR0123 error
+              if (weeklyData?.success === false && weeklyData?.error?.code === 'ADAM-ERR0123') {
+                console.log(`⚠️ Enedis: Data not available for ${currentStartStr} → ${fetchEndStr}, trying later start date...`)
+
+                // Try one day later (advance start date)
+                currentStartDate.setUTCDate(currentStartDate.getUTCDate() + 1)
+                retryCount++
+
+                // If we've tried all days in the week without success, stop completely
+                if (retryCount >= maxRetries || currentStartDate > endDateObj) {
+                  console.log(`ℹ️ No data available for this week after ${retryCount} retries - this is expected if before activation date`)
+
+                  // No error toast - this is normal behavior when requesting data before activation
+                  // Just log it and continue to the next week or stop gracefully
+
+                  // Invalidate queries to show what we have so far
+                  queryClient.invalidateQueries({ queryKey: ['consumptionDetail'] })
+
+                  // Stop fetching older data (we've reached the limit)
+                  setLoadingProgress({ current: i, total: weeksToFetch.length, currentRange: 'Arrêté - Date limite atteinte' })
+                  setIsLoadingDetailed(false)
+                  setLoadingProgress({ current: 0, total: 0, currentRange: '' })
+                  return
+                }
+
+                continue // Try again with earlier date
+              }
+
+              // Success! Break out of retry loop
+              break
+
+            } catch (error) {
+              console.error(`Error fetching ${weekStart} → ${fetchEndStr}:`, error)
+              throw error // Re-throw to be caught by outer catch
+            }
+          }
 
           // Split the weekly data and cache it day by day
           if (weeklyData?.data?.meter_reading?.interval_reading) {
@@ -413,7 +709,20 @@ export default function Consumption() {
 
             weeklyData.data.meter_reading.interval_reading.forEach((point: any) => {
               // Extract YYYY-MM-DD from date (format: "2025-10-14 00:00:00" or "2025-10-14T00:00:00")
-              const date = point.date.split(' ')[0].split('T')[0]
+              let date = point.date.split(' ')[0].split('T')[0]
+
+              // IMPORTANT: Enedis convention - timestamps at 00:00 represent the 23:30 reading
+              // of the PREVIOUS day. We need to adjust the date accordingly.
+              const time = point.date.split(' ')[1] || point.date.split('T')[1] || '00:00:00'
+              if (time.startsWith('00:00')) {
+                // Shift date back by 1 day for 00:00 timestamps
+                const dateObj = new Date(date + 'T00:00:00Z')
+                dateObj.setUTCDate(dateObj.getUTCDate() - 1)
+                date = dateObj.getUTCFullYear() + '-' +
+                       String(dateObj.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                       String(dateObj.getUTCDate()).padStart(2, '0')
+              }
+
               if (!dataByDate[date]) {
                 dataByDate[date] = []
               }
@@ -443,16 +752,33 @@ export default function Consumption() {
         setLoadingProgress({ current: weeksToFetch.length, total: weeksToFetch.length, currentRange: 'Terminé !' })
         // Add a small delay before showing success message to let user see 100% progress
         await new Promise(resolve => setTimeout(resolve, 300))
-        toast.success(`${weeksToFetch.length} semaines de données détaillées (2 ans) chargées avec succès !`)
+
+        if (weeksToFetch.length > 0) {
+          toast.success(`${weeksToFetch.length} semaine${weeksToFetch.length > 1 ? 's' : ''} de nouvelles données chargées avec succès !`)
+        }
 
         // Invalidate the detail query to force it to re-fetch from cache
         queryClient.invalidateQueries({ queryKey: ['consumptionDetail'] })
 
         // Trigger HC/HP calculation now that all data is loaded
         setHcHpCalculationTrigger(prev => prev + 1)
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error pre-fetching detailed data:', error)
-        toast.error('Erreur lors du pré-chargement des données détaillées')
+
+        // Check if it's an ADAM-ERR0123 error from the API
+        if (error?.response?.data?.error?.code === 'ADAM-ERR0123' ||
+            error?.error?.code === 'ADAM-ERR0123') {
+          const errorMessage = error?.response?.data?.error?.message ||
+                              error?.error?.message ||
+                              "La période demandée est antérieure à la date d'activation du compteur"
+          toast.error(errorMessage, { duration: 6000, icon: '⚠️' })
+        } else {
+          // Generic error message
+          const errorMsg = error?.response?.data?.error?.message ||
+                          error?.message ||
+                          'Erreur lors du pré-chargement des données détaillées'
+          toast.error(errorMsg)
+        }
       } finally {
         setIsLoadingDetailed(false)
         setLoadingProgress({ current: 0, total: 0, currentRange: '' })
@@ -460,12 +786,6 @@ export default function Consumption() {
     }
   }
 
-  // Show success toast when data is loaded
-  useEffect(() => {
-    if (consumptionData && !isLoading) {
-      toast.success('Données récupérées avec succès (3 ans d\'historique)')
-    }
-  }, [consumptionData, isLoading])
 
   const handleClearCacheClick = () => {
     setShowConfirmModal(true)
@@ -1280,7 +1600,6 @@ export default function Consumption() {
           setDetailWeekOffset(prev => prev + 1)
           // When going to previous week (older), select the first day of that week
           setSelectedDetailDay(0)
-          toast.success('Chargement de la semaine précédente...')
         } else {
           setSelectedDetailDay(prev => prev + 1)
         }
@@ -1300,6 +1619,13 @@ export default function Consumption() {
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
           Visualisez et analysez votre consommation électrique
+        </p>
+      </div>
+
+      {/* Cache Warning */}
+      <div className="mb-6 bg-yellow-100 dark:bg-yellow-900/30 border-l-4 border-yellow-500 p-4">
+        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+          <strong>⚠️ Information importante :</strong> L'utilisation de la page de consommation active automatiquement le cache. Vos données de consommation seront stockées temporairement sur la passerelle pour améliorer les performances et éviter de solliciter excessivement l'API Enedis. Les données en cache expirent automatiquement après 24 heures.
         </p>
       </div>
 
@@ -1327,6 +1653,16 @@ export default function Consumption() {
                     </option>
                   ))}
                 </select>
+
+                {/* Warning if PDL has limited data */}
+                {dataLimitWarning && (
+                  <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center gap-2">
+                    <span className="text-blue-600 dark:text-blue-400 text-lg flex-shrink-0">ℹ️</span>
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                      {dataLimitWarning}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1337,6 +1673,16 @@ export default function Consumption() {
                 <a href="/dashboard" className="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 underline">
                   tableau de bord
                 </a>.
+              </div>
+            )}
+
+            {/* Warning if PDL has limited data - Show for single PDL too */}
+            {activePdls.length === 1 && dataLimitWarning && (
+              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center gap-2">
+                <span className="text-blue-600 dark:text-blue-400 text-lg flex-shrink-0">ℹ️</span>
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  {dataLimitWarning}
+                </p>
               </div>
             )}
 
@@ -1383,38 +1729,107 @@ export default function Consumption() {
           )}
         </div>
 
-        {/* Loading Progress */}
-        {(isLoading && dateRange) || isLoadingDetailed ? (
+        {/* Loading Progress - Show when fetching, hide when all complete or if data came from cache */}
+        {dateRange && !allLoadingComplete && (isLoadingConsumption || isLoadingPower || isLoadingDetailed) ? (
           <div className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
             <div className="flex flex-col gap-6">
-              {/* Daily data loading (Consumption + Power) */}
-              {isLoading && dateRange && (
-                <div className="flex flex-col gap-4">
+              {/* Daily consumption data loading */}
+              <div className="flex flex-col gap-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                       Chargement des données quotidiennes (3 ans)
                     </h3>
                     <div className="flex items-center gap-2">
-                      <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-green-600"></div>
-                      <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                        En cours...
-                      </span>
+                      {dailyLoadingComplete && !isLoadingConsumption ? (
+                        consumptionResponse?.success ? (
+                          <>
+                            <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                              Terminé
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="h-5 w-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            <span className="text-sm font-medium text-red-600 dark:text-red-400">
+                              Erreur
+                            </span>
+                          </>
+                        )
+                      ) : (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-green-600"></div>
+                          <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                            En cours...
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Récupération des données de consommation et de puissance depuis le cache ou l'API Enedis
+                    {consumptionResponse?.success === false && consumptionResponse?.error?.message ? (
+                      <span className="text-red-600 dark:text-red-400">{consumptionResponse.error.message}</span>
+                    ) : (
+                      'Récupération des données de consommation depuis le cache ou l\'API Enedis'
+                    )}
                   </p>
                 </div>
-              )}
+
+              {/* Power data loading */}
+              <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Chargement de la puissance maximum (3 ans)
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {powerLoadingComplete && !isLoadingPower ? (
+                        maxPowerResponse?.success ? (
+                          <>
+                            <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                              Terminé
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="h-5 w-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            <span className="text-sm font-medium text-red-600 dark:text-red-400">
+                              Erreur
+                            </span>
+                          </>
+                        )
+                      ) : (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-green-600"></div>
+                          <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                            En cours...
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {maxPowerResponse?.success === false && maxPowerResponse?.error?.message ? (
+                      <span className="text-red-600 dark:text-red-400">{maxPowerResponse.error.message}</span>
+                    ) : (
+                      'Récupération des données de puissance maximum depuis le cache ou l\'API Enedis'
+                    )}
+                  </p>
+                </div>
 
               {/* Separator between daily and detailed data */}
-              {(isLoadingConsumption || isLoadingPower) && dateRange && isLoadingDetailed && loadingProgress.total > 0 && (
-                <div className="border-t border-gray-200 dark:border-gray-700"></div>
-              )}
+              <div className="border-t border-gray-200 dark:border-gray-700"></div>
 
               {/* Detailed data loading progress */}
-              {isLoadingDetailed && loadingProgress.total > 0 && (
-                <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                       Chargement des données détaillées (2 ans)
@@ -1439,13 +1854,14 @@ export default function Consumption() {
                   </div>
 
                   {/* Current range */}
-                  <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
-                    <span className="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                      {loadingProgress.currentRange}
-                    </span>
-                  </p>
+                  {loadingProgress.currentRange && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
+                      <span className="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                        {loadingProgress.currentRange}
+                      </span>
+                    </p>
+                  )}
                 </div>
-              )}
             </div>
           </div>
         ) : null}
@@ -1453,7 +1869,7 @@ export default function Consumption() {
       </div>
 
       {/* Statistics Summary Section */}
-      {consumptionData && chartData.total > 0 && (
+      {allLoadingComplete && (
         <div className={`mt-6 rounded-xl shadow-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 transition-colors duration-200 ${
           isStatsSectionExpanded ? 'p-6' : ''
         }`}>
@@ -1514,14 +1930,14 @@ export default function Consumption() {
               </button>
             </div>
             <div className="overflow-x-auto pb-2">
-              <div className="inline-flex gap-3 min-w-full">
+              <div className={`grid gap-3 ${chartData.byYear.length > 3 ? 'grid-cols-3 min-w-max' : 'grid-cols-' + Math.min(chartData.byYear.length, 3)}`}>
                 {chartData.byYear.map((yearData) => {
                 // Use the dates from the period data
                 const startDateFormatted = yearData.startDate.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
                 const endDateFormatted = yearData.endDate.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
                 return (
-                  <div key={yearData.year} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-4 border border-gray-200 dark:border-gray-600 flex-shrink-0 w-[calc(33.333%-0.5rem)]">
+                  <div key={yearData.year} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-4 border border-gray-200 dark:border-gray-600 min-w-[300px]">
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center justify-between">
                         <p className="text-lg font-bold text-gray-900 dark:text-white">
@@ -1781,7 +2197,7 @@ export default function Consumption() {
       )}
 
       {/* Charts Section - Collapsible */}
-      {consumptionData && chartData.byYear.length > 0 && (
+      {allLoadingComplete && (
         <div className={`mt-6 rounded-xl shadow-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 transition-colors duration-200 ${
           isChartsExpanded ? 'p-6' : ''
         }`}>
@@ -1855,12 +2271,12 @@ export default function Consumption() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#9CA3AF" opacity={0.3} />
                       <XAxis
                         dataKey="year"
-                        stroke="#6B7280"
-                        style={{ fontSize: '14px' }}
+                        stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                        style={{ fontSize: '14px', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                       />
                       <YAxis
-                        stroke="#6B7280"
-                        style={{ fontSize: '14px' }}
+                        stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                        style={{ fontSize: '14px', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                         tickFormatter={(value) => `${(value / 1000).toFixed(0)} kWh`}
                       />
                       <Tooltip
@@ -1910,12 +2326,12 @@ export default function Consumption() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#9CA3AF" opacity={0.3} />
                       <XAxis
                         dataKey="monthLabel"
-                        stroke="#6B7280"
-                        style={{ fontSize: '14px' }}
+                        stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                        style={{ fontSize: '14px', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                       />
                       <YAxis
-                        stroke="#6B7280"
-                        style={{ fontSize: '14px' }}
+                        stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                        style={{ fontSize: '14px', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                         tickFormatter={(value) => `${(value / 1000).toFixed(0)} kWh`}
                       />
                       <Tooltip
@@ -1952,7 +2368,7 @@ export default function Consumption() {
       )}
 
       {/* Detailed Consumption Section - Load Curve (30min intervals) */}
-      {!isLoadingConsumption && !isLoadingPower && consumptionData && (
+      {allLoadingComplete && (
         <div className={`mt-6 rounded-xl shadow-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 transition-colors duration-200 ${
           isDetailSectionExpanded ? 'p-6' : ''
         }`}>
@@ -2301,7 +2717,6 @@ export default function Consumption() {
                       setDetailWeekOffset(prev => prev + 1)
                       // When going to previous week (older), select the first day of that week (day just before)
                       setSelectedDetailDay(0)
-                      toast.success('Chargement de la semaine précédente...')
                     } else {
                       setSelectedDetailDay(prev => prev + 1)
                     }
@@ -2527,14 +2942,14 @@ export default function Consumption() {
                           <CartesianGrid strokeDasharray="3 3" stroke="#9CA3AF" opacity={0.3} />
                           <XAxis
                             dataKey="time"
-                            stroke="#6B7280"
-                            style={{ fontSize: '11px' }}
+                            stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                            style={{ fontSize: '11px', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                             interval="preserveStartEnd"
                           />
                           <YAxis
-                            stroke="#6B7280"
-                            style={{ fontSize: '14px' }}
-                            label={{ value: 'Puissance (kW)', angle: -90, position: 'insideLeft' }}
+                            stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                            style={{ fontSize: '14px', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
+                            label={{ value: 'Puissance (kW)', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                             domain={[0, 'auto']}
                           />
                           <Tooltip
@@ -2723,13 +3138,13 @@ export default function Consumption() {
                             <CartesianGrid strokeDasharray="3 3" stroke="#9CA3AF" opacity={0.3} />
                             <XAxis
                               dataKey="month"
-                              stroke="#6B7280"
-                              tick={{ fill: '#6B7280', fontSize: 12 }}
+                              stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                              tick={{ fill: isDarkMode ? '#FFFFFF' : '#6B7280', fontSize: 12 }}
                             />
                             <YAxis
-                              stroke="#6B7280"
-                              tick={{ fill: '#6B7280', fontSize: 12 }}
-                              label={{ value: 'Consommation (kWh)', angle: -90, position: 'insideLeft', fill: '#6B7280' }}
+                              stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                              tick={{ fill: isDarkMode ? '#FFFFFF' : '#6B7280', fontSize: 12 }}
+                              label={{ value: 'Consommation (kWh)', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                             />
                             <Tooltip
                               cursor={{ fill: 'rgba(59, 130, 246, 0.15)' }}
@@ -2787,7 +3202,7 @@ export default function Consumption() {
       )}
 
       {/* Max Power Section - Only show when data is fully loaded and not currently loading */}
-      {!isLoading && maxPowerData && maxPowerData.meter_reading?.interval_reading && consumptionData && (
+      {allLoadingComplete && (
         <div className={`mt-6 rounded-xl shadow-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 transition-colors duration-200 ${
           isPowerSectionExpanded ? 'p-6' : ''
         }`}>
@@ -2875,8 +3290,8 @@ export default function Consumption() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#9CA3AF" opacity={0.3} />
                       <XAxis
                         dataKey="date"
-                        stroke="#6B7280"
-                        style={{ fontSize: '11px' }}
+                        stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                        style={{ fontSize: '11px', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                         tickFormatter={(value) => {
                           const date = new Date(value)
                           return `${date.getDate()}/${date.getMonth() + 1}`
@@ -2884,9 +3299,9 @@ export default function Consumption() {
                         interval="preserveStartEnd"
                       />
                       <YAxis
-                        stroke="#6B7280"
-                        style={{ fontSize: '14px' }}
-                        label={{ value: 'Puissance (kW)', angle: -90, position: 'insideLeft' }}
+                        stroke={isDarkMode ? "#FFFFFF" : "#6B7280"}
+                        style={{ fontSize: '14px', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
+                        label={{ value: 'Puissance (kW)', angle: -90, position: 'insideLeft', fill: isDarkMode ? '#FFFFFF' : '#6B7280' }}
                         domain={[0, 'auto']}
                       />
                       <Tooltip
@@ -2947,7 +3362,8 @@ export default function Consumption() {
                 <strong>ℹ️ Note :</strong> Ces graphiques montrent les pics de puissance maximale atteints chaque jour sur les 3 dernières années.
                 {selectedPDLDetails?.subscribed_power && (
                   <> La ligne violette en pointillés indique votre puissance souscrite ({selectedPDLDetails.subscribed_power} kVA).
-                  Si les pics dépassent régulièrement cette ligne, vous risquez de disjoncter.</>
+                  Le compteur Linky autorise des dépassements temporaires de cette limite, donc un pic ponctuel au-dessus de cette ligne ne provoquera pas nécessairement de disjonction.
+                  Cependant, si les pics dépassent régulièrement ou de manière prolongée cette ligne, vous risquez de disjoncter.</>
                 )}
               </p>
             </div>
@@ -2958,7 +3374,7 @@ export default function Consumption() {
 
 
       {/* Empty State */}
-      {!consumptionData && !isLoading && (
+      {!consumptionData && !isLoading && !dailyLoadingComplete && !powerLoadingComplete && (
         <div className="card mt-6 p-12 text-center">
           <TrendingUp className="mx-auto text-gray-400 mb-4" size={48} />
           <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">

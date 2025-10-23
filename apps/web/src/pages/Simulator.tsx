@@ -151,11 +151,15 @@ export default function Simulator() {
   const [simulationError, setSimulationError] = useState<string | null>(null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
-  // Set first PDL as selected by default
+  // Set first active PDL as selected by default
   useEffect(() => {
     logger.log('[Simulator] pdlsData in useEffect:', pdlsData, 'isArray:', Array.isArray(pdlsData))
     if (pdlsData && pdlsData.length > 0 && !selectedPdl) {
-      setSelectedPdl(pdlsData[0].usage_point_id)
+      // Filter active PDLs (if is_active is undefined, consider it as active)
+      const activePdls = pdlsData.filter((pdl) => pdl.is_active !== false)
+      if (activePdls.length > 0) {
+        setSelectedPdl(activePdls[0].usage_point_id)
+      }
     }
   }, [pdlsData, selectedPdl])
 
@@ -1266,78 +1270,43 @@ export default function Simulator() {
         </div>
 
         {/* PDL Selection */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2">
-            <label className="block text-sm font-medium mb-2">
-              Point de livraison (PDL) <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={selectedPdl}
-              onChange={(e) => setSelectedPdl(e.target.value)}
-              className="input w-full"
-              required
-            >
-              {Array.isArray(pdlsData) && pdlsData.map((pdl) => (
-                <option key={pdl.id} value={pdl.usage_point_id}>
-                  {pdl.name || pdl.usage_point_id}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Sélectionnez le PDL pour lequel vous souhaitez effectuer la simulation
-            </p>
-          </div>
+        {(() => {
+          const activePdls = Array.isArray(pdlsData) ? pdlsData.filter((pdl) => pdl.is_active !== false) : []
 
-          {/* Selected PDL Info - Only show if PDL has a custom name */}
-          {selectedPdl && (() => {
-            const selectedPdlData = Array.isArray(pdlsData) ? pdlsData.find((p) => p.usage_point_id === selectedPdl) : undefined
-            if (!selectedPdlData || !selectedPdlData.name) return null
-
+          if (activePdls.length === 0) {
             return (
-              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
-                <h3 className="font-semibold mb-2 text-sm">Point de livraison</h3>
-                <p className="text-sm font-medium mb-1">{selectedPdlData.name}</p>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  {selectedPdlData.usage_point_id}
-                </p>
-                {selectedPdlData.subscribed_power && (
-                  <p className="text-xs text-gray-600 dark:text-gray-400">
-                    {selectedPdlData.subscribed_power} kVA
-                  </p>
-                )}
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                Aucun PDL actif disponible. Veuillez en ajouter un depuis votre{' '}
+                <a href="/dashboard" className="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 underline">
+                  tableau de bord
+                </a>.
               </div>
             )
-          })()}
-        </div>
+          }
 
-        {/* Info about automatic simulation */}
-        <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4">
-          <p className="text-sm text-blue-800 dark:text-blue-200">
-            ℹ️ La simulation comparera automatiquement <strong>toutes les offres disponibles</strong> dans la base de données
-            {(() => {
-              const selectedPdlData = Array.isArray(pdlsData) ? pdlsData.find((p) => p.usage_point_id === selectedPdl) : undefined
-              const subscribedPower = selectedPdlData?.subscribed_power
-              return subscribedPower ? (
-                <> correspondant à votre puissance souscrite de <strong>{subscribedPower} kVA</strong></>
-              ) : null
-            })()}
-          </p>
-        </div>
+          if (activePdls.length === 1) {
+            return null // Single PDL is auto-selected, no need to show selector
+          }
 
-
-        {/* Big kiss to @Grimmlink */}
-        <div className="text-sm text-gray-600 dark:text-gray-400">
-          Big kiss to{' '}
-          <a
-            href="https://github.com/Grimmlink"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary-600 dark:text-primary-400 hover:underline"
-          >
-            @Grimmlink
-          </a>{' '}
-          {'<3'}
-        </div>
+          return (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Point de Livraison (PDL)
+              </label>
+              <select
+                value={selectedPdl}
+                onChange={(e) => setSelectedPdl(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors"
+              >
+                {activePdls.map((pdl) => (
+                  <option key={pdl.usage_point_id} value={pdl.usage_point_id}>
+                    {pdl.name || pdl.usage_point_id}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )
+        })()}
 
         {/* Submit Button */}
         <button
@@ -1354,9 +1323,24 @@ export default function Simulator() {
             'Lancer la simulation'
           )}
         </button>
+      </div>
 
-        {/* Loading Progress */}
-        {isSimulating && fetchProgress.total > 0 && (
+      {/* Info about automatic simulation */}
+      <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4">
+        <p className="text-sm text-blue-800 dark:text-blue-200">
+          ℹ️ La simulation comparera automatiquement <strong>toutes les offres disponibles</strong> dans la base de données
+          {(() => {
+            const selectedPdlData = Array.isArray(pdlsData) ? pdlsData.find((p) => p.usage_point_id === selectedPdl) : undefined
+            const subscribedPower = selectedPdlData?.subscribed_power
+            return subscribedPower ? (
+              <> correspondant à votre puissance souscrite de <strong>{subscribedPower} kVA</strong></>
+            ) : null
+          })()}
+        </p>
+      </div>
+
+      {/* Loading Progress */}
+      {isSimulating && fetchProgress.total > 0 && (
           <div className="mt-6 card p-8">
             <div className="flex flex-col items-center justify-center gap-4">
               <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
@@ -1791,7 +1775,6 @@ export default function Simulator() {
             )}
           </div>
         )}
-      </div>
     </div>
   )
 }

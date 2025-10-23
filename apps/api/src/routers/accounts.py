@@ -583,3 +583,38 @@ async def reset_password(request: Request, db: AsyncSession = Depends(get_db)) -
     logger.info(f"[RESET_PASSWORD] Password reset successfully for user: {user.email}")
 
     return APIResponse(success=True, data={"message": "Password reset successfully!"})
+
+
+@router.post("/update-password", response_model=APIResponse)
+async def update_password(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> APIResponse:
+    """Update password for authenticated user (requires old password verification)"""
+    # Parse old and new password from request body
+    body = await request.json()
+    old_password = body.get('old_password')
+    new_password = body.get('new_password')
+
+    if not old_password or not new_password:
+        return APIResponse(
+            success=False,
+            error=ErrorDetail(code="MISSING_FIELDS", message="old_password and new_password are required")
+        )
+
+    # Verify old password
+    if not verify_password(old_password, current_user.hashed_password):
+        logger.warning(f"[UPDATE_PASSWORD] Failed attempt for user {current_user.email} - invalid old password")
+        return APIResponse(
+            success=False,
+            error=ErrorDetail(code="INVALID_PASSWORD", message="Current password is incorrect")
+        )
+
+    # Update password
+    current_user.hashed_password = get_password_hash(new_password)
+    await db.commit()
+
+    logger.info(f"[UPDATE_PASSWORD] Password updated successfully for user: {current_user.email}")
+
+    return APIResponse(success=True, data={"message": "Password updated successfully!"})

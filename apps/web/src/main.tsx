@@ -1,8 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { QueryClient } from '@tanstack/react-query'
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-import { experimental_createQueryPersister } from '@tanstack/query-persist-client-core'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
@@ -18,17 +16,9 @@ const queryClient = new QueryClient({
   },
 })
 
-const persister = experimental_createQueryPersister({
-  storage: window.localStorage,
-  key: 'myelectricaldata-cache',
-})
-
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{ persister }}
-    >
+    <QueryClientProvider client={queryClient}>
       <BrowserRouter
         future={{
           v7_startTransition: true,
@@ -37,6 +27,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       >
         <App />
       </BrowserRouter>
-    </PersistQueryClientProvider>
+    </QueryClientProvider>
   </React.StrictMode>
 )

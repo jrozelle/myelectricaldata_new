@@ -1,6 +1,7 @@
 import uuid
-from sqlalchemy import String, ForeignKey, Integer, JSON, Boolean
+from sqlalchemy import String, ForeignKey, Integer, JSON, Boolean, Date
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from datetime import date
 from .base import Base, TimestampMixin
 
 
@@ -19,6 +20,8 @@ class PDL(Base, TimestampMixin):
     has_consumption: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)  # PDL has consumption data
     has_production: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # PDL has production data
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)  # PDL is active/enabled
+    oldest_available_data_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # Oldest date where Enedis has data (meter activation date)
+    activation_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # Contract activation date (from Enedis)
 
     # Relations
     user: Mapped["User"] = relationship("User", back_populates="pdls")

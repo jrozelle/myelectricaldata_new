@@ -1,21 +1,34 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { authApi } from '@/api/auth'
 import { useAuth } from '@/hooks/useAuth'
-import { Trash2, TrendingUp, Copy, RefreshCw, Key } from 'lucide-react'
+import { useThemeStore } from '@/stores/themeStore'
+import { Trash2, TrendingUp, Copy, RefreshCw, Key, Lock, LogOut, Palette, Eye, EyeOff } from 'lucide-react'
 
 export default function Settings() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { mode, setMode } = useThemeStore()
+
+  // State for password change
+  const [oldPassword, setOldPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showOldPassword, setShowOldPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+
+  // State for other features
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false)
   const [newSecret, setNewSecret] = useState<string | null>(null)
   const [copiedNewSecret, setCopiedNewSecret] = useState(false)
   const [copiedClientId, setCopiedClientId] = useState(false)
-  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null)
+  const [copiedToken, setCopiedToken] = useState(false)
 
   const { data: credentialsResponse } = useQuery({
     queryKey: ['credentials'],
@@ -31,30 +44,41 @@ export default function Settings() {
   const credentials = credentialsResponse?.success ? credentialsResponse.data : null
   const usageStats = usageStatsResponse?.success ? usageStatsResponse.data as any : null
 
+  const changePasswordMutation = useMutation({
+    mutationFn: ({ oldPassword, newPassword }: { oldPassword: string; newPassword: string }) =>
+      authApi.changePassword(oldPassword, newPassword),
+    onSuccess: (response) => {
+      if (response.success) {
+        toast.success('Mot de passe modifié avec succès !')
+        setOldPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.error?.message || 'Erreur lors du changement de mot de passe')
+    }
+  })
+
   const regenerateSecretMutation = useMutation({
     mutationFn: () => authApi.regenerateSecret(),
     onSuccess: (response) => {
       if (response.success && response.data) {
         setNewSecret(response.data.client_secret)
-        setNotification({
-          type: 'success',
-          message: 'Nouveau client_secret généré avec succès ! Copiez-le maintenant, il ne sera plus affiché.'
+        toast.success('Nouveau client_secret généré avec succès ! Copiez-le maintenant, il ne sera plus affiché.', {
+          duration: 60000,
+          icon: '🔑'
         })
         setShowRegenerateConfirm(false)
         queryClient.invalidateQueries({ queryKey: ['credentials'] })
         setTimeout(() => {
-          setNotification(null)
           setNewSecret(null)
         }, 60000)
       }
     },
     onError: (error: any) => {
-      setNotification({
-        type: 'error',
-        message: error?.message || 'Erreur lors de la régénération du secret'
-      })
+      toast.error(error?.message || 'Erreur lors de la régénération du secret')
       setShowRegenerateConfirm(false)
-      setTimeout(() => setNotification(null), 10000)
     }
   })
 
@@ -66,6 +90,20 @@ export default function Settings() {
     },
   })
 
+  const handleChangePassword = () => {
+    if (newPassword !== confirmPassword) {
+      toast.error('Les mots de passe ne correspondent pas')
+      return
+    }
+
+    if (newPassword.length < 8) {
+      toast.error('Le mot de passe doit contenir au moins 8 caractères')
+      return
+    }
+
+    changePasswordMutation.mutate({ oldPassword, newPassword })
+  }
+
   const handleRegenerateSecret = () => {
     regenerateSecretMutation.mutate()
   }
@@ -76,10 +114,16 @@ export default function Settings() {
     }
   }
 
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
+
   const copyNewSecret = () => {
     if (newSecret) {
       navigator.clipboard.writeText(newSecret)
       setCopiedNewSecret(true)
+      toast.success('Client secret copié dans le presse-papier !', { icon: '📋' })
       setTimeout(() => setCopiedNewSecret(false), 2000)
     }
   }
@@ -88,41 +132,75 @@ export default function Settings() {
     if (credentials?.client_id) {
       navigator.clipboard.writeText(credentials.client_id)
       setCopiedClientId(true)
+      toast.success('Client ID copié dans le presse-papier !', { icon: '📋' })
       setTimeout(() => setCopiedClientId(false), 2000)
+    }
+  }
+
+  const copyToken = () => {
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      navigator.clipboard.writeText(token)
+      setCopiedToken(true)
+      toast.success('Token JWT copié dans le presse-papier !', { icon: '📋' })
+      setTimeout(() => setCopiedToken(false), 2000)
     }
   }
 
   return (
     <div className="space-y-8 w-full">
-      {/* Notification Toast */}
-      {notification && (
-        <div className={`p-4 rounded-lg flex items-start gap-3 ${
-          notification.type === 'success'
-            ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
-            : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-        }`}>
-          <div className="flex-1">
-            <p className={notification.type === 'success'
-              ? 'text-green-800 dark:text-green-200 font-medium'
-              : 'text-red-800 dark:text-red-200 font-medium'
-            }>
-              {notification.message}
-            </p>
-          </div>
-          <button
-            onClick={() => setNotification(null)}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       <div>
         <h1 className="text-3xl font-bold mb-2">Mon compte</h1>
         <p className="text-gray-600 dark:text-gray-400">
           Gérez votre compte et vos préférences
         </p>
+      </div>
+
+      {/* Usage Stats */}
+      <div className="card border-blue-200 dark:border-blue-800">
+        <div className="flex items-center gap-2 mb-4">
+          <TrendingUp className="text-blue-600 dark:text-blue-400" size={24} />
+          <h2 className="text-xl font-semibold">Utilisation de l'API</h2>
+        </div>
+        {usageStats ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-600 dark:text-blue-400 font-medium mb-1">Avec cache</p>
+                <p className="text-2xl font-bold">
+                  {usageStats.cached_requests} / {usageStats.cached_limit}
+                </p>
+                <div className="mt-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full"
+                    style={{
+                      width: `${Math.min((usageStats.cached_requests / usageStats.cached_limit) * 100, 100)}%`
+                    }}
+                  ></div>
+                </div>
+              </div>
+              <div className="p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                <p className="text-sm text-orange-600 dark:text-orange-400 font-medium mb-1">Sans cache</p>
+                <p className="text-2xl font-bold">
+                  {usageStats.no_cache_requests} / {usageStats.no_cache_limit}
+                </p>
+                <div className="mt-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-orange-600 h-2 rounded-full"
+                    style={{
+                      width: `${Math.min((usageStats.no_cache_requests / usageStats.no_cache_limit) * 100, 100)}%`
+                    }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Compteurs quotidiens • Réinitialisés à minuit UTC • Date : {usageStats.date}
+            </p>
+          </div>
+        ) : (
+          <p className="text-gray-500">Chargement des statistiques...</p>
+        )}
       </div>
 
       {/* Account Info */}
@@ -259,51 +337,178 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Usage Stats */}
+      {/* Change Password */}
+      <div className="card">
+        <div className="flex items-center gap-2 mb-4">
+          <Lock className="text-primary-600 dark:text-primary-400" size={24} />
+          <h2 className="text-xl font-semibold">Modifier le mot de passe</h2>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Mot de passe actuel</label>
+            <div className="relative">
+              <input
+                type={showOldPassword ? 'text' : 'password'}
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                placeholder="••••••••"
+                className="input pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowOldPassword(!showOldPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                {showOldPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Nouveau mot de passe</label>
+            <div className="relative">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="••••••••"
+                className="input pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword(!showNewPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                {showNewPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Confirmer le nouveau mot de passe</label>
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                className="input pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+          </div>
+          <button
+            onClick={handleChangePassword}
+            disabled={!oldPassword || !newPassword || !confirmPassword || changePasswordMutation.isPending}
+            className="btn btn-primary disabled:opacity-50"
+          >
+            {changePasswordMutation.isPending ? 'Modification...' : 'Modifier le mot de passe'}
+          </button>
+        </div>
+      </div>
+
+      {/* Theme Selector */}
+      <div className="card">
+        <div className="flex items-center gap-2 mb-4">
+          <Palette className="text-primary-600 dark:text-primary-400" size={24} />
+          <h2 className="text-xl font-semibold">Thème</h2>
+        </div>
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Choisissez l'apparence de l'interface
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <button
+              onClick={() => setMode('light')}
+              className={`p-4 rounded-lg border-2 transition-colors ${
+                mode === 'light'
+                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-700'
+              }`}
+            >
+              <div className="text-center">
+                <div className="text-2xl mb-2">☀️</div>
+                <div className="text-sm font-medium">Clair</div>
+              </div>
+            </button>
+            <button
+              onClick={() => setMode('dark')}
+              className={`p-4 rounded-lg border-2 transition-colors ${
+                mode === 'dark'
+                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-700'
+              }`}
+            >
+              <div className="text-center">
+                <div className="text-2xl mb-2">🌙</div>
+                <div className="text-sm font-medium">Sombre</div>
+              </div>
+            </button>
+            <button
+              onClick={() => setMode('system')}
+              className={`p-4 rounded-lg border-2 transition-colors ${
+                mode === 'system'
+                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-700'
+              }`}
+            >
+              <div className="text-center">
+                <div className="text-2xl mb-2">💻</div>
+                <div className="text-sm font-medium">Système</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* JWT Token */}
       <div className="card border-blue-200 dark:border-blue-800">
         <div className="flex items-center gap-2 mb-4">
-          <TrendingUp className="text-blue-600 dark:text-blue-400" size={24} />
-          <h2 className="text-xl font-semibold">Utilisation de l'API</h2>
+          <Key className="text-blue-600 dark:text-blue-400" size={24} />
+          <h2 className="text-xl font-semibold">Token d'API (JWT)</h2>
         </div>
-        {usageStats ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p className="text-sm text-blue-600 dark:text-blue-400 font-medium mb-1">Avec cache</p>
-                <p className="text-2xl font-bold">
-                  {usageStats.cached_requests} / {usageStats.cached_limit}
-                </p>
-                <div className="mt-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                  <div
-                    className="bg-blue-600 h-2 rounded-full"
-                    style={{
-                      width: `${Math.min((usageStats.cached_requests / usageStats.cached_limit) * 100, 100)}%`
-                    }}
-                  ></div>
-                </div>
-              </div>
-              <div className="p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
-                <p className="text-sm text-orange-600 dark:text-orange-400 font-medium mb-1">Sans cache</p>
-                <p className="text-2xl font-bold">
-                  {usageStats.no_cache_requests} / {usageStats.no_cache_limit}
-                </p>
-                <div className="mt-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                  <div
-                    className="bg-orange-600 h-2 rounded-full"
-                    style={{
-                      width: `${Math.min((usageStats.no_cache_requests / usageStats.no_cache_limit) * 100, 100)}%`
-                    }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Compteurs quotidiens • Réinitialisés à minuit UTC • Date : {usageStats.date}
+        <div className="space-y-3">
+          <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <p className="text-sm text-blue-800 dark:text-blue-200 mb-2">
+              ℹ️ Ce token vous permet d'appeler les API directement (pour développeurs)
             </p>
+            <ul className="text-sm text-blue-700 dark:text-blue-300 list-disc list-inside space-y-1">
+              <li>Durée de vie limitée (généralement 24h)</li>
+              <li>Ne partagez jamais ce token</li>
+              <li>Utilisez-le dans le header : Authorization: Bearer [token]</li>
+            </ul>
           </div>
-        ) : (
-          <p className="text-gray-500">Chargement des statistiques...</p>
-        )}
+          <button
+            onClick={copyToken}
+            className="btn bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+          >
+            {copiedToken ? '✓ Copié !' : (
+              <>
+                <Copy size={18} />
+                Copier le token de session
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Logout */}
+      <div className="card">
+        <h2 className="text-xl font-semibold mb-4">Déconnexion</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
+          Déconnectez-vous de votre compte sur cet appareil
+        </p>
+        <button
+          onClick={handleLogout}
+          className="btn btn-secondary flex items-center gap-2"
+        >
+          <LogOut size={20} />
+          Se déconnecter
+        </button>
       </div>
 
       {/* Danger Zone */}

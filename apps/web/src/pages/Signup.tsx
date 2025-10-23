@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
-import { Copy, Check, Eye, EyeOff } from 'lucide-react'
+import { Copy, Check, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { logger } from '@/utils/logger'
 
 declare global {
@@ -18,6 +18,30 @@ declare global {
   }
 }
 
+// Password strength calculation
+function calculatePasswordStrength(password: string): { score: number; label: string; color: string } {
+  if (!password) return { score: 0, label: '', color: '' }
+
+  let score = 0
+
+  // Length
+  if (password.length >= 8) score += 1
+  if (password.length >= 12) score += 1
+  if (password.length >= 16) score += 1
+
+  // Complexity
+  if (/[a-z]/.test(password)) score += 1
+  if (/[A-Z]/.test(password)) score += 1
+  if (/[0-9]/.test(password)) score += 1
+  if (/[^a-zA-Z0-9]/.test(password)) score += 1
+
+  // Map score to label and color
+  if (score <= 2) return { score: 1, label: 'Faible', color: 'red' }
+  if (score <= 4) return { score: 2, label: 'Moyen', color: 'orange' }
+  if (score <= 5) return { score: 3, label: 'Bon', color: 'yellow' }
+  return { score: 4, label: 'Très bon', color: 'green' }
+}
+
 export default function Signup() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -25,12 +49,22 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [turnstileError, setTurnstileError] = useState(false)
   const [credentials, setCredentials] = useState<{ client_id: string; client_secret: string } | null>(null)
   const [copied, setCopied] = useState<'id' | 'secret' | null>(null)
   const { signup, signupLoading, signupError } = useAuth()
 
   const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
   const widgetRendered = useRef(false)
+
+  // Calculate password strength
+  const passwordStrength = useMemo(() => calculatePasswordStrength(password), [password])
+
+  // Check if passwords match
+  const passwordsMatch = useMemo(() => {
+    if (!confirmPassword) return null
+    return password === confirmPassword
+  }, [password, confirmPassword])
 
   useEffect(() => {
     if (!TURNSTILE_SITE_KEY || widgetRendered.current) return
@@ -50,19 +84,23 @@ export default function Signup() {
             callback: (token: string) => {
               logger.log('[TURNSTILE] Token received:', token.substring(0, 20) + '...')
               setTurnstileToken(token)
+              setTurnstileError(false)
             },
             'error-callback': () => {
-              console.error('[TURNSTILE] Error')
+              console.error('[TURNSTILE] Error - This is normal in development mode')
               setTurnstileToken(null)
+              setTurnstileError(true)
             },
             'expired-callback': () => {
               logger.log('[TURNSTILE] Token expired')
               setTurnstileToken(null)
+              setTurnstileError(false)
             },
           })
           widgetRendered.current = true
         } catch (error) {
           console.error('[TURNSTILE] Render error:', error)
+          setTurnstileError(true)
         }
       }
     }
@@ -229,8 +267,43 @@ export default function Signup() {
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Minimum 8 caractères
+
+              {/* Password strength indicator */}
+              {password && (
+                <div className="mt-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Force du mot de passe
+                    </span>
+                    <span className={`text-xs font-medium ${
+                      passwordStrength.color === 'red' ? 'text-red-600 dark:text-red-400' :
+                      passwordStrength.color === 'orange' ? 'text-orange-600 dark:text-orange-400' :
+                      passwordStrength.color === 'yellow' ? 'text-yellow-600 dark:text-yellow-400' :
+                      'text-green-600 dark:text-green-400'
+                    }`}>
+                      {passwordStrength.label}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4].map((level) => (
+                      <div
+                        key={level}
+                        className={`h-1 flex-1 rounded-full transition-colors ${
+                          level <= passwordStrength.score
+                            ? passwordStrength.color === 'red' ? 'bg-red-500' :
+                              passwordStrength.color === 'orange' ? 'bg-orange-500' :
+                              passwordStrength.color === 'yellow' ? 'bg-yellow-500' :
+                              'bg-green-500'
+                            : 'bg-gray-200 dark:bg-gray-700'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                Minimum 8 caractères. Utilisez majuscules, chiffres et caractères spéciaux pour plus de sécurité.
               </p>
             </div>
 
@@ -244,7 +317,10 @@ export default function Signup() {
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="input pr-10"
+                  className={`input pr-10 ${
+                    passwordsMatch === false ? 'border-red-500 dark:border-red-400' :
+                    passwordsMatch === true ? 'border-green-500 dark:border-green-400' : ''
+                  }`}
                   required
                   minLength={8}
                   autoComplete="new-password"
@@ -257,13 +333,59 @@ export default function Signup() {
                   {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+
+              {/* Password match indicator */}
+              {confirmPassword && (
+                <div className="mt-2">
+                  {passwordsMatch === false ? (
+                    <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                      <AlertCircle size={12} />
+                      Les mots de passe ne correspondent pas
+                    </p>
+                  ) : passwordsMatch === true ? (
+                    <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <Check size={12} />
+                      Les mots de passe correspondent
+                    </p>
+                  ) : null}
+                </div>
+              )}
             </div>
 
-            {TURNSTILE_SITE_KEY && <div id="turnstile-widget" className="flex justify-center"></div>}
+            {TURNSTILE_SITE_KEY && (
+              <div>
+                <div id="turnstile-widget" className="flex justify-center"></div>
+                {turnstileError && (
+                  <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                    <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                      Note: Le captcha peut échouer en mode développement. Ceci n'affectera pas l'inscription si le captcha est désactivé côté serveur.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {signupError && (
               <div className="p-3 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm">
-                {(signupError as Error).message || 'Une erreur est survenue. Vérifiez vos informations.'}
+                {(() => {
+                  const errorMessage = (signupError as Error).message || ''
+
+                  // Customize error messages
+                  if (errorMessage.includes('already exists') || errorMessage.includes('USER_EXISTS')) {
+                    return 'Cet email est déjà utilisé. Essayez de vous connecter ou utilisez un autre email.'
+                  }
+                  if (errorMessage.includes('CAPTCHA')) {
+                    return 'La vérification anti-robot a échoué. Veuillez réessayer.'
+                  }
+                  if (errorMessage.includes('password')) {
+                    return 'Le mot de passe doit contenir au moins 8 caractères.'
+                  }
+                  if (errorMessage.includes('email')) {
+                    return 'Format d\'email invalide.'
+                  }
+
+                  return errorMessage || 'Une erreur est survenue. Vérifiez vos informations.'
+                })()}
               </div>
             )}
 

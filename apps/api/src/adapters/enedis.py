@@ -138,7 +138,12 @@ class EnedisAdapter:
             try:
                 error_json = e.response.json()
                 if "error" in error_json:
-                    # Create a custom exception with Enedis error details
+                    # Return the error JSON so the router can handle it
+                    # Special case for ADAM-ERR0123 (data older than meter activation)
+                    if error_json.get('error') == 'ADAM-ERR0123':
+                        logger.warning(f"[ENEDIS] Data requested is anterior to meter activation date")
+                        return error_json  # Return error as dict for router to handle
+                    # For other errors, raise exception
                     error_msg = f"{error_json.get('error')}: {error_json.get('error_description', 'Unknown error')}"
                     raise ValueError(error_msg) from e
             except (KeyError, TypeError):
