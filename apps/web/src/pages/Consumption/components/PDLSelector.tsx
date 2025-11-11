@@ -15,6 +15,7 @@ interface PDLSelectorProps {
   hasDataInCache: boolean
   dataLimitWarning: string | null
   user: any
+  children?: React.ReactNode
 }
 
 export function PDLSelector({
@@ -27,7 +28,8 @@ export function PDLSelector({
   isLoading,
   isLoadingDetailed,
   dataLimitWarning,
-  user
+  user,
+  children
 }: PDLSelectorProps) {
   return (
     <div className="card">
@@ -129,6 +131,9 @@ export function PDLSelector({
             )}
           </button>
         )}
+
+        {/* Children (LoadingProgress) */}
+        {children}
       </div>
     </div>
   )

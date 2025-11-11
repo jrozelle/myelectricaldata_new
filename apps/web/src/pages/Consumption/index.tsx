@@ -395,7 +395,7 @@ export default function Consumption() {
         </p>
       </div>
 
-      {/* PDL Selector Component */}
+      {/* PDL Selector Component with Loading Progress inside */}
       <PDLSelector
         pdls={pdls}
         activePdls={activePdls}
@@ -410,24 +410,24 @@ export default function Consumption() {
         hasDataInCache={hasDataInCache}
         dataLimitWarning={dataLimitWarning}
         user={user}
-      />
-
-      {/* Loading Progress Component */}
-      <LoadingProgress
-        isLoadingDaily={isLoadingDaily}
-        isLoadingDetailed={isLoadingDetailed}
-        dailyLoadingComplete={dailyLoadingComplete}
-        powerLoadingComplete={powerLoadingComplete}
-        loadingProgress={loadingProgress}
-        hcHpCalculationComplete={hcHpCalculationComplete}
-        hcHpCalculationTrigger={hcHpCalculationTrigger}
-        allLoadingComplete={allLoadingComplete}
-        dateRange={dateRange}
-        isLoadingConsumption={isLoadingConsumption}
-        isLoadingPower={isLoadingPower}
-        consumptionResponse={consumptionResponse}
-        maxPowerResponse={maxPowerResponse}
-      />
+      >
+        {/* Loading Progress Component as child */}
+        <LoadingProgress
+          isLoadingDaily={isLoadingDaily}
+          isLoadingDetailed={isLoadingDetailed}
+          dailyLoadingComplete={dailyLoadingComplete}
+          powerLoadingComplete={powerLoadingComplete}
+          loadingProgress={loadingProgress}
+          hcHpCalculationComplete={hcHpCalculationComplete}
+          hcHpCalculationTrigger={hcHpCalculationTrigger}
+          allLoadingComplete={allLoadingComplete}
+          dateRange={dateRange}
+          isLoadingConsumption={isLoadingConsumption}
+          isLoadingPower={isLoadingPower}
+          consumptionResponse={consumptionResponse}
+          maxPowerResponse={maxPowerResponse}
+        />
+      </PDLSelector>
 
       {/* Statistics Section - Collapsible */}
       {allLoadingComplete && (

@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react'
+import { Activity, ChevronDown, ChevronUp } from 'lucide-react'
 import type { LoadingProgressProps } from '../types/consumption.types'
 
 interface ExtendedLoadingProgressProps extends LoadingProgressProps {
@@ -22,13 +24,60 @@ export function LoadingProgress({
   consumptionResponse,
   maxPowerResponse
 }: ExtendedLoadingProgressProps) {
-  if (!dateRange || allLoadingComplete || (!isLoadingConsumption && !isLoadingPower && !isLoadingDetailed)) {
+  const [isProgressExpanded, setIsProgressExpanded] = useState(false)
+
+  // Auto-expand when loading starts
+  useEffect(() => {
+    const isLoading = isLoadingConsumption || isLoadingPower || isLoadingDetailed
+    if (isLoading) {
+      setIsProgressExpanded(true)
+    } else if (allLoadingComplete) {
+      // Auto-collapse 1 second after completion
+      setTimeout(() => {
+        setIsProgressExpanded(false)
+      }, 1000)
+    }
+  }, [isLoadingConsumption, isLoadingPower, isLoadingDetailed, allLoadingComplete])
+
+  if (!dateRange) {
+    return null
+  }
+
+  const hasAnyLoading = isLoadingConsumption || isLoadingPower || isLoadingDetailed || allLoadingComplete
+
+  if (!hasAnyLoading) {
     return null
   }
 
   return (
-    <div className="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-      <div className="flex flex-col gap-6">
+    <div className="mt-6">
+      <div
+        onClick={() => setIsProgressExpanded(!isProgressExpanded)}
+        className="flex items-center justify-between cursor-pointer hover:opacity-70 transition-opacity"
+      >
+        <div className="flex items-center gap-2">
+          <Activity className="text-primary-600 dark:text-primary-400" size={20} />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Progression du chargement
+          </h3>
+        </div>
+        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+          {isProgressExpanded ? (
+            <span className="text-sm">Réduire</span>
+          ) : (
+            <span className="text-sm">Développer</span>
+          )}
+          {isProgressExpanded ? (
+            <ChevronUp size={20} className="text-gray-500" />
+          ) : (
+            <ChevronDown size={20} className="text-gray-500" />
+          )}
+        </div>
+      </div>
+
+      {isProgressExpanded && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-300 mt-4">
+          <div className="flex flex-col gap-6">
         {/* Daily consumption data loading */}
         <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
@@ -188,7 +237,9 @@ export function LoadingProgress({
             Analyse des plages horaires pour déterminer les heures creuses
           </p>
         </div>
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
