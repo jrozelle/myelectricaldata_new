@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Download, CalendarRange } from 'lucide-react'
+import React, { useState } from 'react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush, ReferenceArea } from 'recharts'
+import { Download, ZoomOut } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface MonthlyData {
@@ -13,6 +13,8 @@ interface MonthlyData {
 interface YearData {
   year: string
   months: MonthlyData[]
+  dataAvailable?: number
+  totalDays?: number
 }
 
 interface MonthlyHcHpProps {
@@ -22,55 +24,119 @@ interface MonthlyHcHpProps {
 }
 
 export function MonthlyHcHp({ monthlyHcHpByYear, selectedPDLDetails, isDarkMode }: MonthlyHcHpProps) {
-  const [selectedMonthlyHcHpYear, setSelectedMonthlyHcHpYear] = useState(0)
-  const [showYearComparison, setShowYearComparison] = useState(false)
+  // Track selected years with a Set (allows multiple selections)
+  // Default to the most recent year (find the highest year value)
+  const [selectedYears, setSelectedYears] = useState<Set<number>>(() => {
+    if (monthlyHcHpByYear.length === 0) return new Set([0])
+
+    // Find index of the most recent year (highest year number)
+    const mostRecentIndex = monthlyHcHpByYear.reduce((maxIdx, current, currentIdx, array) => {
+      return parseInt(current.year) > parseInt(array[maxIdx].year) ? currentIdx : maxIdx
+    }, 0)
+
+    return new Set([mostRecentIndex])
+  })
+
+  // Zoom state
+  const [refAreaLeft, setRefAreaLeft] = useState<string>('')
+  const [refAreaRight, setRefAreaRight] = useState<string>('')
+  const [zoomDomain, setZoomDomain] = useState<{ left: number; right: number } | null>(null)
 
   if (monthlyHcHpByYear.length === 0 || !selectedPDLDetails?.offpeak_hours) {
     return null
   }
 
-  const handleExport = () => {
-    const jsonData = JSON.stringify(monthlyHcHpByYear, null, 2)
-    navigator.clipboard.writeText(jsonData)
-    toast.success('Données HC/HP mensuelles copiées dans le presse-papier')
+  const toggleYearSelection = (index: number) => {
+    const newSelection = new Set(selectedYears)
+    if (newSelection.has(index)) {
+      // Don't allow deselecting the last selected year
+      if (newSelection.size > 1) {
+        newSelection.delete(index)
+      }
+    } else {
+      newSelection.add(index)
+    }
+    setSelectedYears(newSelection)
   }
 
-  const getChartData = () => {
-    const yearData = monthlyHcHpByYear[selectedMonthlyHcHpYear]
-    const previousYearData = showYearComparison && selectedMonthlyHcHpYear === 0 && monthlyHcHpByYear[1]
-      ? monthlyHcHpByYear[1]
-      : null
+  const handleExport = () => {
+    const selectedData = Array.from(selectedYears)
+      .map(index => monthlyHcHpByYear[index])
+      .sort((a, b) => a.year.localeCompare(b.year)) // Sort by year ascending
+    const jsonData = JSON.stringify(selectedData, null, 2)
+    navigator.clipboard.writeText(jsonData)
+    const yearLabels = selectedData.map(d => d.year).join(', ')
+    toast.success(`Données HC/HP de ${yearLabels} copiées dans le presse-papier`)
+  }
 
-    let chartData = yearData.months
+  const zoomOut = () => {
+    setZoomDomain(null)
+    setRefAreaLeft('')
+    setRefAreaRight('')
+  }
 
-    if (previousYearData) {
-      // Create a map of previous year data by month name
-      const prevDataMap = new Map(
-        previousYearData.months.map(m => {
-          const monthName = m.month.split(' ')[0] // Extract month name
-          return [monthName, { hcKwh: m.hcKwh, hpKwh: m.hpKwh }]
-        })
-      )
+  const zoom = () => {
+    if (!refAreaLeft || !refAreaRight) return
 
-      // Merge with current year data
-      chartData = yearData.months.map(m => {
-        const monthName = m.month.split(' ')[0]
-        const prevData = prevDataMap.get(monthName)
-        return {
-          month: monthName,
-          hcKwh: m.hcKwh,
-          hpKwh: m.hpKwh,
-          totalKwh: m.totalKwh,
-          prevHcKwh: prevData?.hcKwh || 0,
-          prevHpKwh: prevData?.hpKwh || 0,
-        }
-      })
+    // Get indices
+    let left = chartData.findIndex(item => item.month === refAreaLeft)
+    let right = chartData.findIndex(item => item.month === refAreaRight)
+
+    if (left === right || left === -1 || right === -1) {
+      setRefAreaLeft('')
+      setRefAreaRight('')
+      return
     }
 
-    return { chartData, yearData, previousYearData }
+    // Swap if needed
+    if (left > right) [left, right] = [right, left]
+
+    setZoomDomain({ left, right })
+    setRefAreaLeft('')
+    setRefAreaRight('')
   }
 
-  const { chartData, yearData, previousYearData } = getChartData()
+  // Prepare chart data with all selected years
+  const chartData = (() => {
+    const selectedYearsData = Array.from(selectedYears)
+      .map(index => monthlyHcHpByYear[index])
+      .sort((a, b) => a.year.localeCompare(b.year)) // Sort by year ascending (2024 before 2025)
+
+    // Create a map of all months
+    const monthsMap = new Map<string, any>()
+
+    selectedYearsData.forEach((yearData, yearIndex) => {
+      yearData.months.forEach(monthData => {
+        const monthKey = monthData.month.split(' ')[0] // Extract month name (e.g., "Jan")
+
+        if (!monthsMap.has(monthKey)) {
+          monthsMap.set(monthKey, { month: monthKey })
+        }
+
+        const entry = monthsMap.get(monthKey)!
+        // Add data for this year with index suffix
+        entry[`hc_${yearData.year}`] = monthData.hcKwh
+        entry[`hp_${yearData.year}`] = monthData.hpKwh
+      })
+    })
+
+    // Convert to array and ensure proper month order
+    const monthOrder = ['jan', 'fév', 'mar', 'avr', 'mai', 'jun', 'jul', 'aoû', 'sep', 'oct', 'nov', 'déc']
+    return Array.from(monthsMap.values()).sort((a, b) => {
+      const aIndex = monthOrder.findIndex(m => a.month.toLowerCase().startsWith(m))
+      const bIndex = monthOrder.findIndex(m => b.month.toLowerCase().startsWith(m))
+      return aIndex - bIndex
+    })
+  })()
+
+  const selectedYearsData = Array.from(selectedYears)
+    .map(index => monthlyHcHpByYear[index])
+    .sort((a, b) => a.year.localeCompare(b.year)) // Sort by year ascending for display
+
+  // Get display data based on zoom
+  const displayData = zoomDomain
+    ? chartData.slice(zoomDomain.left, zoomDomain.right + 1)
+    : chartData
 
   return (
     <div className="mt-8">
@@ -80,44 +146,38 @@ export function MonthlyHcHp({ monthlyHcHpByYear, selectedPDLDetails, isDarkMode 
 
       {/* Tabs and buttons - responsive layout */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-        {/* Tabs on the left */}
+        {/* Tabs on the left - Allow multiple selection */}
         <div className="flex gap-2 flex-1 overflow-x-auto">
-          {monthlyHcHpByYear.map((yearData, index) => (
-            <button
-              key={yearData.year}
-              onClick={() => setSelectedMonthlyHcHpYear(index)}
-              className={`flex-1 px-4 py-2.5 font-semibold rounded-lg transition-all duration-200 ${
-                selectedMonthlyHcHpYear === index
-                  ? 'bg-primary-600 text-white shadow-lg'
-                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-primary-400 dark:hover:border-primary-600'
-              }`}
-            >
-              {yearData.year}
-            </button>
-          ))}
+          {monthlyHcHpByYear.map((yearData, idx) => {
+            const isSelected = selectedYears.has(idx)
+            return (
+              <button
+                key={yearData.year}
+                onClick={() => toggleYearSelection(idx)}
+                className={`flex-1 px-4 py-2.5 font-semibold rounded-lg transition-all duration-200 ${
+                  isSelected
+                    ? 'bg-primary-600 text-white shadow-lg'
+                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-primary-400 dark:hover:border-primary-600'
+                }`}
+              >
+                {yearData.year}
+              </button>
+            )
+          })}
         </div>
 
-        {/* Buttons on the right */}
-        <div className="flex items-center gap-2 justify-end">
-          {/* Comparison toggle - always show but disable when not available */}
-          <button
-            onClick={() => {
-              if (selectedMonthlyHcHpYear === 0 && monthlyHcHpByYear.length > 1) {
-                setShowYearComparison(!showYearComparison)
-              }
-            }}
-            disabled={!(selectedMonthlyHcHpYear === 0 && monthlyHcHpByYear.length > 1)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-              showYearComparison && selectedMonthlyHcHpYear === 0 && monthlyHcHpByYear.length > 1
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
-                : !(selectedMonthlyHcHpYear === 0 && monthlyHcHpByYear.length > 1)
-                ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 border border-gray-300 dark:border-gray-600 cursor-not-allowed opacity-50'
-                : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
-            }`}
-          >
-            <CalendarRange size={16} className="flex-shrink-0" />
-            <span>Année -1</span>
-          </button>
+        {/* Action buttons on the right */}
+        <div className="flex gap-2">
+          {zoomDomain && (
+            <button
+              onClick={zoomOut}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
+              title="Réinitialiser le zoom"
+            >
+              <ZoomOut size={16} className="flex-shrink-0" />
+              <span>Réinitialiser</span>
+            </button>
+          )}
           <button
             onClick={handleExport}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
@@ -128,10 +188,32 @@ export function MonthlyHcHp({ monthlyHcHpByYear, selectedPDLDetails, isDarkMode 
         </div>
       </div>
 
-      {/* Display selected year chart */}
+      {/* Display selected years chart */}
       <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-6 border border-gray-200 dark:border-gray-600">
+        {/* Show data availability warnings for selected years */}
+        {selectedYearsData.some(year => year.dataAvailable !== undefined && year.dataAvailable < 350) && (
+          <div className="mb-4 space-y-2">
+            {selectedYearsData
+              .filter(year => year.dataAvailable !== undefined && year.dataAvailable < 350)
+              .map(year => (
+                <div key={year.year} className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    <strong>⚠️ {year.year} - Données partielles :</strong> {year.dataAvailable} jours de données disponibles sur 365 jours pour cette période glissante.
+                    {year.dataAvailable! < 100 && ' Les valeurs affichées peuvent être significativement incomplètes.'}
+                  </p>
+                </div>
+              ))
+            }
+          </div>
+        )}
+
         <ResponsiveContainer width="100%" height={400}>
-          <BarChart data={chartData}>
+          <BarChart
+            data={displayData}
+            onMouseDown={(e) => e && e.activeLabel && setRefAreaLeft(e.activeLabel)}
+            onMouseMove={(e) => refAreaLeft && e && e.activeLabel && setRefAreaRight(e.activeLabel)}
+            onMouseUp={zoom}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#9CA3AF" opacity={0.3} />
             <XAxis
               dataKey="month"
@@ -154,21 +236,57 @@ export function MonthlyHcHp({ monthlyHcHpByYear, selectedPDLDetails, isDarkMode 
               formatter={(value: number) => value.toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' kWh'}
             />
             <Legend />
-            {showYearComparison && previousYearData ? (
-              <>
-                <Bar dataKey="hcKwh" name={`HC ${yearData.year}`} stackId="current" fill="#3b82f6" />
-                <Bar dataKey="hpKwh" name={`HP ${yearData.year}`} stackId="current" fill="#f97316" />
-                <Bar dataKey="prevHcKwh" name={`HC ${previousYearData.year}`} stackId="previous" fill="#93c5fd" />
-                <Bar dataKey="prevHpKwh" name={`HP ${previousYearData.year}`} stackId="previous" fill="#fdba74" />
-              </>
-            ) : (
-              <>
-                <Bar dataKey="hcKwh" name="Heures Creuses (HC)" stackId="a" fill="#3b82f6" />
-                <Bar dataKey="hpKwh" name="Heures Pleines (HP)" stackId="a" fill="#f97316" />
-              </>
+            {/* Dynamically create bars for each selected year */}
+            {selectedYearsData.map((yearData, index) => {
+              // Define colors for HC and HP for each year with transparency for overlay effect
+              const hcColors = [
+                'rgba(59, 130, 246, 0.7)',   // blue
+                'rgba(147, 197, 253, 0.7)',  // light blue
+                'rgba(96, 165, 250, 0.7)',   // sky blue
+                'rgba(37, 99, 235, 0.7)'     // dark blue
+              ]
+              const hpColors = [
+                'rgba(249, 115, 22, 0.7)',   // orange
+                'rgba(253, 186, 116, 0.7)',  // light orange
+                'rgba(251, 146, 60, 0.7)',   // amber
+                'rgba(234, 88, 12, 0.7)'     // dark orange
+              ]
+
+              return (
+                <React.Fragment key={yearData.year}>
+                  <Bar
+                    dataKey={`hc_${yearData.year}`}
+                    name={`HC ${yearData.year}`}
+                    fill={hcColors[index % hcColors.length]}
+                  />
+                  <Bar
+                    dataKey={`hp_${yearData.year}`}
+                    name={`HP ${yearData.year}`}
+                    fill={hpColors[index % hpColors.length]}
+                  />
+                </React.Fragment>
+              )
+            })}
+
+            {/* Selection area for zooming */}
+            {refAreaLeft && refAreaRight && (
+              <ReferenceArea
+                x1={refAreaLeft}
+                x2={refAreaRight}
+                strokeOpacity={0.3}
+                fill={isDarkMode ? "#6366f1" : "#818cf8"}
+                fillOpacity={0.3}
+              />
             )}
           </BarChart>
         </ResponsiveContainer>
+
+        {/* Zoom instruction */}
+        {!zoomDomain && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+            💡 Cliquez et glissez sur le graphique pour zoomer sur une période
+          </p>
+        )}
       </div>
     </div>
   )

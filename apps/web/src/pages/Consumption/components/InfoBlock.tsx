@@ -21,9 +21,10 @@ export function InfoBlock() {
             </p>
             <ul className="list-disc list-inside space-y-1 ml-2">
               <li>Les données sont récupérées depuis l'API <strong>Enedis Data Connect</strong></li>
-              <li>Endpoint utilisé : <code className="bg-blue-100 dark:bg-blue-900/40 px-1 rounded">consumption/daily</code> (relevés quotidiens)</li>
-              <li>Récupération automatique de <strong>1095 jours d'historique</strong> (limite maximale Enedis)</li>
+              <li>Données quotidiennes : <strong>1095 jours</strong> d'historique (3 ans)</li>
+              <li>Données détaillées (30 min) : <strong>730 jours</strong> d'historique (2 ans)</li>
               <li>Les données Enedis ne sont disponibles qu'en <strong>J-1</strong> (hier)</li>
+              <li>Les calculs HC/HP utilisent des <strong>périodes glissantes de 365 jours</strong>, non des années calendaires</li>
             </ul>
           </div>
         </div>

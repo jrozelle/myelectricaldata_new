@@ -525,7 +525,7 @@ export default function Consumption() {
 
           {isChartsExpanded && (
             <div className="px-6 pb-6 space-y-8">
-              {/* Yearly Consumption */}
+              {/* Yearly Consumption by Month */}
               <YearlyConsumption
                 chartData={chartData}
                 consumptionData={consumptionData}
@@ -663,8 +663,6 @@ export default function Consumption() {
             <div className="px-6 pb-6">
               <PowerPeaks
                 powerByYearData={powerByYearData}
-                selectedPowerYear={selectedPowerYear}
-                setSelectedPowerYear={setCalcSelectedPowerYear}
                 selectedPDLDetails={selectedPDLDetails}
                 maxPowerData={maxPowerData}
                 isDarkMode={isDarkMode}

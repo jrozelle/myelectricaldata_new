@@ -109,6 +109,7 @@ export function useConsumptionCalcs({
 
     // Aggregate by 365-day periods
     const periodData: Record<string, { value: number, startDate: Date, endDate: Date }> = {}
+    const periodMonthlyData: Record<string, Record<string, number>> = {}
 
     readings.forEach((reading: any) => {
       const rawValue = parseFloat(reading.value || 0)
@@ -133,6 +134,12 @@ export function useConsumptionCalcs({
             }
           }
           periodData[period.label].value += value
+
+          // Aggregate monthly data for each period
+          if (!periodMonthlyData[period.label]) {
+            periodMonthlyData[period.label] = {}
+          }
+          periodMonthlyData[period.label][month] = (periodMonthlyData[period.label][month] || 0) + value
         }
       })
 
@@ -195,12 +202,31 @@ export function useConsumptionCalcs({
       return row
     })
 
+    // Create years array for AnnualCurve multi-select
+    const yearsByPeriod = periods.map(period => {
+      const periodMonths = periodMonthlyData[period.label] || {}
+      const byMonth = Object.entries(periodMonths)
+        .map(([month, value]) => ({
+          month,
+          monthLabel: new Date(month + '-01').toLocaleDateString('fr-FR', { year: 'numeric', month: 'short' }),
+          consumption: Math.round(value),
+          consommation: Math.round(value),
+        }))
+        .sort((a, b) => a.month.localeCompare(b.month))
+
+      return {
+        label: period.label,
+        byMonth
+      }
+    }).reverse()
+
     return {
       byYear,
       byMonth,
       byMonthComparison,
       total: Math.round(totalConsumption),
       years,
+      yearsByPeriod,
       unit,
     }
   }, [consumptionData])
@@ -408,6 +434,7 @@ export function useConsumptionCalcs({
       const unit = data.meter_reading.reading_type?.unit || 'W'
       const intervalLength = data.meter_reading.reading_type?.interval_length || 'P30M'
 
+
       const parseIntervalToDurationInHours = (interval: string): number => {
         const match = interval.match(/^P(\d+)([DHM])$/)
         if (!match) return 0.5
@@ -448,7 +475,18 @@ export function useConsumptionCalcs({
 
     if (allReadings.length === 0) return []
 
-    const mostRecentDate = new Date(Math.max(...allReadings.map(r => r.date.getTime())))
+    // Remove duplicates by keeping only unique date/time combinations
+    const uniqueReadingsMap = new Map<string, { date: Date; energyKwh: number; isHC: boolean }>()
+    allReadings.forEach(reading => {
+      const key = reading.date.toISOString()
+      if (!uniqueReadingsMap.has(key)) {
+        uniqueReadingsMap.set(key, reading)
+      }
+    })
+
+    const uniqueReadings = Array.from(uniqueReadingsMap.values())
+
+    const mostRecentDate = new Date(Math.max(...uniqueReadings.map(r => r.date.getTime())))
 
     // Define 3 rolling 365-day periods
     const periods = []
@@ -467,7 +505,7 @@ export function useConsumptionCalcs({
     }
 
     const result = periods.map(period => {
-      const periodReadings = allReadings.filter(r => r.date >= period.start && r.date <= period.end)
+      const periodReadings = uniqueReadings.filter(r => r.date >= period.start && r.date <= period.end)
 
       const hcKwh = periodReadings.filter(r => r.isHC).reduce((sum, r) => sum + r.energyKwh, 0)
       const hpKwh = periodReadings.filter(r => !r.isHC).reduce((sum, r) => sum + r.energyKwh, 0)
@@ -499,6 +537,7 @@ export function useConsumptionCalcs({
 
     if (allDetailQueries.length === 0) return []
 
+
     const allReadings: Array<{ date: Date; energyKwh: number; isHC: boolean }> = []
 
     allDetailQueries.forEach((query) => {
@@ -510,6 +549,7 @@ export function useConsumptionCalcs({
       const readings = data.meter_reading.interval_reading
       const unit = data.meter_reading.reading_type?.unit || 'W'
       const intervalLength = data.meter_reading.reading_type?.interval_length || 'P30M'
+
 
       const parseIntervalToDurationInHours = (interval: string): number => {
         const match = interval.match(/^P(\d+)([DHM])$/)
@@ -543,27 +583,52 @@ export function useConsumptionCalcs({
 
     if (allReadings.length === 0) return []
 
-    const mostRecentDate = new Date(Math.max(...allReadings.map(r => r.date.getTime())))
+    // Remove duplicates by keeping only unique date/time combinations
+    const uniqueReadingsMap = new Map<string, { date: Date; energyKwh: number; isHC: boolean }>()
+    allReadings.forEach(reading => {
+      const key = reading.date.toISOString()
+      if (!uniqueReadingsMap.has(key)) {
+        uniqueReadingsMap.set(key, reading)
+      }
+    })
 
-    // Define 3 rolling 365-day periods
+    const uniqueReadings = Array.from(uniqueReadingsMap.values())
+
+    const mostRecentDate = new Date(Math.max(...uniqueReadings.map(r => r.date.getTime())))
+
+    // Define 2 rolling 365-day periods (max 730 days from API)
+    // Period 1: Most recent 365 days (from yesterday back 365 days)
+    // Period 2: Previous 365 days (from 365 days ago back to 730 days ago)
     const periods = []
-    for (let i = 0; i < 3; i++) {
-      const periodEnd = new Date(mostRecentDate)
-      periodEnd.setDate(mostRecentDate.getDate() - (i * 365))
-      const periodStart = new Date(periodEnd)
-      periodStart.setDate(periodEnd.getDate() - 364)
 
-      const endYear = periodEnd.getFullYear()
+    // Period 1: Last 365 days (e.g., Nov 11, 2024 to Nov 10, 2025)
+    const period1End = new Date(mostRecentDate)
+    const period1Start = new Date(mostRecentDate)
+    period1Start.setDate(period1Start.getDate() - 364) // 365 days total including end date
 
-      periods.push({
-        start: periodStart,
-        end: periodEnd,
-        label: endYear.toString()
-      })
-    }
+    periods.push({
+      start: period1Start,
+      end: period1End,
+      label: period1End.getFullYear().toString() // 2025
+    })
+
+    // Period 2: Previous 365 days (e.g., Nov 11, 2023 to Nov 10, 2024)
+    const period2End = new Date(period1Start)
+    period2End.setDate(period2End.getDate() - 1) // Day before period 1 starts
+    const period2Start = new Date(period2End)
+    period2Start.setDate(period2Start.getDate() - 364) // 365 days total
+
+    periods.push({
+      start: period2Start,
+      end: period2End,
+      label: period2End.getFullYear().toString() // 2024
+    })
 
     const result = periods.map(period => {
-      const periodReadings = allReadings.filter(r => r.date >= period.start && r.date <= period.end)
+      const periodReadings = uniqueReadings.filter(r => r.date >= period.start && r.date <= period.end)
+
+      // Count available data days for this period
+      const uniqueDays = new Set(periodReadings.map(r => r.date.toDateString())).size
 
       const monthlyData: Record<string, { hcKwh: number; hpKwh: number; month: string }> = {}
 
@@ -595,7 +660,9 @@ export function useConsumptionCalcs({
 
       return {
         year: period.label,
-        months
+        months,
+        dataAvailable: uniqueDays, // Number of days with data
+        totalDays: 365
       }
     }).filter(p => p.months.length >= 12)
 
