@@ -7,6 +7,7 @@ from ..models.database import get_db
 from ..schemas import APIResponse, ErrorDetail, CacheDeleteResponse
 from ..middleware import get_current_user
 from ..adapters import enedis_adapter
+from ..adapters.demo_adapter import demo_adapter
 from ..services import cache_service, rate_limiter
 import logging
 
@@ -22,6 +23,18 @@ router = APIRouter(
         429: {"description": "Rate limit exceeded"},
     },
 )
+
+
+async def get_adapter_for_user(user: User):
+    """
+    Get the appropriate adapter (demo or enedis) based on user.
+    Returns (adapter, is_demo) tuple.
+    """
+    is_demo = await demo_adapter.is_demo_user(user.email)
+    if is_demo:
+        logger.info(f"[DEMO MODE] Using demo adapter for user {user.email}")
+        return demo_adapter, True
+    return enedis_adapter, False
 
 
 async def verify_pdl_ownership(usage_point_id: str, user: User, db: AsyncSession) -> bool:
@@ -129,6 +142,14 @@ async def check_rate_limit(user_id: str, use_cache: bool, is_admin: bool = False
 
 async def get_valid_token(usage_point_id: str, user: User, db: AsyncSession) -> str | None:
     """Get valid Client Credentials token for Enedis API. Returns access_token string."""
+    # Skip token validation for demo users
+    if await demo_adapter.is_demo_user(user.email):
+        logger.info(f"[DEMO MODE] Skipping token validation for demo user {user.email}")
+        # Still verify PDL ownership
+        if not await verify_pdl_ownership(usage_point_id, user, db):
+            return None
+        return "demo_token"  # Return dummy token for demo users
+
     # First, verify PDL ownership
     if not await verify_pdl_ownership(usage_point_id, user, db):
         return None
@@ -293,15 +314,20 @@ async def get_consumption_daily(
             # No cache available for old data
             return error_response
 
-    access_token = await get_valid_token(usage_point_id, current_user, db)
-    if not access_token:
-        return APIResponse(
-            success=False,
-            error=ErrorDetail(
-                code="ACCESS_DENIED",
-                message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent."
+    # Check if user is demo - skip token validation for demo users
+    _, is_demo = await get_adapter_for_user(current_user)
+    access_token = None
+
+    if not is_demo:
+        access_token = await get_valid_token(usage_point_id, current_user, db)
+        if not access_token:
+            return APIResponse(
+                success=False,
+                error=ErrorDetail(
+                    code="ACCESS_DENIED",
+                    message="Access denied: PDL not found or no valid token. Please verify PDL ownership and consent."
+                )
             )
-        )
 
     # Check rate limit - use route path template instead of actual path
     endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
@@ -401,7 +427,14 @@ async def get_consumption_daily(
                     api_end = range_end
 
                 logger.info(f"[API CALL] Fetching data from {api_start} to {api_end}")
-                data = await enedis_adapter.get_consumption_daily(usage_point_id, api_start, api_end, access_token)
+
+                # Use appropriate adapter based on user type
+                adapter, is_demo = await get_adapter_for_user(current_user)
+                if is_demo:
+                    # Demo adapter uses client_secret instead of access_token
+                    data = await adapter.get_consumption_daily(usage_point_id, api_start, api_end, current_user.client_secret)
+                else:
+                    data = await adapter.get_consumption_daily(usage_point_id, api_start, api_end, access_token)
 
                 # Extract readings and reading_type from response
                 fetched_readings = []
@@ -622,7 +655,12 @@ async def get_consumption_detail(
                 else:
                     logger.info(f"[FETCH] {usage_point_id} - {range_start} to {range_end}")
 
-                data = await enedis_adapter.get_consumption_detail(usage_point_id, range_start, range_end, access_token)
+                # Use appropriate adapter based on user type
+                adapter, is_demo = await get_adapter_for_user(current_user)
+                if is_demo:
+                    data = await adapter.get_consumption_detail(usage_point_id, range_start, range_end, current_user.client_secret)
+                else:
+                    data = await adapter.get_consumption_detail(usage_point_id, range_start, range_end, access_token)
 
                 # Check for Enedis error ADAM-ERR0123 (data older than meter activation)
                 if isinstance(data, dict) and "error" in data and data["error"] == "ADAM-ERR0123":
@@ -766,7 +804,12 @@ async def get_production_daily(
             return APIResponse(success=True, data=cached_data)
 
     try:
-        data = await enedis_adapter.get_production_daily(usage_point_id, start, end, access_token)
+        # Use appropriate adapter based on user type
+        adapter, is_demo = await get_adapter_for_user(current_user)
+        if is_demo:
+            data = await adapter.get_production_daily(usage_point_id, start, end, current_user.client_secret)
+        else:
+            data = await adapter.get_production_daily(usage_point_id, start, end, access_token)
 
         # Cache result
         if use_cache:
@@ -808,7 +851,12 @@ async def get_production_detail(
             return APIResponse(success=True, data=cached_data)
 
     try:
-        data = await enedis_adapter.get_production_detail(usage_point_id, start, end, access_token)
+        # Use appropriate adapter based on user type
+        adapter, is_demo = await get_adapter_for_user(current_user)
+        if is_demo:
+            data = await adapter.get_production_detail(usage_point_id, start, end, current_user.client_secret)
+        else:
+            data = await adapter.get_production_detail(usage_point_id, start, end, access_token)
 
         # Cache result
         if use_cache:
@@ -852,7 +900,12 @@ async def get_contract(
         logger.info(f"[ENEDIS CONTRACT] Fetching contract for usage_point_id: {usage_point_id}")
         logger.info(f"[ENEDIS CONTRACT] Using cache: {use_cache}")
 
-        data = await enedis_adapter.get_contract(usage_point_id, access_token)
+        # Use appropriate adapter based on user type
+        adapter, is_demo = await get_adapter_for_user(current_user)
+        if is_demo:
+            data = await adapter.get_contract(usage_point_id, current_user.client_secret)
+        else:
+            data = await adapter.get_contract(usage_point_id, access_token)
 
         logger.info(f"[ENEDIS CONTRACT] Successfully fetched contract data")
 
@@ -897,7 +950,12 @@ async def get_address(
             return APIResponse(success=True, data=cached_data)
 
     try:
-        data = await enedis_adapter.get_address(usage_point_id, access_token)
+        # Use appropriate adapter based on user type
+        adapter, is_demo = await get_adapter_for_user(current_user)
+        if is_demo:
+            data = await adapter.get_address(usage_point_id, current_user.client_secret)
+        else:
+            data = await adapter.get_address(usage_point_id, access_token)
 
         # Cache result
         if use_cache:
@@ -937,7 +995,12 @@ async def get_customer(
             return APIResponse(success=True, data=cached_data)
 
     try:
-        data = await enedis_adapter.get_customer(usage_point_id, access_token)
+        # Use appropriate adapter based on user type
+        adapter, is_demo = await get_adapter_for_user(current_user)
+        if is_demo:
+            data = await adapter.get_customer(usage_point_id, current_user.client_secret)
+        else:
+            data = await adapter.get_customer(usage_point_id, access_token)
 
         # Cache result
         if use_cache:
@@ -977,7 +1040,12 @@ async def get_contact(
             return APIResponse(success=True, data=cached_data)
 
     try:
-        data = await enedis_adapter.get_contact(usage_point_id, access_token)
+        # Use appropriate adapter based on user type
+        adapter, is_demo = await get_adapter_for_user(current_user)
+        if is_demo:
+            data = await adapter.get_contact(usage_point_id, current_user.client_secret)
+        else:
+            data = await adapter.get_contact(usage_point_id, access_token)
 
         # Cache result
         if use_cache:
