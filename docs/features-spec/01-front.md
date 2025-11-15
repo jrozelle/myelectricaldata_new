@@ -15,6 +15,7 @@ L'interface web agit comme point d'entree principal pour les particuliers souhai
 ## Pages principales
 
 ### Accueil (Landing)
+
 - Message principal sur la passerelle et rappel que les API Enedis sont reservees aux professionnels.
 - Section "Comment ca marche" en trois etapes : Consentement Enedis, Creation de compte, Obtention de la cle API.
 - Bouton primaire `Demarrer` redirigeant vers la creation de compte ou l'espace utilisateur si deja connecte.
@@ -22,24 +23,28 @@ L'interface web agit comme point d'entree principal pour les particuliers souhai
 - Bloc d'information sur la politique de cache (5 appels/seconde) et la securite (donnees chiffre avec la cle API utilisateur).
 
 ### Authentification
+
 - Pages Login / Register dediees.
 - Enregistrement necessite email, mot de passe, acceptation CGU et lien vers politique de confidentialite.
 - Post inscription : affichage clair des prochaines etapes pour lancer la demande de consentement.
 - Fonction de reinitialisation de mot de passe via email.
 
 ### Consentement Enedis
+
 - Page explicative avant redirection vers l'URL OAuth Enedis (`docs/features-spec/01-gateway.md`).
 - Lecture de l'etat de consentement : en attente, valide, expire, refuse.
 - Gestion des erreurs de retour : affichage des messages issus de l'API et proposition de reessayer.
 - Indicateur clair quand le consentement est valide (badge + date d'expiration).
 
 ### Tableau de bord utilisateur
+
 - Resume : statut consentement, nombre de PDL rattaches, quotas d'appels, dernier rafraichissement cache.
 - Bloc `Identifiants API` avec affichage du `client_id` et possibilite de reveler/masquer le `client_secret` (double confirmation avant affichage). Aucun telechargement automatique.
 - Section `Points de livraison` : liste, ajout, edition, suppression. Chaque PDL affiche la date de dernier sync et son statut.
 - Historique des appels recents (derniers succes/erreurs) pour debug basique.
 
 ### Parametres compte
+
 - Edition des informations personnelles (nom, email) et changement de mot de passe.
 - Bouton `Supprimer mon compte` avec double confirmation (modale + saisie mot de passe ou code). Expliciter que cette action purge les donnees et le cache.
 - Lien vers gestion RGPD (contact, export donnees si requis).

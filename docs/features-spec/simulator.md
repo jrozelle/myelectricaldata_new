@@ -31,16 +31,16 @@ L'API Enedis limite les requêtes à **7 jours consécutifs maximum**. Pour réc
 ```typescript
 // Génération des périodes avec chevauchement
 while (currentStart < endDate) {
-  const currentEnd = new Date(currentStart)
-  currentEnd.setDate(currentEnd.getDate() + 6) // 7 jours (début inclus)
+  const currentEnd = new Date(currentStart);
+  currentEnd.setDate(currentEnd.getDate() + 6); // 7 jours (début inclus)
 
   periods.push({
-    start: currentStart.toISOString().split('T')[0],
-    end: currentEnd.toISOString().split('T')[0],
-  })
+    start: currentStart.toISOString().split("T")[0],
+    end: currentEnd.toISOString().split("T")[0],
+  });
 
   // Avancer de 6 jours au lieu de 7 pour chevaucher d'1 jour
-  currentStart.setDate(currentStart.getDate() + 6)
+  currentStart.setDate(currentStart.getDate() + 6);
 }
 ```
 
@@ -51,29 +51,30 @@ while (currentStart < endDate) {
 Pour calculer l'énergie en **Wattheures (Wh)** :
 
 ```typescript
-Énergie (Wh) = Puissance (W) / (60 / interval_minutes)
+Énergie(Wh) = Puissance(W) / (60 / interval_minutes);
 ```
 
 **Extraction de l'intervalle** :
+
 ```typescript
 // Chaque mesure a son propre interval_length
-const intervalLength = reading.interval_length || 'PT30M'
-const intervalMatch = intervalLength.match(/PT(\d+)M/)
-const intervalMinutes = intervalMatch ? parseInt(intervalMatch[1]) : 30
+const intervalLength = reading.interval_length || "PT30M";
+const intervalMatch = intervalLength.match(/PT(\d+)M/);
+const intervalMinutes = intervalMatch ? parseInt(intervalMatch[1]) : 30;
 
 // Conversion W → Wh
-const valueW = parseFloat(reading.value)
-const valueWh = valueW / (60 / intervalMinutes)
+const valueW = parseFloat(reading.value);
+const valueWh = valueW / (60 / intervalMinutes);
 ```
 
 **Tableau de conversion** :
 
-| interval_length | Minutes | Formule | Exemple (1800 W) |
-|----------------|---------|---------|------------------|
-| PT10M | 10 | W / 6 | 1800 / 6 = 300 Wh |
-| PT15M | 15 | W / 4 | 1800 / 4 = 450 Wh |
-| PT30M | 30 | W / 2 | 1800 / 2 = 900 Wh |
-| PT60M | 60 | W / 1 | 1800 / 1 = 1800 Wh |
+| interval_length | Minutes | Formule | Exemple (1800 W)   |
+| --------------- | ------- | ------- | ------------------ |
+| PT10M           | 10      | W / 6   | 1800 / 6 = 300 Wh  |
+| PT15M           | 15      | W / 4   | 1800 / 4 = 450 Wh  |
+| PT30M           | 30      | W / 2   | 1800 / 2 = 900 Wh  |
+| PT60M           | 60      | W / 1   | 1800 / 1 = 1800 Wh |
 
 **Raison** : Chaque mesure peut avoir un `interval_length` différent selon le type de compteur et la période. Il est crucial d'appliquer la conversion individuelle à chaque point de mesure avec son intervalle spécifique.
 
@@ -84,8 +85,8 @@ const valueWh = valueW / (60 / intervalMinutes)
 Tarif simple : un seul prix du kWh, constant toute l'année.
 
 ```typescript
-energyCost = totalKwh * offer.base_price
-totalCost = subscriptionCostYear + energyCost
+energyCost = totalKwh * offer.base_price;
+totalCost = subscriptionCostYear + energyCost;
 ```
 
 #### HC/HP (Heures Creuses / Heures Pleines)
@@ -93,23 +94,25 @@ totalCost = subscriptionCostYear + energyCost
 Tarif avec deux prix selon l'heure de la journée.
 
 **Configuration HC** : Récupérée depuis le PDL de l'utilisateur (`offpeak_hours`)
+
 - Format : `"HC (22H00-6H00)"` ou `"HC (02H00-07H00 + 13H00-16H00)"`
 - Parsing automatique des plages horaires
 
 **Algorithme** :
+
 ```typescript
 for (const reading of allConsumption) {
-  const hour = reading.hour
-  const kwh = reading.value / 1000
+  const hour = reading.hour;
+  const kwh = reading.value / 1000;
 
   if (isOffpeakHour(hour, pdl.offpeak_hours)) {
-    hcKwh += kwh  // Heures creuses
+    hcKwh += kwh; // Heures creuses
   } else {
-    hpKwh += kwh  // Heures pleines
+    hpKwh += kwh; // Heures pleines
   }
 }
 
-energyCost = (hcKwh * offer.hc_price) + (hpKwh * offer.hp_price)
+energyCost = hcKwh * offer.hc_price + hpKwh * offer.hp_price;
 ```
 
 #### TEMPO
@@ -117,44 +120,47 @@ energyCost = (hcKwh * offer.hc_price) + (hpKwh * offer.hp_price)
 Tarif avec 6 prix différents selon la couleur du jour (BLUE/WHITE/RED) et l'heure (HC/HP).
 
 **Couleurs TEMPO** :
+
 - **BLUE** (bleu) : jours les moins chers (~300 jours/an)
 - **WHITE** (blanc) : jours moyens (~43 jours/an)
 - **RED** (rouge) : jours les plus chers (~22 jours/an)
 
 **Plages horaires TEMPO** :
+
 - **HC** : 22h00 → 6h00 (heures creuses)
 - **HP** : 6h00 → 22h00 (heures pleines)
 
 **Algorithme** :
+
 ```typescript
 for (const reading of allConsumption) {
-  const dateOnly = reading.dateOnly  // Format YYYY-MM-DD
-  const hour = reading.hour
-  const kwh = reading.value / 1000
+  const dateOnly = reading.dateOnly; // Format YYYY-MM-DD
+  const hour = reading.hour;
+  const kwh = reading.value / 1000;
 
   // Récupérer la couleur TEMPO du jour
-  const tempoColor = tempoColorMap.get(dateOnly)
+  const tempoColor = tempoColorMap.get(dateOnly);
 
   // Déterminer la période (HC ou HP)
-  let period: 'HC' | 'HP'
+  let period: "HC" | "HP";
   if (hour >= 22 || hour < 6) {
-    period = 'HC'
+    period = "HC";
   } else {
-    period = 'HP'
+    period = "HP";
   }
 
   // Accumuler selon couleur + période
   // Ex: blueHcKwh, blueHpKwh, whiteHcKwh, whiteHpKwh, redHcKwh, redHpKwh
-  accumulate(tempoColor, period, kwh)
+  accumulate(tempoColor, period, kwh);
 }
 
 energyCost =
-  (blueHcKwh * offer.tempo_blue_hc) +
-  (blueHpKwh * offer.tempo_blue_hp) +
-  (whiteHcKwh * offer.tempo_white_hc) +
-  (whiteHpKwh * offer.tempo_white_hp) +
-  (redHcKwh * offer.tempo_red_hc) +
-  (redHpKwh * offer.tempo_red_hp)
+  blueHcKwh * offer.tempo_blue_hc +
+  blueHpKwh * offer.tempo_blue_hp +
+  whiteHcKwh * offer.tempo_white_hc +
+  whiteHpKwh * offer.tempo_white_hp +
+  redHcKwh * offer.tempo_red_hc +
+  redHpKwh * offer.tempo_red_hp;
 ```
 
 **Source des couleurs TEMPO** : Récupérées depuis l'API `/tempo/days` qui synchronise quotidiennement les données RTE.
@@ -170,9 +176,10 @@ energyCost =
 #### Duplicats
 
 Détection automatique basée sur la date complète (`YYYY-MM-DD HH:MM:SS`) :
+
 ```typescript
-const uniqueDates = new Set(allConsumption.map(item => item.date))
-const hasDuplicates = uniqueDates.size !== allConsumption.length
+const uniqueDates = new Set(allConsumption.map((item) => item.date));
+const hasDuplicates = uniqueDates.size !== allConsumption.length;
 ```
 
 Si des duplicats sont détectés, un avertissement est affiché en console mais n'empêche pas le calcul.
@@ -180,6 +187,7 @@ Si des duplicats sont détectés, un avertissement est affiché en console mais 
 #### Changements d'heure
 
 Les périodes qui incluent un changement d'heure (passage heure d'été/hiver) peuvent avoir plus ou moins de 288 points (7 jours × 48 points/jour en PT30M) :
+
 - **Passage hiver** : +50 points (1 heure répétée)
 - **Passage été** : -50 points (1 heure sautée)
 
@@ -192,12 +200,14 @@ Ceci est géré automatiquement par le découpage en périodes.
 Par défaut : **365 jours glissants** (aujourd'hui - 365 jours → hier)
 
 Options futures :
+
 - Sélection de période personnalisée
 - Comparaison sur plusieurs années
 
 ### Affichage des résultats
 
 **Format** :
+
 ```
 Offre : Tarif Bleu BASE 12 kVA
 Fournisseur : EDF
@@ -211,12 +221,14 @@ TOTAL : 2,964.00 €
 **Tri** : Par coût total croissant (offre la moins chère en premier)
 
 **Détails HC/HP** :
+
 ```
 HC : 6,766 kWh × 0.16 €/kWh = 1,082.56 €
 HP : 9,988 kWh × 0.19 €/kWh = 1,897.72 €
 ```
 
 **Détails TEMPO** :
+
 ```
 BLUE HC : 5,199 kWh × 0.12 €/kWh = 623.88 €
 BLUE HP : 6,997 kWh × 0.15 €/kWh = 1,049.55 €
@@ -229,6 +241,7 @@ RED HP : 1,806 kWh × 0.55 €/kWh = 993.30 €
 ### Indicateurs de progression
 
 Lors du chargement des données :
+
 ```
 📊 52 périodes de 7 jours à récupérer
 ⏳ Récupération période 1/52 (2024-10-04 → 2024-10-10)
@@ -255,6 +268,7 @@ Lors du chargement des données :
 ### Temps de calcul
 
 Estimation pour 365 jours en PT30M :
+
 - Récupération des données : ~10-30 secondes (selon cache)
 - Calcul des tarifs : < 1 seconde
 - Affichage des résultats : instantané
@@ -270,17 +284,18 @@ Estimation pour 365 jours en PT30M :
 
 ### Cas de test
 
-| Cas | Description | Résultat attendu |
-|-----|-------------|------------------|
-| 1 valeur 1800W PT30M | Conversion simple | 900 Wh |
-| 48 points/jour PT30M | Total journalier | 48 points acceptés |
-| Chevauchement 1 jour | 2 périodes consécutives | Duplicats détectés et filtrés |
-| Changement heure hiver | Période avec +1h | 338 points au lieu de 288 |
-| TEMPO jour rouge HP | Calcul tarif rouge | Prix élevé appliqué |
+| Cas                    | Description             | Résultat attendu              |
+| ---------------------- | ----------------------- | ----------------------------- |
+| 1 valeur 1800W PT30M   | Conversion simple       | 900 Wh                        |
+| 48 points/jour PT30M   | Total journalier        | 48 points acceptés            |
+| Chevauchement 1 jour   | 2 périodes consécutives | Duplicats détectés et filtrés |
+| Changement heure hiver | Période avec +1h        | 338 points au lieu de 288     |
+| TEMPO jour rouge HP    | Calcul tarif rouge      | Prix élevé appliqué           |
 
 ## Documentation utilisateur
 
 Messages à afficher :
+
 - **Avant simulation** : "La simulation va récupérer vos données de consommation sur 365 jours. Cela peut prendre quelques secondes."
 - **En cas d'erreur** : "Impossible de récupérer les données Enedis. Vérifiez que votre consentement est valide."
 - **Quota dépassé** : "Quota d'appels API dépassé. Réessayez demain ou contactez l'administrateur."

@@ -20,3 +20,9 @@ Tes responsabilites :
 - Suivre `@docs/rules/testing.md` pour les standards de test
 
 Verifie toujours les specifications fonctionnelles avant de coder. Garde un code simple et maintenable.
+
+## ⚠️ IMPORTANT : Guide de Design
+
+**AVANT TOUTE MODIFICATION UI**, consulter impérativement le guide de design :
+
+📋 `@docs/design`

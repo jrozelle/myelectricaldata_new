@@ -24,6 +24,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const menuItems = [
     { to: '/dashboard', icon: Home, label: 'Tableau de bord' },
     { to: '/consumption', icon: TrendingUp, label: 'Consommation' },
+    { to: '/production', icon: Sun, label: 'Production' },
     { to: '/simulator', icon: Calculator, label: 'Simulateur' },
     { to: '/contribute', icon: Users, label: 'Contribuer' },
     { to: '/tempo', icon: Calendar, label: 'Tempo' },

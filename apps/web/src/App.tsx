@@ -25,6 +25,7 @@ import AdminLogs from './pages/AdminLogs'
 import Tempo from './pages/Tempo'
 import EcoWatt from './pages/EcoWatt'
 import Consumption from './pages/Consumption'
+import Production from './pages/Production'
 import FAQ from './pages/FAQ'
 import ApiDocs from './pages/ApiDocs'
 import ApiAuth from './pages/ApiAuth'
@@ -184,6 +185,16 @@ function App() {
           <ProtectedRoute>
             <Layout>
               <Consumption />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/production"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Production />
             </Layout>
           </ProtectedRoute>
         }

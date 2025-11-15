@@ -9,12 +9,14 @@ This document provides a comprehensive guide for implementing a `/demo` command 
 ## 1. USER AUTHENTICATION & ACCOUNT MANAGEMENT
 
 ### Location
-- **Models**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/models/user.py`
-- **Router**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/routers/accounts.py`
-- **Middleware**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/middleware/auth.py`
-- **Utils**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/utils/auth.py`
+
+- **Models**: `apps/api/src/models/user.py`
+- **Router**: `apps/api/src/routers/accounts.py`
+- **Middleware**: `apps/api/src/middleware/auth.py`
+- **Utils**: `apps/api/src/utils/auth.py`
 
 ### User Model
+
 ```python
 class User(Base, TimestampMixin):
     __tablename__ = "users"
@@ -30,7 +32,7 @@ class User(Base, TimestampMixin):
     debug_mode: bool (default=False)
     enedis_customer_id: Optional[str]
     role_id: Optional[str] (ForeignKey to Role)
-    
+
     # Relations
     role: Role relationship
     pdls: list[PDL] cascade delete-orphan
@@ -38,6 +40,7 @@ class User(Base, TimestampMixin):
 ```
 
 ### Account Creation Flow (Signup)
+
 ```
 1. POST /accounts/signup
    - Input: email (EmailStr), password (min 8 chars), optional turnstile_token
@@ -53,6 +56,7 @@ class User(Base, TimestampMixin):
 ```
 
 ### Login Flow
+
 ```
 1. POST /accounts/login
    - Input: email, password
@@ -68,12 +72,15 @@ class User(Base, TimestampMixin):
 ```
 
 ### Authentication
+
 All API endpoints use bearer token authentication:
+
 - JWT token (from login): decoded at runtime, extracts user.id from 'sub' claim
 - Client secret: can be used directly as bearer token (fallback)
 - Header: `Authorization: Bearer {token}`
 
 ### Utility Functions
+
 ```python
 # Password hashing (bcrypt)
 def verify_password(plain_password: str, hashed_password: str) -> bool
@@ -93,13 +100,15 @@ def generate_client_secret() -> str  # Returns random_urlsafe_string (64 chars)
 ## 2. USER DATA STORAGE & DATABASE
 
 ### Database Configuration
-- **Location**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/models/database.py`
-- **Settings**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/config/settings.py`
+
+- **Location**: `apps/api/src/models/database.py`
+- **Settings**: `apps/api/src/config/settings.py`
 - **Default**: SQLite at `./data/myelectricaldata.db`
 - **Supported**: PostgreSQL (via DATABASE_URL setting)
 - **ORM**: SQLAlchemy with async support (asyncio)
 
 ### Related Models
+
 ```python
 # Role-based access control
 class Role(Base):
@@ -131,61 +140,65 @@ class PasswordResetToken(Base):
 ## 3. ENEDIS API INTEGRATION & TOKEN MANAGEMENT
 
 ### Location
-- **Adapter**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/adapters/enedis.py`
-- **Router**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/routers/enedis.py`
-- **Token Model**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/models/token.py`
+
+- **Adapter**: `apps/api/src/adapters/enedis.py`
+- **Router**: `apps/api/src/routers/enedis.py`
+- **Token Model**: `apps/api/src/models/token.py`
 
 ### Enedis Token Model
+
 ```python
 class Token(Base, TimestampMixin):
     __tablename__ = "tokens"
-    
+
     id: str (UUID)
     user_id: Optional[str] (ForeignKey) # Nullable for global tokens
     usage_point_id: str (indexed) # 14-digit PDL identifier
-    
+
     access_token: str (Text)
     refresh_token: Optional[str]
     token_type: str (default="Bearer")
     expires_at: datetime
     scope: Optional[str]
-    
+
     # For global token: user_id=None, usage_point_id="__global__"
 ```
 
 ### Enedis API Endpoints (via Adapter)
+
 ```python
 class EnedisAdapter:
     # OAuth2 flows
     async def get_client_credentials_token() -> dict
         # Returns: {"access_token": str, "expires_in": int, ...}
         # Used for global machine-to-machine access
-    
+
     async def exchange_authorization_code(code: str, redirect_uri: str) -> dict
         # For user-specific OAuth consent flow
-    
+
     async def refresh_access_token(refresh_token: str) -> dict
-    
+
     # Data endpoints
     async def get_consumption_daily(usage_point_id, start, end, access_token) -> dict
         # Returns: {"meter_reading": {"interval_reading": [...], "reading_type": {...}}}
-    
+
     async def get_consumption_detail(usage_point_id, start, end, access_token) -> dict
         # Load curve data (30-min intervals)
-    
+
     async def get_production_daily(usage_point_id, start, end, access_token) -> dict
     async def get_production_detail(usage_point_id, start, end, access_token) -> dict
-    
+
     async def get_contract(usage_point_id, access_token) -> dict
     async def get_address(usage_point_id, access_token) -> dict
     async def get_customer(usage_point_id, access_token) -> dict
     async def get_contact(usage_point_id, access_token) -> dict
-    
+
     async def get_usage_points(access_token) -> dict
         # Returns list of PDLs for authenticated user
 ```
 
 ### Settings for Enedis
+
 ```python
 # From /apps/api/src/config/settings.py
 ENEDIS_CLIENT_ID: str  # Machine-to-machine client ID
@@ -196,6 +209,7 @@ ENEDIS_RATE_LIMIT: int  # default: 5 requests/second
 ```
 
 ### Rate Limiting
+
 - Rate limiter built into adapter with configurable requests per second
 - Default: 5 req/sec (Enedis limit)
 - Daily limits per user:
@@ -208,35 +222,38 @@ ENEDIS_RATE_LIMIT: int  # default: 5 requests/second
 ## 4. PDL (POINT DE LIVRAISON) MANAGEMENT
 
 ### Location
-- **Model**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/models/pdl.py`
-- **Router**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/routers/pdl.py`
+
+- **Model**: `apps/api/src/models/pdl.py`
+- **Router**: `apps/api/src/routers/pdl.py`
 
 ### PDL Model
+
 ```python
 class PDL(Base, TimestampMixin):
     __tablename__ = "pdls"
-    
+
     id: str (UUID)
     usage_point_id: str (14-digit, indexed) # e.g., "12345678901234"
     user_id: str (ForeignKey to User)
     name: Optional[str] # Custom name for user's reference
     display_order: Optional[int] # Sort order in UI
-    
+
     # Contract info
     subscribed_power: Optional[int] # kVA
     offpeak_hours: Optional[dict] # HC schedules by day
-    
+
     # Data availability
     has_consumption: bool (default=True)
     has_production: bool (default=False)
     is_active: bool (default=True)
-    
+
     # Dates
     oldest_available_data_date: Optional[date] # Meter activation
     activation_date: Optional[date]
 ```
 
 ### PDL Creation
+
 ```
 POST /pdl
 - Input: usage_point_id (14 digits, required), name (optional)
@@ -247,6 +264,7 @@ POST /pdl
 ```
 
 ### PDL Endpoints
+
 ```
 GET /pdl/ - List all user's PDLs
 POST /pdl - Create new PDL
@@ -261,6 +279,7 @@ POST /pdl/reorder - Update display order
 ## 5. CONSUMPTION & PRODUCTION DATA
 
 ### Data Structure
+
 ```python
 # Response format for consumption/production endpoints:
 {
@@ -285,6 +304,7 @@ POST /pdl/reorder - Update display order
 ```
 
 ### Endpoints
+
 ```
 GET /enedis/consumption/daily/{usage_point_id}
   - Query: start (YYYY-MM-DD), end (YYYY-MM-DD), use_cache (bool)
@@ -316,10 +336,12 @@ GET /enedis/contact/{usage_point_id}
 ## 6. CACHING SYSTEM
 
 ### Location
-- **Cache Service**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/src/services/cache.py`
+
+- **Cache Service**: `apps/api/src/services/cache.py`
 - **Backend**: Redis (default: redis://localhost:6379/0)
 
 ### Cache Keys
+
 ```
 consumption:daily:{usage_point_id}:{date}
   - Stores single day consumption reading
@@ -338,6 +360,7 @@ rate_limit:{user_id}:no_cache:{YYYY-MM-DD}
 ```
 
 ### Cache TTL
+
 - Default: 86400 seconds (24 hours)
 - Configurable via CACHE_TTL_SECONDS setting
 - Cache is encrypted using user's client_secret as key
@@ -347,9 +370,11 @@ rate_limit:{user_id}:no_cache:{YYYY-MM-DD}
 ## 7. EXISTING MOCK/SEED DATA PATTERNS
 
 ### Location
-- **Scripts**: `/Users/cvalentin/Git/myelectricaldata_new/apps/api/scripts/`
+
+- **Scripts**: `apps/api/scripts/`
 
 ### Available Scripts
+
 ```
 seed_edf_offers.py - Seeds EDF energy offers and providers
 seed_edf_full_offers.py - Extended EDF offers
@@ -360,6 +385,7 @@ clean_ecowatt_permissions.py - Cleanup Ecowatt permissions
 ```
 
 ### Example Usage Pattern
+
 ```python
 import asyncio
 from sqlalchemy import select
@@ -379,7 +405,7 @@ async def create_demo():
         )
         session.add(user)
         await session.flush()  # Get user.id before committing
-        
+
         # Create PDL
         pdl = PDL(
             usage_point_id="12345678901234",
@@ -387,7 +413,7 @@ async def create_demo():
             name="Demo Home"
         )
         session.add(pdl)
-        
+
         await session.commit()
         print(f"Created demo user: {user.email}")
 ```
@@ -397,6 +423,7 @@ async def create_demo():
 ## 8. IMPLEMENTATION CHECKLIST
 
 ### Step 1: Create Demo User
+
 - [ ] Generate unique email (e.g., `demo_{timestamp}@example.com`)
 - [ ] Hash password with bcrypt
 - [ ] Generate client_id and client_secret
@@ -406,6 +433,7 @@ async def create_demo():
 - [ ] Store in User table
 
 ### Step 2: Create Demo PDLs
+
 - [ ] Create 1-3 demo PDLs with realistic 14-digit identifiers
 - [ ] Set name (e.g., "Demo Home", "Demo Apartment")
 - [ ] Set has_consumption=True
@@ -415,21 +443,25 @@ async def create_demo():
 - [ ] Set oldest_available_data_date
 
 ### Step 3: Create Mock Consumption Data
+
 - [ ] Generate 6-12 months of daily consumption data
 - [ ] Format: `{"date": "YYYY-MM-DD", "value": kWh, "quality": "CORRIGE"}`
 - [ ] Realistic ranges: 10-30 kWh/day for residential
 - [ ] Cache in Redis with proper keys
 
 ### Step 4: Create Mock Production Data (Optional)
+
 - [ ] Generate daily production data for solar homes
 - [ ] Format: same as consumption
 - [ ] Realistic ranges: 5-15 kWh/day during sunny months
 
 ### Step 5: Create Mock Contract Data
+
 - [ ] Store contract details in database or cache
 - [ ] Include: subscription_power, offpeak_hours, address, etc.
 
 ### Step 6: API Integration (Optional)
+
 - [ ] Create `/demo/create` endpoint to allow users to create demo account
 - [ ] Create `/demo/reset` endpoint to reset demo data
 - [ ] Create `/demo/{user_id}/clear-cache` endpoint
@@ -439,55 +471,59 @@ async def create_demo():
 ## 9. DATA EXAMPLES
 
 ### Daily Consumption Data Point
+
 ```json
 {
-    "date": "2024-10-15",
-    "value": 18,
-    "quality": "CORRIGE"
+  "date": "2024-10-15",
+  "value": 18,
+  "quality": "CORRIGE"
 }
 ```
 
 ### Detail (Load Curve) Data Point
+
 ```json
 {
-    "date": "2024-10-15T00:30:00+02:00",
-    "value": 750,
-    "quality": "BRUT"
+  "date": "2024-10-15T00:30:00+02:00",
+  "value": 750,
+  "quality": "BRUT"
 }
 ```
 
 ### Contract Data
+
 ```json
 {
-    "usage_point": {
-        "usage_point_id": "12345678901234",
-        "meter_type": "AMM",
-        "segment": "C1"
-    },
-    "last_distribution_tariff": {
-        "distribution_tariff": "BTINFCUST",
-        "last_activation_date": "2023-01-01"
-    },
-    "subscribed_power": {
-        "subscribed_power_value": 9
-    }
+  "usage_point": {
+    "usage_point_id": "12345678901234",
+    "meter_type": "AMM",
+    "segment": "C1"
+  },
+  "last_distribution_tariff": {
+    "distribution_tariff": "BTINFCUST",
+    "last_activation_date": "2023-01-01"
+  },
+  "subscribed_power": {
+    "subscribed_power_value": 9
+  }
 }
 ```
 
 ### Address Data
+
 ```json
 {
-    "usage_points": [
-        {
-            "usage_point_id": "12345678901234",
-            "address": {
-                "label": "123 Rue de la Paix, 75000 Paris, France",
-                "postal_code": "75000",
-                "city": "Paris",
-                "country": "FR"
-            }
-        }
-    ]
+  "usage_points": [
+    {
+      "usage_point_id": "12345678901234",
+      "address": {
+        "label": "123 Rue de la Paix, 75000 Paris, France",
+        "postal_code": "75000",
+        "city": "Paris",
+        "country": "FR"
+      }
+    }
+  ]
 }
 ```
 
@@ -496,21 +532,25 @@ async def create_demo():
 ## 10. IMPORTANT SECURITY CONSIDERATIONS
 
 1. **Password Requirements**
+
    - Minimum 8 characters
    - Use bcrypt for hashing (cost factor 12)
    - Never store plain text
 
 2. **Token Security**
+
    - JWT tokens expire after ACCESS_TOKEN_EXPIRE_MINUTES
    - Client secrets are secrets.token_urlsafe(64)
    - All tokens stored in database with expiration
 
 3. **Rate Limiting**
+
    - 5 requests/second to Enedis API
    - 50 requests/day uncached, 1000/day with cache
    - Tracked per user in Redis
 
 4. **Email Verification**
+
    - Can be skipped in dev mode (REQUIRE_EMAIL_VERIFICATION=false)
    - Demo accounts should have email_verified=True
    - Tokens expire in 24 hours
@@ -525,15 +565,18 @@ async def create_demo():
 ## 11. FRONTEND INTEGRATION
 
 ### Frontend URL
-- **Settings**: FRONTEND_URL (default: http://localhost:3000)
+
+- **Settings**: FRONTEND_URL (default: <http://localhost:3000>)
 - **Used for**: Email verification links, OAuth callbacks
 
 ### Email Verification Link Format
+
 ```
 {FRONTEND_URL}/verify-email?token={verification_token}
 ```
 
 ### OAuth Callback
+
 ```
 {FRONTEND_URL}/oauth/callback?code={auth_code}&state={state}
 ```
@@ -566,4 +609,3 @@ has_consumption: True
 has_production: False
 subscribed_power: 6 kVA
 ```
-
