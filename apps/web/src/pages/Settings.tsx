@@ -6,7 +6,7 @@ import { authApi } from '@/api/auth'
 import { useAuth } from '@/hooks/useAuth'
 import { useThemeStore } from '@/stores/themeStore'
 import { useIsDemo } from '@/hooks/useIsDemo'
-import { Trash2, TrendingUp, Copy, RefreshCw, Key, Lock, LogOut, Palette, Eye, EyeOff } from 'lucide-react'
+import { Trash2, TrendingUp, Copy, RefreshCw, Key, Lock, LogOut, Palette, Eye, EyeOff, Settings as SettingsIcon } from 'lucide-react'
 
 export default function Settings() {
   const { user, logout } = useAuth()
@@ -163,9 +163,12 @@ export default function Settings() {
   }
 
   return (
-    <div className="space-y-8 w-full">
+    <div className="pt-6 space-y-8 w-full">
       <div>
-        <h1 className="text-3xl font-bold mb-2">Mon compte</h1>
+        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
+          <SettingsIcon className="text-primary-600 dark:text-primary-400" size={32} />
+          Mon compte
+        </h1>
         <p className="text-gray-600 dark:text-gray-400">
           Gérez votre compte et vos préférences
         </p>

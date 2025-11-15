@@ -519,7 +519,7 @@ export default function Consumption() {
   // For now, return the simplified version with working components
   // The rest of the components will be added incrementally
   return (
-    <div className="w-full">
+    <div className="pt-6 w-full">
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
           <TrendingUp className="text-primary-600 dark:text-primary-400" size={32} />

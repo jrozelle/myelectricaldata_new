@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { LogIn } from 'lucide-react'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -19,7 +20,8 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-3 justify-center">
+            <LogIn className="text-primary-600 dark:text-primary-400" size={32} />
             Connexion
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
@@ -30,7 +32,7 @@ export default function Login() {
         <div className="card">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium mb-2">
+              <label htmlFor="email" className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">
                 Email
               </label>
               <input
@@ -45,7 +47,7 @@ export default function Login() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium mb-2">
+              <label htmlFor="password" className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">
                 Mot de passe
               </label>
               <input

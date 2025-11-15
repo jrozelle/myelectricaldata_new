@@ -221,7 +221,7 @@ export default function Production() {
   const productionResponse = queryClient.getQueryData(['production', selectedPDL, dateRange?.start, dateRange?.end])
 
   return (
-    <div className="w-full">
+    <div className="pt-6 w-full">
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
           <Sun className="text-yellow-600 dark:text-yellow-400" size={32} />

@@ -281,7 +281,7 @@ export default function Contribute() {
   }
 
   return (
-    <div className="w-full">
+    <div className="pt-6 w-full">
       {/* Notification Toast */}
       {notification && (
         <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${

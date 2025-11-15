@@ -134,7 +134,7 @@ export default function EcoWatt() {
   const currentInfo = currentSignal ? getSignalInfo(currentSignal.dvalue) : getSignalInfo(0)
 
   return (
-    <div className="space-y-6">
+    <div className="pt-6 space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">

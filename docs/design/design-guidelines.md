@@ -27,8 +27,15 @@ Ce document définit les règles de design à respecter sur toutes les pages du 
 ### Container Principal
 
 ```tsx
-<div className="w-full">{/* Contenu de la page */}</div>
+<div className="pt-6 w-full">{/* Contenu de la page */}</div>
 ```
+
+**Règles :**
+
+- **TOUJOURS** utiliser `pt-6` (padding-top: 24px) sur le container principal
+- Cet espacement assure une cohérence visuelle entre toutes les pages
+- Format complet : `pt-6 w-full` ou `pt-6 space-y-6 w-full` selon les besoins
+- Exception : Pages avec layout centré (Login, Signup) qui utilisent `min-h-screen flex items-center justify-center`
 
 ## 2. Sections Collapsibles (Pattern Réutilisable)
 
@@ -428,7 +435,7 @@ xl: 1280px  /* Extra large devices */
 Avant de créer ou modifier une page, vérifier :
 
 - [ ] En-tête avec H1 + icône + sous-titre
-- [ ] Container principal avec `w-full`
+- [ ] Container principal avec `pt-6 w-full` (espacement en haut obligatoire)
 - [ ] Sections collapsibles si contenu volumineux
 - [ ] Tous les textes ont une variante dark mode
 - [ ] Tous les fonds ont une variante dark mode
@@ -659,10 +666,10 @@ const filteredAndSortedData = useMemo(() => {
 ```tsx
 export default function MaPage() {
   return (
-    <div className="w-full">
+    <div className="pt-6 w-full">
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <Settings className="text-primary-600 dark:text-primary-400" size={32} />
+          <SettingsIcon className="text-primary-600 dark:text-primary-400" size={32} />
           Paramètres
         </h1>
         <p className="text-gray-600 dark:text-gray-400">Gérez vos préférences</p>

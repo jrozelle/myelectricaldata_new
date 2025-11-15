@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
-import { Copy, Check, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Copy, Check, Eye, EyeOff, AlertCircle, UserPlus } from 'lucide-react'
 import { logger } from '@/utils/logger'
 
 declare global {
@@ -152,7 +152,7 @@ export default function Signup() {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full mb-4">
                 <Check className="text-green-600 dark:text-green-400" size={32} />
               </div>
-              <h1 className="text-2xl font-bold mb-2">Compte créé avec succès !</h1>
+              <h1 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Compte créé avec succès !</h1>
               <p className="text-gray-600 dark:text-gray-400">
                 Conservez précieusement vos identifiants API
               </p>
@@ -166,7 +166,7 @@ export default function Signup() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Client ID</label>
+                <label className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">Client ID</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -185,7 +185,7 @@ export default function Signup() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Client Secret</label>
+                <label className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">Client Secret</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -219,7 +219,8 @@ export default function Signup() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-3 justify-center">
+            <UserPlus className="text-primary-600 dark:text-primary-400" size={32} />
             Créer un compte
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
@@ -230,7 +231,7 @@ export default function Signup() {
         <div className="card">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium mb-2">
+              <label htmlFor="email" className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">
                 Email
               </label>
               <input
@@ -245,7 +246,7 @@ export default function Signup() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium mb-2">
+              <label htmlFor="password" className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">
                 Mot de passe
               </label>
               <div className="relative">
@@ -308,7 +309,7 @@ export default function Signup() {
             </div>
 
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium mb-2">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">
                 Confirmer le mot de passe
               </label>
               <div className="relative">

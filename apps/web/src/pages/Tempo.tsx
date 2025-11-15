@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Calendar } from 'lucide-react'
 import { tempoApi, type TempoDay } from '../api/tempo'
 
 export default function Tempo() {
@@ -196,8 +197,11 @@ export default function Tempo() {
   const currentSeasonStats = getCurrentSeasonStats()
 
   return (
-    <div className="w-full">
-      <h1 className="text-3xl font-bold mb-1">Calendrier Tempo</h1>
+    <div className="pt-6 w-full">
+      <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
+        <Calendar className="text-primary-600 dark:text-primary-400" size={32} />
+        Calendrier Tempo
+      </h1>
       <p className="text-gray-600 dark:text-gray-400 mb-6">
         Historique des jours Tempo bleus, blancs et rouges fourni par RTE
       </p>
@@ -207,7 +211,7 @@ export default function Tempo() {
         <div className="mb-8 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-800 dark:to-gray-700 rounded-lg p-6 border border-blue-200 dark:border-gray-600">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-2xl font-bold">Saison en cours : {currentSeasonStats.season}</h2>
+              <h2 className="text-lg font-semibold">Saison en cours : {currentSeasonStats.season}</h2>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                 Du 1er septembre au 31 août
               </p>
@@ -317,7 +321,7 @@ export default function Tempo() {
             return (
               <div key={season}>
                 <div className="mb-4">
-                  <h2 className="text-2xl font-bold">Saison Tempo {season}</h2>
+                  <h2 className="text-lg font-semibold">Saison Tempo {season}</h2>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                     Du 1er septembre au 31 août
                   </p>
