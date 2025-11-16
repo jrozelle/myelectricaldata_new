@@ -16,9 +16,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { isDark, toggleTheme } = useThemeStore()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem('sidebarCollapsed')
+    return saved ? JSON.parse(saved) : false
+  })
   const [isClearingCache, setIsClearingCache] = useState(false)
   const queryClient = useQueryClient()
+
+  // Persist sidebar state to localStorage
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', JSON.stringify(sidebarCollapsed))
+  }, [sidebarCollapsed])
 
   // Menu items
   const menuItems = [
@@ -200,7 +208,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="border-t border-gray-300 dark:border-gray-700 p-2 space-y-1">
           {/* Donation Button */}
           <a
-            href="https://www.paypal.com/donate?token=YS8EyJdh1jxVY3jqnIQu_YUPEyqp6buLbtfT7aDF8iPI78NF8ajvCUrmXtE4KJjbVjrB5_RfWwtaG2gR"
+            href="https://www.paypal.com/donate/?business=FY25JLXDYLXAJ&no_recurring=0&currency_code=EUR"
             target="_blank"
             rel="noopener noreferrer"
             className={`flex items-center gap-3 px-3 py-2.5 rounded-md bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white transition-all ${sidebarCollapsed ? 'justify-center' : ''}`}
@@ -465,7 +473,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 © 2025 MyElectricalData - Passerelle API Enedis
               </p>
               <a
-                href="https://www.paypal.com/donate?token=YS8EyJdh1jxVY3jqnIQu_YUPEyqp6buLbtfT7aDF8iPI78NF8ajvCUrmXtE4KJjbVjrB5_RfWwtaG2gR"
+                href="https://www.paypal.com/donate/?business=FY25JLXDYLXAJ&no_recurring=0&currency_code=EUR"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-medium shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
