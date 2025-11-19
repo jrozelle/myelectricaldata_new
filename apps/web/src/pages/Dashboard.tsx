@@ -734,6 +734,7 @@ export default function Dashboard() {
                     onViewDetails={() => setSelectedPdl(pdl.usage_point_id)}
                     onDelete={() => deletePdlMutation.mutate(pdl.id)}
                     isDemo={isDemo}
+                    allPdls={pdls}
                   />
                 </div>
               </div>

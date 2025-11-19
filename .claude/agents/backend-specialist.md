@@ -58,3 +58,17 @@ Tes responsabilites :
 - Modification de variables d'environnement (`.env.api`)
 - Ajout de dépendances (`pyproject.toml` ou `package.json`)
 - Changement de configuration Docker (`docker-compose.yml`, `Dockerfile`)
+
+## Accès aux Logs
+
+Si tu as besoin d'accéder aux logs de l'application pour déboguer :
+
+- Les logs sont disponibles via les conteneurs Docker en mode dev
+- **Commande** : Vérifie le `Makefile` racine ou le `docker-compose.yml` pour voir comment l'environnement de dev a été démarré
+- **Exemples** :
+  - `make backend-logs` : Affiche les logs du backend
+  - `make logs` : Affiche tous les logs
+  - `docker compose logs -f backend` : Suit les logs du backend en temps réel
+  - `docker compose logs -f frontend` : Suit les logs du frontend en temps réel
+
+**Ne PAS** redémarrer les services juste pour voir les logs - utilise les commandes de logs directement.

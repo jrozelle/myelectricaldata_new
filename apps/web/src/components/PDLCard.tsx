@@ -10,9 +10,10 @@ interface PDLCardProps {
   onViewDetails: () => void
   onDelete: () => void
   isDemo?: boolean
+  allPdls?: PDL[] // All PDLs for linking production
 }
 
-export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false }: PDLCardProps) {
+export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, allPdls = [] }: PDLCardProps) {
   const [isEditingName, setIsEditingName] = useState(false)
   const [showSyncWarning, setShowSyncWarning] = useState(false)
   const [showDeleteWarning, setShowDeleteWarning] = useState(false)
@@ -274,6 +275,18 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false }
       if (response.success && response.data) {
         window.location.href = response.data.authorize_url
       }
+    },
+  })
+
+  const linkProductionMutation = useMutation({
+    mutationFn: (productionPdlId: string | null) => {
+      if (isDemo) {
+        return Promise.reject(new Error('Modifications désactivées en mode démo'))
+      }
+      return pdlApi.linkProduction(pdl.id, productionPdlId)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pdls'] })
     },
   })
 
@@ -687,23 +700,18 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false }
                 <Zap size={16} />
                 <span>Consommation :</span>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
-                <input
-                  type="checkbox"
-                  checked={pdl.has_consumption ?? true}
-                  onChange={(e) =>
-                    updateTypeMutation.mutate({
-                      has_consumption: e.target.checked,
-                      has_production: pdl.has_production ?? false,
-                    })
-                  }
-                  disabled={updateTypeMutation.isPending}
-                  className="w-5 h-5 flex-shrink-0 text-primary-600 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded cursor-pointer focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed accent-primary-600"
-                />
-                <span className="text-sm font-medium select-none w-8">
-                  {pdl.has_consumption ?? true ? 'Oui' : 'Non'}
-                </span>
-              </label>
+              <input
+                type="checkbox"
+                checked={pdl.has_consumption ?? true}
+                onChange={(e) =>
+                  updateTypeMutation.mutate({
+                    has_consumption: e.target.checked,
+                    has_production: pdl.has_production ?? false,
+                  })
+                }
+                disabled={updateTypeMutation.isPending}
+                className="w-5 h-5 flex-shrink-0 text-primary-600 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded cursor-pointer focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed accent-primary-600"
+              />
             </div>
 
             {/* Subscribed Power - Only show if consumption is enabled */}
@@ -836,25 +844,55 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false }
               <Factory size={16} />
               <span>Production :</span>
             </div>
-            <label className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
-              <input
-                type="checkbox"
-                checked={pdl.has_production ?? false}
-                onChange={(e) =>
-                  updateTypeMutation.mutate({
-                    has_consumption: pdl.has_consumption ?? true,
-                    has_production: e.target.checked,
-                  })
-                }
-                disabled={updateTypeMutation.isPending}
-                className="w-5 h-5 flex-shrink-0 text-primary-600 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded cursor-pointer focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed accent-primary-600"
-              />
-              <span className="text-sm font-medium select-none w-8">
-                {pdl.has_production ?? false ? 'Oui' : 'Non'}
-              </span>
-            </label>
+            <input
+              type="checkbox"
+              checked={pdl.has_production ?? false}
+              onChange={(e) =>
+                updateTypeMutation.mutate({
+                  has_consumption: pdl.has_consumption ?? true,
+                  has_production: e.target.checked,
+                })
+              }
+              disabled={updateTypeMutation.isPending}
+              className="w-5 h-5 flex-shrink-0 text-primary-600 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded cursor-pointer focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed accent-primary-600"
+            />
           </div>
         )}
+
+        {/* Link Production PDL - Only show for consumption PDLs */}
+        {!hasConsentError && (pdl.has_consumption ?? true) && (() => {
+          const productionPdls = allPdls.filter(p => p.has_production && p.id !== pdl.id)
+          const linkedPdl = allPdls.find(p => p.id === pdl.linked_production_pdl_id)
+
+          return productionPdls.length > 0 ? (
+            <div className="flex flex-col gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <Factory size={16} />
+                  <span>PDL de production lié :</span>
+                </div>
+              </div>
+              <select
+                value={pdl.linked_production_pdl_id || ''}
+                onChange={(e) => linkProductionMutation.mutate(e.target.value || null)}
+                disabled={linkProductionMutation.isPending}
+                className="input text-sm py-2"
+              >
+                <option value="">Aucun</option>
+                {productionPdls.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name || p.usage_point_id}
+                  </option>
+                ))}
+              </select>
+              {linkedPdl && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 pl-6">
+                  Ce PDL est lié au PDL de production "{linkedPdl.name || linkedPdl.usage_point_id}". Les graphiques combineront les données de consommation et de production.
+                </p>
+              )}
+            </div>
+          ) : null
+        })()}
       </div>
 
 

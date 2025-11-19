@@ -202,3 +202,205 @@ curl -X PATCH \
 - Les PDL désactivés restent visibles dans l'interface admin
 - L'ordre personnalisé (drag & drop) fonctionne avec les PDL désactivés
 - Tous les PDL existants ont automatiquement `is_active = true` après migration
+
+---
+
+## 🔗 Fonctionnalité : Liaison PDL Consommation - Production
+
+### Description
+
+Cette fonctionnalité permet aux utilisateurs de **lier un PDL de production à un PDL de consommation** pour créer des visualisations combinées des données de consommation et de production.
+
+**Cas d'usage :** Un utilisateur possède un PDL de consommation (compteur principal) et un PDL de production (panneaux solaires). En les liant, il pourra visualiser des graphiques combinés montrant la consommation vs la production, l'autoconsommation, le surplus injecté, etc.
+
+### Interface utilisateur
+
+#### 1. Sélecteur de liaison dans PDLCard
+
+Pour chaque **PDL de consommation** (`has_consumption = true`) :
+- Section "PDL de production lié" affichée en bas de la carte
+- Dropdown de sélection avec :
+  - Option "Aucun" pour délier
+  - Liste des PDL de production disponibles (`has_production = true`)
+- Message informatif quand un PDL est lié
+- Sauvegarde automatique lors de la sélection
+
+#### 2. Conditions d'affichage
+
+Le sélecteur de liaison est affiché **uniquement si** :
+- Le PDL a la consommation activée (`has_consumption = true`)
+- Au moins un PDL de production existe dans le compte utilisateur
+- Pas d'erreur de consentement Enedis
+
+### API Backend
+
+**Endpoint :**
+
+```http
+PATCH /api/pdl/{pdl_id}/link-production
+Content-Type: application/json
+
+{
+  "linked_production_pdl_id": "uuid-du-pdl-production" | null
+}
+```
+
+**Validations :**
+- Le PDL source doit avoir `has_consumption = true`
+- Le PDL cible doit avoir `has_production = true`
+- Les deux PDL doivent appartenir au même utilisateur
+- Un PDL ne peut pas être lié à lui-même
+- `null` pour délier
+
+**Réponse :**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid-pdl-consommation",
+    "usage_point_id": "12345678901234",
+    "linked_production_pdl_id": "uuid-pdl-production",
+    "linked_production_pdl_name": "Panneaux solaires",
+    "message": "Production PDL linked successfully"
+  }
+}
+```
+
+**Modèle :**
+- Champ `linked_production_pdl_id` (string, nullable) ajouté au modèle PDL
+- Foreign key vers `pdls.id` avec `ON DELETE SET NULL`
+- Relation unidirectionnelle : consommation → production
+
+### Fichiers impactés
+
+**Backend :**
+- [apps/api/src/models/pdl.py](../../apps/api/src/models/pdl.py) : Champ `linked_production_pdl_id`
+- [apps/api/src/routers/pdl.py](../../apps/api/src/routers/pdl.py) : Endpoint `link_production_pdl` + validations
+- [apps/api/src/schemas/responses.py](../../apps/api/src/schemas/responses.py) : `PDLResponse` avec `linked_production_pdl_id`
+
+**Frontend :**
+- [apps/web/src/types/api.ts](../../apps/web/src/types/api.ts) : Interface PDL avec `linked_production_pdl_id?: string`
+- [apps/web/src/api/pdl.ts](../../apps/web/src/api/pdl.ts) : Méthode `linkProduction`
+- [apps/web/src/components/PDLCard.tsx](../../apps/web/src/components/PDLCard.tsx) : Dropdown + mutation
+- [apps/web/src/pages/Dashboard.tsx](../../apps/web/src/pages/Dashboard.tsx) : Passage de `allPdls` prop
+
+### Migration
+
+**Script de migration :**
+
+```bash
+# Depuis la racine du projet
+docker compose exec backend python /app/migrations/add_linked_production_pdl_id.py
+```
+
+**Redémarrage :**
+
+```bash
+docker compose restart backend frontend
+```
+
+### Utilisation
+
+**Pour l'utilisateur :**
+
+1. **Lier un PDL de production** :
+   - Aller dans le Dashboard
+   - Ouvrir la carte d'un PDL de consommation
+   - Dans la section "PDL de production lié", sélectionner un PDL de production
+   - La liaison est sauvegardée automatiquement
+   - Un message confirme le lien
+
+2. **Délier un PDL** :
+   - Sélectionner "Aucun" dans le dropdown
+   - La liaison est supprimée instantanément
+
+**Pour le développeur (API) :**
+
+```bash
+# Lier un PDL de production
+curl -X PATCH \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"linked_production_pdl_id": "uuid-pdl-production"}' \
+  http://localhost:8081/api/pdl/{pdl-consommation-id}/link-production
+
+# Délier
+curl -X PATCH \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"linked_production_pdl_id": null}' \
+  http://localhost:8081/api/pdl/{pdl-consommation-id}/link-production
+```
+
+### Exemples d'erreurs
+
+**PDL de consommation invalide :**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_PDL_TYPE",
+    "message": "This PDL does not have consumption data. Only consumption PDLs can be linked to production PDLs."
+  }
+}
+```
+
+**PDL de production invalide :**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_PDL_TYPE",
+    "message": "The target PDL does not have production data. Please select a PDL with production capability."
+  }
+}
+```
+
+**Auto-liaison :**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_LINK",
+    "message": "Cannot link a PDL to itself"
+  }
+}
+```
+
+### Avantages
+
+1. **Base pour graphiques combinés** : Permet de créer des visualisations consommation + production
+2. **Calcul d'autoconsommation** : Mesure de l'énergie produite et consommée directement
+3. **Optimisation énergétique** : Analyse du surplus de production et du bilan net
+4. **Simulateur enrichi** : Prise en compte de la production dans les simulations d'offres
+
+### Développements futurs
+
+Cette fonctionnalité pose les bases pour :
+
+- **Graphiques combinés** : Visualisation consommation + production sur même timeline
+- **Analyses avancées** :
+  - Taux d'autoconsommation
+  - Taux d'autoproduction
+  - Bilan énergétique net
+- **Simulateur enrichi** : Optimisation des contrats avec production
+- **Stockage d'énergie** : Calculs d'optimisation de batterie
+
+### Design
+
+- Intégration harmonieuse dans PDLCard
+- Icône Factory (usine) pour représenter la production
+- Dropdown avec styles cohérents au design system
+- Message informatif en texte grisé
+- Responsive (mobile et desktop)
+
+### Notes techniques
+
+- Le champ `linked_production_pdl_id` est nullable (optionnel)
+- Foreign key avec `ON DELETE SET NULL` : la suppression d'un PDL de production déliera automatiquement tous les PDL de consommation liés
+- Relation unidirectionnelle : consommation → production
+- Un PDL de consommation ne peut être lié qu'à un seul PDL de production
+- Un PDL de production peut être lié à plusieurs PDL de consommation
+- Compatible SQLite et PostgreSQL
+- Aucune donnée n'est copiée, seul le lien (UUID) est stocké

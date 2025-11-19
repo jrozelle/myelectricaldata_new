@@ -34,6 +34,18 @@ export const pdlApi = {
     return apiClient.patch<PDL>(`pdl/${id}/active`, { is_active })
   },
 
+  linkProduction: async (consumptionPdlId: string, productionPdlId: string | null) => {
+    return apiClient.patch<{
+      id: string
+      usage_point_id: string
+      linked_production_pdl_id: string | null
+      linked_production_pdl_name?: string
+      message: string
+    }>(`pdl/${consumptionPdlId}/link-production`, {
+      linked_production_pdl_id: productionPdlId
+    })
+  },
+
   reorderPdls: async (pdlOrders: Array<{ id: string; order: number }>) => {
     return apiClient.patch<{ message: string }>(`pdl/reorder`, { pdl_orders: pdlOrders })
   },

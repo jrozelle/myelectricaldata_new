@@ -35,6 +35,10 @@ class PDLUpdateActive(BaseModel):
     is_active: bool
 
 
+class PDLLinkProduction(BaseModel):
+    linked_production_pdl_id: str | None = None  # None to unlink
+
+
 class PDLOrderItem(BaseModel):
     id: str
     order: int
@@ -76,6 +80,7 @@ async def list_pdls(
             is_active=pdl.is_active,
             oldest_available_data_date=pdl.oldest_available_data_date,
             activation_date=pdl.activation_date,
+            linked_production_pdl_id=pdl.linked_production_pdl_id,
         )
         for pdl in pdls
     ]
@@ -284,6 +289,7 @@ async def create_pdl(
         is_active=pdl.is_active,
         oldest_available_data_date=pdl.oldest_available_data_date,
         activation_date=pdl.activation_date,
+        linked_production_pdl_id=pdl.linked_production_pdl_id,
     )
 
     return APIResponse(success=True, data=pdl_response.model_dump())
@@ -321,6 +327,7 @@ async def get_pdl(
         is_active=pdl.is_active,
         oldest_available_data_date=pdl.oldest_available_data_date,
         activation_date=pdl.activation_date,
+        linked_production_pdl_id=pdl.linked_production_pdl_id,
     )
 
     return APIResponse(success=True, data=pdl_response.model_dump())
@@ -437,6 +444,108 @@ async def toggle_pdl_active(
             "id": pdl.id,
             "usage_point_id": pdl.usage_point_id,
             "is_active": pdl.is_active,
+        },
+    )
+
+
+@router.patch("/{pdl_id}/link-production", response_model=APIResponse)
+async def link_production_pdl(
+    pdl_id: str = Path(..., description="PDL ID (UUID) of the consumption PDL", openapi_examples={"example_uuid": {"summary": "Example UUID", "value": "550e8400-e29b-41d4-a716-446655440000"}}),
+    link_data: PDLLinkProduction = Body(..., openapi_examples={
+        "link": {"summary": "Link to production PDL", "value": {"linked_production_pdl_id": "550e8400-e29b-41d4-a716-446655440001"}},
+        "unlink": {"summary": "Unlink production PDL", "value": {"linked_production_pdl_id": None}}
+    }),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """
+    Link a production PDL to a consumption PDL for combined graphs.
+
+    This endpoint allows you to associate a production PDL with a consumption PDL.
+    Once linked, you can create combined visualizations showing both consumption and production data.
+
+    **Validation rules:**
+    - The consumption PDL (pdl_id) must have `has_consumption=True`
+    - The production PDL (linked_production_pdl_id) must have `has_production=True`
+    - Both PDLs must belong to the same user
+    - Set `linked_production_pdl_id` to `null` to unlink
+    """
+    # Get the consumption PDL
+    result = await db.execute(select(PDL).where(PDL.id == pdl_id, PDL.user_id == current_user.id))
+    consumption_pdl = result.scalar_one_or_none()
+
+    if not consumption_pdl:
+        return APIResponse(success=False, error=ErrorDetail(code="PDL_NOT_FOUND", message="Consumption PDL not found"))
+
+    # Validate that this PDL has consumption
+    if not consumption_pdl.has_consumption:
+        return APIResponse(
+            success=False,
+            error=ErrorDetail(
+                code="INVALID_PDL_TYPE",
+                message="This PDL does not have consumption data. Only consumption PDLs can be linked to production PDLs."
+            )
+        )
+
+    # If unlinking (None), just clear the link
+    if link_data.linked_production_pdl_id is None:
+        consumption_pdl.linked_production_pdl_id = None
+        await db.commit()
+        await db.refresh(consumption_pdl)
+
+        return APIResponse(
+            success=True,
+            data={
+                "id": consumption_pdl.id,
+                "usage_point_id": consumption_pdl.usage_point_id,
+                "linked_production_pdl_id": None,
+                "message": "Production PDL unlinked successfully"
+            },
+        )
+
+    # If linking, validate the production PDL
+    result = await db.execute(
+        select(PDL).where(PDL.id == link_data.linked_production_pdl_id, PDL.user_id == current_user.id)
+    )
+    production_pdl = result.scalar_one_or_none()
+
+    if not production_pdl:
+        return APIResponse(
+            success=False,
+            error=ErrorDetail(code="PDL_NOT_FOUND", message="Production PDL not found")
+        )
+
+    # Validate that the target PDL has production
+    if not production_pdl.has_production:
+        return APIResponse(
+            success=False,
+            error=ErrorDetail(
+                code="INVALID_PDL_TYPE",
+                message="The target PDL does not have production data. Please select a PDL with production capability."
+            )
+        )
+
+    # Prevent linking a PDL to itself
+    if consumption_pdl.id == production_pdl.id:
+        return APIResponse(
+            success=False,
+            error=ErrorDetail(code="INVALID_LINK", message="Cannot link a PDL to itself")
+        )
+
+    # Set the link
+    consumption_pdl.linked_production_pdl_id = production_pdl.id
+
+    await db.commit()
+    await db.refresh(consumption_pdl)
+
+    return APIResponse(
+        success=True,
+        data={
+            "id": consumption_pdl.id,
+            "usage_point_id": consumption_pdl.usage_point_id,
+            "linked_production_pdl_id": consumption_pdl.linked_production_pdl_id,
+            "linked_production_pdl_name": production_pdl.name or production_pdl.usage_point_id,
+            "message": "Production PDL linked successfully"
         },
     )
 
@@ -585,6 +694,7 @@ async def admin_add_pdl(
         is_active=pdl.is_active,
         oldest_available_data_date=pdl.oldest_available_data_date,
         activation_date=pdl.activation_date,
+        linked_production_pdl_id=pdl.linked_production_pdl_id,
     )
 
     return APIResponse(success=True, data=pdl_response.model_dump())
