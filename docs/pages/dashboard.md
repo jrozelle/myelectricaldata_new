@@ -229,6 +229,8 @@ Pour chaque **PDL de consommation** (`has_consumption = true`) :
 
 Le sélecteur de liaison est affiché **uniquement si** :
 - Le PDL a la consommation activée (`has_consumption = true`)
+- Le PDL n'a **pas** la production activée (`has_production = false`)
+  - _Raison : Un PDL qui produit déjà de l'énergie n'a pas besoin d'être lié à un autre PDL de production_
 - Au moins un PDL de production existe dans le compte utilisateur
 - Pas d'erreur de consentement Enedis
 

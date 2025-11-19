@@ -621,7 +621,6 @@ async def reorder_pdls(
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """Update display order for multiple PDLs"""
-    logger.info(f"[REORDER] Received data: {order_data}")
     for item in order_data.pdl_orders:
         result = await db.execute(select(PDL).where(PDL.id == item.id, PDL.user_id == current_user.id))
         pdl = result.scalar_one_or_none()

@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [draggedPdl, setDraggedPdl] = useState<PDL | null>(null)
   const [dragOverPdl, setDragOverPdl] = useState<PDL | null>(null)
   const [isDraggingEnabled, setIsDraggingEnabled] = useState(false)
+  const [tempPdlOrder, setTempPdlOrder] = useState<PDL[] | null>(null)
   const [showInactive, setShowInactive] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
@@ -147,6 +148,10 @@ export default function Dashboard() {
       }
       return []
     },
+    // Keep data fresh for 5 minutes to prevent automatic refetches from overwriting optimistic updates
+    staleTime: 5 * 60 * 1000,
+    // Don't refetch on window focus to preserve drag & drop changes
+    refetchOnWindowFocus: false,
   })
 
   const deletePdlMutation = useMutation({
@@ -172,10 +177,48 @@ export default function Dashboard() {
       }
       return pdlApi.reorderPdls(orders)
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pdls'] })
+    onMutate: async (orders) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['pdls'] })
+
+      // Snapshot the previous value
+      const previousPdls = queryClient.getQueryData(['pdls']) as PDL[] | undefined
+
+      // Optimistically update to the new value
+      if (previousPdls && Array.isArray(previousPdls)) {
+        const updatedPdls = [...previousPdls]
+
+        // Apply new order
+        orders.forEach(({ id, order }) => {
+          const pdl = updatedPdls.find(p => p.id === id)
+          if (pdl) {
+            pdl.display_order = order
+          }
+        })
+
+        // Sort by new order
+        updatedPdls.sort((a, b) => {
+          const orderA = a.display_order ?? 999
+          const orderB = b.display_order ?? 999
+          return orderA - orderB
+        })
+
+        queryClient.setQueryData(['pdls'], updatedPdls)
+      }
+
+      // Return context with snapshot
+      return { previousPdls }
     },
-    onError: (error: Error) => {
+    onSuccess: () => {
+      // On success, the optimistic update stays
+      setNotification({ type: 'success', message: 'Ordre des PDL mis à jour' })
+      setTimeout(() => setNotification(null), 3000)
+    },
+    onError: (error: Error, _orders, context) => {
+      // Rollback to previous value on error
+      if (context?.previousPdls) {
+        queryClient.setQueryData(['pdls'], context.previousPdls)
+      }
       setNotification({ type: 'error', message: error.message })
       setTimeout(() => setNotification(null), 5000)
     },
@@ -462,6 +505,30 @@ export default function Dashboard() {
     e.preventDefault()
     if (!draggedPdl || draggedPdl.id === targetPdl.id) return
 
+    // Calculate if we should swap based on mouse position within the element
+    const rect = e.currentTarget.getBoundingClientRect()
+    const mouseY = e.clientY
+    const elementMiddle = rect.top + rect.height / 2
+
+    // Determine drop position based on which half of the element we're in
+    const currentList = tempPdlOrder || sortedPdls
+    const draggedIndex = currentList.findIndex(p => p.id === draggedPdl.id)
+    const targetIndex = currentList.findIndex(p => p.id === targetPdl.id)
+
+    if (draggedIndex === -1 || targetIndex === -1) return
+
+    // Only swap if we're moving in the intended direction
+    let shouldSwap = false
+    if (draggedIndex < targetIndex) {
+      // Dragging downwards: only swap if mouse is in bottom half
+      shouldSwap = mouseY > elementMiddle
+    } else if (draggedIndex > targetIndex) {
+      // Dragging upwards: only swap if mouse is in top half
+      shouldSwap = mouseY < elementMiddle
+    }
+
+    if (!shouldSwap) return
+
     // Light haptic feedback when hovering over a new target (avoid repeated triggers)
     if (lastHapticPdlId.current !== targetPdl.id) {
       triggerHaptic('light')
@@ -471,30 +538,57 @@ export default function Dashboard() {
     // Update visual indicator
     setDragOverPdl(targetPdl)
 
-    const draggedIndex = sortedPdls.findIndex(p => p.id === draggedPdl.id)
-    const targetIndex = sortedPdls.findIndex(p => p.id === targetPdl.id)
-
-    if (draggedIndex === -1 || targetIndex === -1) return
-
-    const newPdls = [...sortedPdls]
+    // Update temporary order for smooth visual feedback
+    const newPdls = [...currentList]
     newPdls.splice(draggedIndex, 1)
     newPdls.splice(targetIndex, 0, draggedPdl)
 
-    // Update display order
-    const orders = newPdls.map((pdl, index) => ({
+    setTempPdlOrder(newPdls)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+
+    if (!draggedPdl) {
+      setTempPdlOrder(null)
+      return
+    }
+
+    // If there's no temp order, nothing was reordered
+    if (!tempPdlOrder) {
+      setDraggedPdl(null)
+      setDragOverPdl(null)
+      return
+    }
+
+    // Use the temp order which already has the correct arrangement from handleDragOver
+    const orders = tempPdlOrder.map((pdl, index) => ({
       id: pdl.id,
       order: index
     }))
 
-    reorderPdlsMutation.mutate(orders)
+    // Save to backend only once when dropping
+    reorderPdlsMutation.mutate(orders, {
+      onSettled: () => {
+        // Reset temporary order after save (success or error)
+        setTempPdlOrder(null)
+      }
+    })
+
+    // Success haptic feedback when dropping
+    triggerHaptic('success')
+
+    // Reset drag state
+    setDraggedPdl(null)
+    setDragOverPdl(null)
+    lastHapticPdlId.current = null
   }
 
   const handleDragEnd = () => {
     setDraggedPdl(null)
     setDragOverPdl(null)
+    setTempPdlOrder(null)
     lastHapticPdlId.current = null
-    // Success haptic feedback when dropping
-    triggerHaptic('success')
   }
 
   const handleDragLeave = () => {
@@ -693,12 +787,13 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="space-y-3" data-tour="pdl-list">
-            {sortedPdls.map((pdl, index) => (
+            {(tempPdlOrder || sortedPdls).map((pdl, index) => (
               <div
                 key={pdl.id}
                 draggable={sortOrder === 'custom' && isDraggingEnabled}
                 onDragStart={() => handleDragStart(pdl)}
                 onDragOver={(e) => handleDragOver(e, pdl)}
+                onDrop={handleDrop}
                 onDragLeave={handleDragLeave}
                 onDragEnd={() => {
                   handleDragEnd()

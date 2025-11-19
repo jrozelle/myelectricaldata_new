@@ -695,204 +695,207 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
         {/* PDL Type - Consumption - Only show if no consent error */}
         {!hasConsentError && (
           <>
-            <div className="flex items-center justify-between" data-tour="pdl-consumption">
-              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                <Zap size={16} />
-                <span>Consommation :</span>
+            {/* Consumption Section */}
+            <div className="border border-blue-200 dark:border-blue-800/50 rounded-lg overflow-hidden">
+              {/* Consumption Header */}
+              <label className="flex items-center gap-3 py-2 px-3 bg-blue-50 dark:bg-blue-900/20 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors" data-tour="pdl-consumption">
+                <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-medium">
+                  <Zap size={18} className="text-blue-600 dark:text-blue-400" />
+                  <span>Consommation</span>
+                </div>
+                <div className="flex-1"></div>
+                <input
+                  type="checkbox"
+                  checked={pdl.has_consumption ?? true}
+                  onChange={(e) =>
+                    updateTypeMutation.mutate({
+                      has_consumption: e.target.checked,
+                      has_production: pdl.has_production ?? false,
+                    })
+                  }
+                  disabled={updateTypeMutation.isPending}
+                  className="w-5 h-5 flex-shrink-0 text-primary-600 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded cursor-pointer focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed accent-primary-600"
+                />
+              </label>
+
+              {/* Consumption Configuration - Only show if consumption is enabled */}
+              {(pdl.has_consumption ?? true) && (
+                <div className="px-3 py-2 space-y-2 bg-white dark:bg-gray-900">
+                  <div className="flex items-center justify-between" data-tour="pdl-power">
+                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                      <Zap size={16} />
+                      <span>Puissance souscrite :</span>
+                    </div>
+                    <select
+                      value={editedPower}
+                      onChange={(e) => handlePowerChange(e.target.value)}
+                      className="input w-32 text-sm py-1"
+                    >
+                      <option value="">Sélectionner</option>
+                      <option value="3">3 kVA</option>
+                      <option value="6">6 kVA</option>
+                      <option value="9">9 kVA</option>
+                      <option value="12">12 kVA</option>
+                      <option value="15">15 kVA</option>
+                      <option value="18">18 kVA</option>
+                      <option value="24">24 kVA</option>
+                      <option value="30">30 kVA</option>
+                      <option value="36">36 kVA</option>
+                    </select>
+                  </div>
+
+                  {/* Offpeak Hours */}
+                  <div className="space-y-2" data-tour="pdl-offpeak">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                        <Clock size={16} />
+                        <span>Heures creuses :</span>
+                      </div>
+                    </div>
+                    {offpeakRanges.map((range, index) => (
+                      <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Plage {index + 1}
+                        </span>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                          {/* Time ranges */}
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                            {/* Start time */}
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-gray-500 dark:text-gray-400 w-12 sm:hidden">Début:</span>
+                              <select
+                                value={range.startHour}
+                                onChange={(e) => handleOffpeakFieldChange(index, 'startHour', e.target.value)}
+                                className="input text-xs sm:text-sm font-mono w-14 sm:w-16 py-1 px-1"
+                              >
+                                {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => (
+                                  <option key={h} value={h}>{h}</option>
+                                ))}
+                              </select>
+                              <span className="text-gray-500 text-xs">:</span>
+                              <select
+                                value={range.startMin}
+                                onChange={(e) => handleOffpeakFieldChange(index, 'startMin', e.target.value)}
+                                className="input text-xs sm:text-sm font-mono w-14 sm:w-16 py-1 px-1"
+                              >
+                                {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <span className="text-gray-500 text-xs hidden sm:inline">→</span>
+
+                            {/* End time */}
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-gray-500 dark:text-gray-400 w-12 sm:hidden">Fin:</span>
+                              <select
+                                value={range.endHour}
+                                onChange={(e) => handleOffpeakFieldChange(index, 'endHour', e.target.value)}
+                                className="input text-xs sm:text-sm font-mono w-14 sm:w-16 py-1 px-1"
+                              >
+                                {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => (
+                                  <option key={h} value={h}>{h}</option>
+                                ))}
+                              </select>
+                              <span className="text-gray-500 text-xs">:</span>
+                              <select
+                                value={range.endMin}
+                                onChange={(e) => handleOffpeakFieldChange(index, 'endMin', e.target.value)}
+                                className="input text-xs sm:text-sm font-mono w-14 sm:w-16 py-1 px-1"
+                              >
+                                {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1 w-[68px] justify-end">
+                            {offpeakRanges.length > 1 && (
+                              <button
+                                onClick={() => handleRemoveOffpeakRange(index)}
+                                className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex-shrink-0"
+                                title="Supprimer cette plage"
+                              >
+                                <Minus size={16} />
+                              </button>
+                            )}
+                            {index === offpeakRanges.length - 1 && (
+                              <button
+                                onClick={handleAddOffpeakRange}
+                                className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400 rounded flex-shrink-0"
+                                title="Ajouter une plage"
+                              >
+                                <Plus size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Production Section */}
+        {!hasConsentError && (
+          <div className="border border-green-200 dark:border-green-800/50 rounded-lg overflow-hidden">
+            {/* Production Header */}
+            <label className="flex items-center gap-3 py-2 px-3 bg-green-50 dark:bg-green-900/20 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors" data-tour="pdl-production">
+              <div className="flex items-center gap-2 text-green-700 dark:text-green-300 font-medium">
+                <Factory size={18} className="text-green-600 dark:text-green-400" />
+                <span>Production</span>
               </div>
+              <div className="flex-1"></div>
               <input
                 type="checkbox"
-                checked={pdl.has_consumption ?? true}
+                checked={pdl.has_production ?? false}
                 onChange={(e) =>
                   updateTypeMutation.mutate({
-                    has_consumption: e.target.checked,
-                    has_production: pdl.has_production ?? false,
+                    has_consumption: pdl.has_consumption ?? true,
+                    has_production: e.target.checked,
                   })
                 }
                 disabled={updateTypeMutation.isPending}
                 className="w-5 h-5 flex-shrink-0 text-primary-600 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded cursor-pointer focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed accent-primary-600"
               />
-            </div>
+            </label>
 
-            {/* Subscribed Power - Only show if consumption is enabled */}
-            {(pdl.has_consumption ?? true) && (
-              <div className="flex items-center justify-between pl-7" data-tour="pdl-power">
-                <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                  <Zap size={16} />
-                  <span>Puissance souscrite :</span>
-                </div>
-                <select
-                  value={editedPower}
-                  onChange={(e) => handlePowerChange(e.target.value)}
-                  className="input w-32 text-sm py-1"
-                >
-                  <option value="">Sélectionner</option>
-                  <option value="3">3 kVA</option>
-                  <option value="6">6 kVA</option>
-                  <option value="9">9 kVA</option>
-                  <option value="12">12 kVA</option>
-                  <option value="15">15 kVA</option>
-                  <option value="18">18 kVA</option>
-                  <option value="24">24 kVA</option>
-                  <option value="30">30 kVA</option>
-                  <option value="36">36 kVA</option>
-                </select>
-              </div>
-            )}
+            {/* Production Configuration - Link Production PDL - Only show for consumption-only PDLs (not production) */}
+            {(pdl.has_consumption ?? true) && !(pdl.has_production ?? false) && (() => {
+              const productionPdls = allPdls.filter(p => p.has_production && p.id !== pdl.id)
 
-            {/* Offpeak Hours - Only show if consumption is enabled */}
-            {(pdl.has_consumption ?? true) && (
-              <div className="space-y-2" data-tour="pdl-offpeak">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                    <Clock size={16} />
-                    <span>Heures creuses :</span>
-                  </div>
-                </div>
-                {offpeakRanges.map((range, index) => (
-                  <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      Plage {index + 1}
-                    </span>
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                      {/* Time ranges */}
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                        {/* Start time */}
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-gray-500 dark:text-gray-400 w-12 sm:hidden">Début:</span>
-                          <select
-                            value={range.startHour}
-                            onChange={(e) => handleOffpeakFieldChange(index, 'startHour', e.target.value)}
-                            className="input text-xs sm:text-sm font-mono w-14 sm:w-16 py-1 px-1"
-                          >
-                            {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => (
-                              <option key={h} value={h}>{h}</option>
-                            ))}
-                          </select>
-                          <span className="text-gray-500 text-xs">:</span>
-                          <select
-                            value={range.startMin}
-                            onChange={(e) => handleOffpeakFieldChange(index, 'startMin', e.target.value)}
-                            className="input text-xs sm:text-sm font-mono w-14 sm:w-16 py-1 px-1"
-                          >
-                            {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <span className="text-gray-500 text-xs hidden sm:inline">→</span>
-
-                        {/* End time */}
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-gray-500 dark:text-gray-400 w-12 sm:hidden">Fin:</span>
-                          <select
-                            value={range.endHour}
-                            onChange={(e) => handleOffpeakFieldChange(index, 'endHour', e.target.value)}
-                            className="input text-xs sm:text-sm font-mono w-14 sm:w-16 py-1 px-1"
-                          >
-                            {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => (
-                              <option key={h} value={h}>{h}</option>
-                            ))}
-                          </select>
-                          <span className="text-gray-500 text-xs">:</span>
-                          <select
-                            value={range.endMin}
-                            onChange={(e) => handleOffpeakFieldChange(index, 'endMin', e.target.value)}
-                            className="input text-xs sm:text-sm font-mono w-14 sm:w-16 py-1 px-1"
-                          >
-                            {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-1 w-[68px] justify-end">
-                        {offpeakRanges.length > 1 && (
-                          <button
-                            onClick={() => handleRemoveOffpeakRange(index)}
-                            className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex-shrink-0"
-                            title="Supprimer cette plage"
-                          >
-                            <Minus size={16} />
-                          </button>
-                        )}
-                        {index === offpeakRanges.length - 1 && (
-                          <button
-                            onClick={handleAddOffpeakRange}
-                            className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400 rounded flex-shrink-0"
-                            title="Ajouter une plage"
-                          >
-                            <Plus size={16} />
-                          </button>
-                        )}
-                      </div>
+              return productionPdls.length > 0 ? (
+                <div className="px-3 py-2 bg-white dark:bg-gray-900">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                      <Factory size={16} />
+                      <span>PDL de production lié :</span>
                     </div>
+                    <select
+                      value={pdl.linked_production_pdl_id || ''}
+                      onChange={(e) => linkProductionMutation.mutate(e.target.value || null)}
+                      disabled={linkProductionMutation.isPending}
+                      className="input text-sm py-1 w-48"
+                    >
+                      <option value="">Aucun</option>
+                      {productionPdls.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name || p.usage_point_id}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* PDL Type - Production - Only show if no consent error */}
-        {!hasConsentError && (
-          <div className="flex items-center justify-between" data-tour="pdl-production">
-            <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-              <Factory size={16} />
-              <span>Production :</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={pdl.has_production ?? false}
-              onChange={(e) =>
-                updateTypeMutation.mutate({
-                  has_consumption: pdl.has_consumption ?? true,
-                  has_production: e.target.checked,
-                })
-              }
-              disabled={updateTypeMutation.isPending}
-              className="w-5 h-5 flex-shrink-0 text-primary-600 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded cursor-pointer focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed accent-primary-600"
-            />
+                </div>
+              ) : null
+            })()}
           </div>
         )}
-
-        {/* Link Production PDL - Only show for consumption PDLs */}
-        {!hasConsentError && (pdl.has_consumption ?? true) && (() => {
-          const productionPdls = allPdls.filter(p => p.has_production && p.id !== pdl.id)
-          const linkedPdl = allPdls.find(p => p.id === pdl.linked_production_pdl_id)
-
-          return productionPdls.length > 0 ? (
-            <div className="flex flex-col gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                  <Factory size={16} />
-                  <span>PDL de production lié :</span>
-                </div>
-              </div>
-              <select
-                value={pdl.linked_production_pdl_id || ''}
-                onChange={(e) => linkProductionMutation.mutate(e.target.value || null)}
-                disabled={linkProductionMutation.isPending}
-                className="input text-sm py-2"
-              >
-                <option value="">Aucun</option>
-                {productionPdls.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name || p.usage_point_id}
-                  </option>
-                ))}
-              </select>
-              {linkedPdl && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 pl-6">
-                  Ce PDL est lié au PDL de production "{linkedPdl.name || linkedPdl.usage_point_id}". Les graphiques combineront les données de consommation et de production.
-                </p>
-              )}
-            </div>
-          ) : null
-        })()}
       </div>
 
 
