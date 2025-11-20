@@ -423,10 +423,10 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
 
   return (
-    <div className={`p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border relative transition-all ${
+    <div className={`p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border shadow-lg hover:shadow-xl relative transition-all ${
       hasConsentError
-        ? 'border-red-300 dark:border-red-800'
-        : 'border-gray-200 dark:border-gray-700'
+        ? 'border-red-300 dark:border-red-600'
+        : 'border-gray-300 dark:border-gray-600'
     } ${fetchContractMutation.isPending ? 'pointer-events-none' : ''} ${
       !(pdl.is_active ?? true) ? 'opacity-60 bg-gray-100 dark:bg-gray-800' : ''
     }`}>
@@ -723,7 +723,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
         {!hasConsentError && (
           <>
             {/* Consumption Section */}
-            <div className="border border-blue-200 dark:border-blue-800/50 rounded-lg overflow-hidden">
+            <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg overflow-hidden shadow-sm">
               {/* Consumption Header */}
               <label className="flex items-center gap-3 py-2 px-3 bg-blue-50 dark:bg-blue-900/20 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors" data-tour="pdl-consumption">
                 <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-medium">
@@ -747,7 +747,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
               {/* Consumption Configuration - Only show if consumption is enabled */}
               {(pdl.has_consumption ?? true) && (
-                <div className="px-3 py-2 space-y-2 bg-white dark:bg-gray-900">
+                <div className="px-3 py-2 space-y-2 bg-blue-50/30 dark:bg-gray-800/50">
                   <div className="flex items-center justify-between" data-tour="pdl-power">
                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                       <Zap size={16} />
@@ -780,7 +780,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                       </div>
                       <button
                         onClick={handleAddOffpeakRange}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700 dark:hover:bg-emerald-800 rounded-lg shadow-sm hover:shadow transition-all duration-200"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 rounded-lg shadow-sm hover:shadow transition-all duration-200"
                         title="Ajouter une plage horaire"
                       >
                         <Plus size={16} />
@@ -884,7 +884,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                       {offpeakRanges.map((range, index) => (
                         <div
                           key={index}
-                          className="flex items-center gap-3 p-2 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/30 rounded-lg"
+                          className="flex items-center gap-3 p-2 bg-blue-50/30 dark:bg-blue-900/5 border border-blue-200 dark:border-blue-800/20 rounded-lg"
                         >
                           {/* Range number badge */}
                           <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-blue-500 dark:bg-blue-600 text-white text-xs font-bold rounded-full">
@@ -959,7 +959,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                           {offpeakRanges.length > 1 && (
                             <button
                               onClick={() => handleRemoveOffpeakRange(index)}
-                              className="flex-shrink-0 p-1.5 text-white bg-red-500 hover:bg-red-600 dark:bg-red-700 dark:hover:bg-red-800 rounded transition-all"
+                              className="flex-shrink-0 p-1.5 text-white bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-800 rounded transition-all"
                               title="Supprimer cette plage"
                             >
                               <Minus size={14} />
@@ -977,7 +977,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
         {/* Production Section */}
         {!hasConsentError && (
-          <div className="border border-green-200 dark:border-green-800/50 rounded-lg overflow-hidden">
+          <div className="border-2 border-green-200 dark:border-green-800 rounded-lg overflow-hidden shadow-sm">
             {/* Production Header */}
             <label className="flex items-center gap-3 py-2 px-3 bg-green-50 dark:bg-green-900/20 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors" data-tour="pdl-production">
               <div className="flex items-center gap-2 text-green-700 dark:text-green-300 font-medium">
@@ -1001,10 +1001,10 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
             {/* Production Configuration - Link Production PDL - Only show for consumption-only PDLs (not production) */}
             {(pdl.has_consumption ?? true) && !(pdl.has_production ?? false) && (() => {
-              const productionPdls = allPdls.filter(p => p.has_production && p.id !== pdl.id)
+              const productionPdls = allPdls.filter(p => p.has_production && p.id !== pdl.id && (p.is_active ?? true))
 
               return productionPdls.length > 0 ? (
-                <div className="px-3 py-2 bg-white dark:bg-gray-900">
+                <div className="px-3 py-2 bg-green-50/30 dark:bg-gray-800/50">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                       <Factory size={16} />
