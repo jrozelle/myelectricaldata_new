@@ -632,7 +632,7 @@ export default function Dashboard() {
       )}
 
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold mb-2 flex items-center gap-3">
+        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
           <LayoutDashboard className="text-primary-600 dark:text-primary-400" size={32} />
           Tableau de bord
         </h1>

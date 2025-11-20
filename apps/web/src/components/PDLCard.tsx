@@ -423,9 +423,9 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
 
   return (
-    <div className={`p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border shadow-lg hover:shadow-xl relative transition-all ${
+    <div className={`p-4 bg-white dark:bg-gray-800/90 rounded-lg border-2 shadow-lg hover:shadow-xl relative transition-all ${
       hasConsentError
-        ? 'border-red-300 dark:border-red-600'
+        ? 'border-red-400 dark:border-red-500'
         : 'border-gray-300 dark:border-gray-600'
     } ${fetchContractMutation.isPending ? 'pointer-events-none' : ''} ${
       !(pdl.is_active ?? true) ? 'opacity-60 bg-gray-100 dark:bg-gray-800' : ''
@@ -723,11 +723,11 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
         {!hasConsentError && (
           <>
             {/* Consumption Section */}
-            <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg overflow-hidden shadow-sm">
+            <div className="border-2 border-blue-100 dark:border-blue-900/50 rounded-lg overflow-hidden shadow-sm">
               {/* Consumption Header */}
-              <label className="flex items-center gap-3 py-2 px-3 bg-blue-50 dark:bg-blue-900/20 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors" data-tour="pdl-consumption">
-                <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-medium">
-                  <Zap size={18} className="text-blue-600 dark:text-blue-400" />
+              <label className="flex items-center gap-3 py-2 px-3 bg-blue-50/50 dark:bg-blue-900/10 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors" data-tour="pdl-consumption">
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium">
+                  <Zap size={18} className="text-blue-500 dark:text-blue-400" />
                   <span>Consommation</span>
                 </div>
                 <div className="flex-1"></div>
@@ -741,13 +741,13 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                     })
                   }
                   disabled={updateTypeMutation.isPending}
-                  className="w-5 h-5 flex-shrink-0 rounded-md border-2 border-blue-400 dark:border-blue-500 bg-white dark:bg-gray-800 checked:bg-blue-600 dark:checked:bg-blue-500 checked:border-blue-600 dark:checked:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-5 h-5 flex-shrink-0 rounded-md border-2 border-blue-300 dark:border-blue-600 bg-white dark:bg-gray-800 checked:bg-blue-500 dark:checked:bg-blue-600 checked:border-blue-500 dark:checked:border-blue-600 focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 dark:focus:ring-offset-gray-900 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </label>
 
               {/* Consumption Configuration - Only show if consumption is enabled */}
               {(pdl.has_consumption ?? true) && (
-                <div className="px-3 py-2 space-y-2 bg-blue-50/30 dark:bg-gray-800/50">
+                <div className="px-3 py-2 space-y-2 bg-blue-50/20 dark:bg-gray-800/50">
                   <div className="flex items-center justify-between" data-tour="pdl-power">
                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                       <Zap size={16} />
@@ -977,11 +977,11 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
         {/* Production Section */}
         {!hasConsentError && (
-          <div className="border-2 border-green-200 dark:border-green-800 rounded-lg overflow-hidden shadow-sm">
+          <div className="border-2 border-green-100 dark:border-green-900/50 rounded-lg overflow-hidden shadow-sm">
             {/* Production Header */}
-            <label className="flex items-center gap-3 py-2 px-3 bg-green-50 dark:bg-green-900/20 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors" data-tour="pdl-production">
-              <div className="flex items-center gap-2 text-green-700 dark:text-green-300 font-medium">
-                <Factory size={18} className="text-green-600 dark:text-green-400" />
+            <label className="flex items-center gap-3 py-2 px-3 bg-green-50/50 dark:bg-green-900/10 cursor-pointer hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors" data-tour="pdl-production">
+              <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium">
+                <Factory size={18} className="text-green-500 dark:text-green-400" />
                 <span>Production</span>
               </div>
               <div className="flex-1"></div>
@@ -995,7 +995,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                   })
                 }
                 disabled={updateTypeMutation.isPending}
-                className="w-5 h-5 flex-shrink-0 rounded-md border-2 border-green-400 dark:border-green-500 bg-white dark:bg-gray-800 checked:bg-green-600 dark:checked:bg-green-500 checked:border-green-600 dark:checked:border-green-500 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-5 h-5 flex-shrink-0 rounded-md border-2 border-green-300 dark:border-green-600 bg-white dark:bg-gray-800 checked:bg-green-500 dark:checked:bg-green-600 checked:border-green-500 dark:checked:border-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 dark:focus:ring-offset-gray-900 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </label>
 
@@ -1004,7 +1004,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
               const productionPdls = allPdls.filter(p => p.has_production && p.id !== pdl.id && (p.is_active ?? true))
 
               return productionPdls.length > 0 ? (
-                <div className="px-3 py-2 bg-green-50/30 dark:bg-gray-800/50">
+                <div className="px-3 py-2 bg-green-50/20 dark:bg-gray-800/50">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                       <Factory size={16} />

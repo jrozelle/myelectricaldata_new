@@ -72,3 +72,4 @@ Si tu as besoin d'accéder aux logs de l'application pour déboguer :
   - `docker compose logs -f frontend` : Suit les logs du frontend en temps réel
 
 **Ne PAS** redémarrer les services juste pour voir les logs - utilise les commandes de logs directement.
+docs
