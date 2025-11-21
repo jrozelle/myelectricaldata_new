@@ -35,7 +35,7 @@ const AdminLogs: React.FC = () => {
   // Load level filters from localStorage or use default
   const [levelFilters, setLevelFilters] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('adminLogs_levelFilters');
-    return saved ? new Set(JSON.parse(saved)) : new Set(['INFO', 'WARNING', 'ERROR', 'DEBUG']);
+    return saved ? new Set(JSON.parse(saved)) : new Set(['INFO', 'WARNING', 'ERROR']);
   });
 
   // Load module filters from localStorage or use empty set
@@ -305,7 +305,7 @@ const AdminLogs: React.FC = () => {
   };
 
   const toggleModuleFilter = (module: string) => {
-    // Toggle module in multi-select mode
+    // Toggle module filter (allows multiple selections)
     const newFilters = new Set(moduleFilters);
     if (newFilters.has(module)) {
       newFilters.delete(module);
@@ -318,7 +318,7 @@ const AdminLogs: React.FC = () => {
   const toggleColumn = (column: string) => {
     const newColumns = new Set(visibleColumns);
     if (newColumns.has(column)) {
-      // Ne pas permettre de masquer toutes les colonnes
+      // Don't allow hiding all columns
       if (newColumns.size > 1) {
         newColumns.delete(column);
       }
@@ -1005,7 +1005,7 @@ const AdminLogs: React.FC = () => {
                                           copyToClipboard(JSON.stringify(log, null, 2), 'JSON');
                                         }}
                                         className="text-primary-400 hover:text-primary-300 text-xs px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
-                                        title="Copier le JSON"
+                                        title="Copier"
                                       >
                                         Copier
                                       </button>
