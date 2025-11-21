@@ -88,9 +88,15 @@ class RedisLogHandler(logging.Handler):
             return
 
         try:
-            # Filter out logs from /admin/logs and /ping endpoints
+            # Filter out HTTP request logs for specific endpoints to avoid recursion
             message = record.getMessage()
-            if '/admin/logs' in message or '/ping ' in message or '/ping"' in message:
+            # Match HTTP method patterns like "GET /admin/logs", "POST /admin/logs", etc.
+            http_patterns = [
+                'GET /admin/logs', 'POST /admin/logs', 'PUT /admin/logs', 'DELETE /admin/logs',
+                'PATCH /admin/logs', 'HEAD /admin/logs', 'OPTIONS /admin/logs',
+                'GET /ping', 'POST /ping', 'HEAD /ping'
+            ]
+            if any(pattern in message for pattern in http_patterns):
                 return
 
             # Get original levelname (strip whitespace if formatter added it)

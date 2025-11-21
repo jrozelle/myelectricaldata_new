@@ -22,6 +22,7 @@ interface GetLogsResponse {
 
 const AdminLogs: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef<boolean>(true);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +64,14 @@ const AdminLogs: React.FC = () => {
     const saved = localStorage.getItem('adminLogs_filtersPanelCollapsed');
     return saved ? JSON.parse(saved) === true : false;
   });
+
+  // Cleanup: mark component as unmounted
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Save filters to localStorage whenever they change
   useEffect(() => {
@@ -123,9 +132,14 @@ const AdminLogs: React.FC = () => {
     setExpandedRows(newExpanded);
   };
 
-  const copyToClipboard = (text: string, fieldName: string) => {
-    navigator.clipboard.writeText(text);
-    setToastMessage(`${fieldName} copié`);
+  const copyToClipboard = async (text: string, fieldName: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setToastMessage(`${fieldName} copié`);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      setToastMessage(`Échec de la copie de ${fieldName}`);
+    }
     setTimeout(() => setToastMessage(null), 2000);
   };
 
@@ -144,7 +158,7 @@ const AdminLogs: React.FC = () => {
     setError(null);
     try {
       // Fetch all logs without server-side filtering (we'll filter client-side)
-      const response = await getAdminLogs(undefined, linesCount, 0) as GetLogsResponse;
+      const response = await getAdminLogs(undefined, linesCount) as GetLogsResponse;
 
       // Always update seenTimestamps with current logs FIRST (before detecting new logs)
       const currentTimestamps = response.logs.map((log: LogEntry) => log.timestamp);
@@ -187,6 +201,17 @@ const AdminLogs: React.FC = () => {
           setSeenTimestamps(prevSeen => {
             const updated = new Set(prevSeen);
             response.logs.forEach((log: LogEntry) => updated.add(log.timestamp));
+
+            // Prune the set to prevent memory leaks in long-running sessions
+            const maxSize = 2 * linesCount;
+            if (updated.size > maxSize) {
+              // Keep only the most recent maxSize timestamps
+              const arr = Array.from(updated).sort().reverse(); // Sort descending (most recent first)
+              const pruned = new Set(arr.slice(0, maxSize));
+              console.log('[AdminLogs] Pruned seenTimestamps from', updated.size, 'to', pruned.size);
+              return pruned;
+            }
+
             console.log('[AdminLogs] Updated seenTimestamps size:', updated.size);
             return updated;
           });
@@ -238,7 +263,8 @@ const AdminLogs: React.FC = () => {
         // Restore scroll position after refresh (with a small delay to ensure DOM is updated)
         if (savedScrollTop > 0) {
           setTimeout(() => {
-            if (tableContainerRef.current) {
+            // Check if component is still mounted before accessing DOM
+            if (isMountedRef.current && tableContainerRef.current) {
               tableContainerRef.current.scrollTop = savedScrollTop;
             }
           }, 0);
@@ -862,7 +888,7 @@ const AdminLogs: React.FC = () => {
                           </tr>
                           {isExpanded && (
                             <tr className={`border-b border-gray-200 dark:border-gray-800 ${getRowBgColor(log.level)}`}>
-                              <td colSpan={4} className="px-2 py-3">
+                              <td colSpan={visibleColumns.size} className="px-2 py-3">
                                 <div className="text-xs space-y-3">
                                   {/* Fields grid */}
                                   <div className="grid grid-cols-2 gap-3">
