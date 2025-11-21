@@ -14,6 +14,19 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Helper function to add PDL prefix to log messages
+def log_with_pdl(level: str, pdl: str, message: str):
+    """Add PDL prefix to log message: [XXXXXXXXXXXXXX] message"""
+    prefixed_message = f"[{pdl}] {message}"
+    if level == "info":
+        logger.info(prefixed_message)
+    elif level == "warning":
+        logger.warning(prefixed_message)
+    elif level == "error":
+        logger.error(prefixed_message)
+    elif level == "debug":
+        logger.debug(prefixed_message)
+
 router = APIRouter(prefix="/pdl", tags=["PDL Management"])
 
 
@@ -240,7 +253,7 @@ async def create_pdl(
                 )
                 if consumption_test and "meter_reading" in consumption_test:
                     has_consumption = True
-                    logger.info(f"[CREATE PDL] PDL {pdl.usage_point_id} HAS CONSUMPTION (endpoint responded)")
+                    log_with_pdl("info", pdl.usage_point_id, "[CREATE PDL] HAS CONSUMPTION (endpoint responded)")
             except Exception as e:
                 logger.info(f"[CREATE PDL] Consumption endpoint failed: {str(e)}")
 
@@ -251,7 +264,7 @@ async def create_pdl(
                 )
                 if production_test and "meter_reading" in production_test:
                     has_production = True
-                    logger.info(f"[CREATE PDL] PDL {pdl.usage_point_id} HAS PRODUCTION (endpoint responded)")
+                    log_with_pdl("info", pdl.usage_point_id, "[CREATE PDL] HAS PRODUCTION (endpoint responded)")
             except Exception as e:
                 logger.info(f"[CREATE PDL] Production endpoint failed: {str(e)}")
 
@@ -843,7 +856,7 @@ async def fetch_contract_from_enedis(
             )
             if consumption_test and "meter_reading" in consumption_test:
                 has_consumption = True
-                logger.info(f"[FETCH CONTRACT] PDL {pdl.usage_point_id} HAS CONSUMPTION (endpoint responded)")
+                log_with_pdl("info", pdl.usage_point_id, "[FETCH CONTRACT] HAS CONSUMPTION (endpoint responded)")
         except Exception as e:
             logger.info(f"[FETCH CONTRACT] Consumption endpoint failed: {str(e)}")
 
@@ -854,7 +867,7 @@ async def fetch_contract_from_enedis(
             )
             if production_test and "meter_reading" in production_test:
                 has_production = True
-                logger.info(f"[FETCH CONTRACT] PDL {pdl.usage_point_id} HAS PRODUCTION (endpoint responded)")
+                log_with_pdl("info", pdl.usage_point_id, "[FETCH CONTRACT] HAS PRODUCTION (endpoint responded)")
         except Exception as e:
             logger.info(f"[FETCH CONTRACT] Production endpoint failed: {str(e)}")
 

@@ -16,47 +16,58 @@ Cette page permet aux **administrateurs de consulter les logs système** pour le
 1. **Affichage des logs**
 
    - Liste en temps réel des logs système
-   - Colonnes affichées :
+   - Colonnes affichées (configurables) :
      - Timestamp
-     - Niveau (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+     - Niveau (DEBUG, INFO, WARNING, ERROR)
      - Module/Source
      - Message
-     - Utilisateur (si applicable)
-     - Détails supplémentaires
+   - Identification PDL : tous les logs liés à un PDL affichent le préfixe `[XXXXXXXXXXXXXX]`
+   - Expansion des logs pour voir les détails complets (pathname, line number, exception)
 
-2. **Filtrage**
+2. **Panneau de filtres intelligent**
 
-   - Filtre par niveau de log (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-   - Filtre par module/source
-   - Filtre par utilisateur
-   - Filtre par période (date de début/fin)
-   - Recherche dans les messages
+   - **Header réduit interactif** : contrôles essentiels toujours visibles
+     - Champ de recherche (Ctrl+K) qui prend toute la largeur disponible
+     - Boutons de filtrage rapide par niveau (INFO, WARNING, ERROR, DEBUG)
+     - Badge indicateur de filtres modules actifs (cliquable pour déplier le panneau)
+   - **Panneau détaillé** (dépliable) :
+     - Sélection multiple des niveaux de log avec boutons Tous/Aucun
+     - Filtrage par modules organisés par catégories (src, uvicorn, fastapi, sqlalchemy)
+     - Boutons "Seul" et "Tous/Aucun" par catégorie pour une sélection rapide
+     - Affichage en grille (5 colonnes) des modules par catégorie
+   - Recherche textuelle dans tous les champs des logs
+   - Sélection des colonnes visibles (Timestamp, Niveau, Module, Message)
+   - Choix du nombre de lignes affichées (50, 100, 200, 500, 1000)
+   - Tous les filtres sont sauvegardés automatiquement dans localStorage
 
-3. **Tri et pagination**
+3. **Tri et navigation**
 
-   - Tri par date (ascendant/descendant)
-   - Pagination avec nombre de résultats par page configurable
-   - Affichage du nombre total de logs
+   - Tri par timestamp (ascendant/descendant)
+   - Nombre de logs configurables par page (50 à 1000)
+   - Préservation automatique de la position de scroll lors du refresh
+   - Scroll fluide avec barre de défilement personnalisée
 
 4. **Code couleur**
 
-   - DEBUG : Gris
-   - INFO : Bleu
-   - WARNING : Orange
-   - ERROR : Rouge
-   - CRITICAL : Rouge foncé
+   - DEBUG : Gris (`bg-gray-100/200`)
+   - INFO : Bleu (`bg-blue-100/600`)
+   - WARNING : Orange (`bg-yellow-100/500`)
+   - ERROR : Rouge (`bg-red-100/600`)
+   - Support complet du dark mode avec couleurs adaptées
 
-5. **Actions**
+5. **Actions et rafraîchissement**
 
-   - Rafraîchissement manuel
-   - Rafraîchissement automatique (toutes les 10s)
-   - Export des logs en CSV ou JSON
-   - Vidage des logs anciens (avec confirmation)
+   - Rafraîchissement manuel avec bouton dédié
+   - Rafraîchissement automatique configurable (5s, 10s, 30s, 60s, ou désactivé)
+   - Indicateur de refresh en cours avec animation
+   - Bouton "Haut de page" pour navigation rapide
+   - Timestamp de dernière mise à jour affiché
 
 6. **Détails d'un log**
    - Clic sur un log pour afficher les détails complets
-   - Stack trace pour les erreurs
-   - Contexte additionnel (requête HTTP, paramètres, etc.)
+   - Informations étendues : pathname, lineno, funcName
+   - Stack trace formatée pour les exceptions
+   - Support des logs multi-lignes avec préservation de la mise en forme
 
 ## Permissions requises
 
@@ -65,17 +76,42 @@ Cette page permet aux **administrateurs de consulter les logs système** pour le
 
 ## Technologies utilisées
 
-- React avec TypeScript
-- React Query pour le polling automatique
-- Tailwind CSS pour le style
-- Support du mode sombre
+- React avec TypeScript pour l'interface
+- React hooks (useState, useEffect, useRef) pour la gestion d'état
+- Axios pour les appels API
+- Tailwind CSS pour le style et les animations
+- Lucide React pour les icônes
+- Support complet du dark mode
+- LocalStorage pour la persistance des préférences utilisateur
+
+## Architecture backend des logs
+
+### Stockage et rétention
+- **Redis** : Stockage des logs avec TTL de 24 heures
+- **Thread pool** : 8 workers pour l'écriture async non-bloquante
+- **Encryption** : Non chiffrés (accessibles uniquement aux admins)
+- **Format de clé** : `logs:{level}:{timestamp_ms}` pour tri chronologique
+
+### Optimisations
+- Timeouts courts (1s) pour éviter les blocages
+- Thread pool dédié pour isolation des opérations Redis
+- Filtrage automatique des logs `/admin/logs` et `/ping` pour éviter la récursion
+- Format JSON compact avec tous les champs nécessaires
+
+### Logging avec identification PDL
+- Fonction helper `log_with_pdl(level, pdl, message)` pour préfixer les logs
+- Fonction `log_if_debug(user, level, message, pdl)` pour logs conditionnels
+- Format standardisé : `[XXXXXXXXXXXXXX] [TAG] message`
+- Application systématique dans `enedis.py` (28+ appels) et `pdl.py` (4+ appels)
 
 ## Fichiers liés
 
-- **Frontend** : `apps/web/src/pages/AdminLogs.tsx`
-- **API** : `apps/web/src/api/admin.ts`
-- **Types** : `apps/web/src/types/api.ts`
-- **Backend** : `apps/api/src/routers/admin.py`, logging system
+- **Frontend** : `apps/web/src/pages/AdminLogs.tsx` (interface principale)
+- **API Client** : `apps/web/src/api/admin.ts` (appels API)
+- **Types** : `apps/web/src/types/api.ts` (définitions TypeScript)
+- **Backend Router** : `apps/api/src/routers/admin.py` (endpoint `/admin/logs`)
+- **Logging Config** : `apps/api/src/logging_config.py` (configuration Redis, formatters)
+- **Business Logic** : `apps/api/src/routers/enedis.py`, `apps/api/src/routers/pdl.py` (logs avec PDL)
 
 ## Navigation
 
@@ -89,5 +125,9 @@ Le menu Admin regroupe toutes les pages d'administration :
 
 - Les logs sont critiques pour diagnostiquer les problèmes en production
 - Les logs sensibles (mots de passe, tokens) sont automatiquement masqués
-- Les logs anciens sont archivés et supprimés automatiquement après 90 jours
+- **Rétention** : Les logs sont stockés dans Redis avec un TTL de 24 heures
 - Le niveau DEBUG génère beaucoup de logs, à utiliser avec parcimonie
+- **Identification PDL** : Tous les logs liés à un PDL (Point de Livraison) affichent le numéro du PDL en préfixe pour faciliter le debugging
+- **Performance** : Le refresh automatique préserve la position de scroll pour ne pas perdre sa place lors de la consultation
+- **UX optimisée** : Le header réduit permet d'accéder rapidement aux filtres essentiels sans déplier le panneau complet
+- **Badge indicateur** : Un badge animé signale quand des filtres modules sont actifs pour ne pas oublier de les vérifier
