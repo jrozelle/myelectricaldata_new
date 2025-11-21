@@ -130,33 +130,12 @@ const AdminLogs: React.FC = () => {
   };
 
   const fetchLogs = async () => {
-    // Save scroll position and state before refresh
-    const container = tableContainerRef.current;
-    const scrollTop = container?.scrollTop || 0;
-
-    // Consider "at top" if within 10px from top, otherwise preserve exact position
-    const isAtTop = scrollTop < 10;
-
-    // Find the first visible log timestamp to anchor scroll position
-    let anchorTimestamp: string | null = null;
-    let anchorOffsetTop = 0;
-
-    if (!isAtTop && container) {
-      const rows = container.querySelectorAll('tbody tr[data-timestamp]');
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i] as HTMLElement;
-        const rect = row.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-
-        if (rect.top >= containerRect.top) {
-          anchorTimestamp = row.getAttribute('data-timestamp');
-          anchorOffsetTop = rect.top - containerRect.top;
-          break;
-        }
-      }
+    // Save scroll position before refresh (but not on initial load)
+    let savedScrollTop = 0;
+    if (!isInitialLoad && tableContainerRef.current) {
+      savedScrollTop = tableContainerRef.current.scrollTop;
     }
 
-    // Only show loading state on initial load, not on refresh
     if (isInitialLoad) {
       setLoading(true);
     } else {
@@ -257,29 +236,13 @@ const AdminLogs: React.FC = () => {
       } else {
         setRefreshing(false);
         // Restore scroll position after refresh (with a small delay to ensure DOM is updated)
-        setTimeout(() => {
-          if (container) {
-            if (isAtTop) {
-              // If user was at the top, stay at top to see new logs
-              container.scrollTop = 0;
-            } else if (anchorTimestamp) {
-              // Find the anchor element and restore position relative to it
-              const anchorRow = container.querySelector(`tbody tr[data-timestamp="${anchorTimestamp}"]`);
-              if (anchorRow) {
-                const rect = anchorRow.getBoundingClientRect();
-                const containerRect = container.getBoundingClientRect();
-                const currentOffsetTop = rect.top - containerRect.top;
-                const offsetDiff = currentOffsetTop - anchorOffsetTop;
-
-                // Adjust scroll to maintain the same visual position
-                container.scrollTop = container.scrollTop + offsetDiff;
-              }
-            } else {
-              // Fallback: restore exact scroll position
-              container.scrollTop = scrollTop;
+        if (savedScrollTop > 0) {
+          setTimeout(() => {
+            if (tableContainerRef.current) {
+              tableContainerRef.current.scrollTop = savedScrollTop;
             }
-          }
-        }, 0);
+          }, 0);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch logs');
@@ -464,12 +427,81 @@ const AdminLogs: React.FC = () => {
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow transition-all duration-300 mb-4 flex-shrink-0">
         <div
-          className={`flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors p-4 ${isFiltersPanelCollapsed ? '' : 'border-b border-gray-200 dark:border-gray-700'} ${isFiltersPanelCollapsed ? 'rounded-lg' : 'rounded-t-lg'}`}
-          onClick={() => setIsFiltersPanelCollapsed(!isFiltersPanelCollapsed)}
-          title={isFiltersPanelCollapsed ? 'Afficher les filtres' : 'Masquer les filtres'}
+          className={`${isFiltersPanelCollapsed ? '' : 'border-b border-gray-200 dark:border-gray-700'} ${isFiltersPanelCollapsed ? 'rounded-lg' : 'rounded-t-lg'}`}
         >
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Filtres</h2>
-          <ChevronDown className={`w-5 h-5 text-gray-600 dark:text-gray-400 transition-transform ${isFiltersPanelCollapsed ? '-rotate-90' : ''}`} />
+          {/* Header line */}
+          <div
+            className={`flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors p-4 ${isFiltersPanelCollapsed ? 'rounded-lg' : 'rounded-t-lg'}`}
+            onClick={(e) => {
+              // Don't toggle if clicking on the controls when collapsed
+              if (isFiltersPanelCollapsed && (e.target as HTMLElement).closest('.filter-controls')) {
+                return;
+              }
+              // Otherwise toggle the panel
+              setIsFiltersPanelCollapsed(!isFiltersPanelCollapsed);
+            }}
+            title={isFiltersPanelCollapsed ? 'Afficher les filtres' : 'Masquer les filtres'}
+          >
+            <div className="flex items-center gap-3 flex-1">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white whitespace-nowrap">Filtres</h2>
+
+              {/* Show controls inline when collapsed */}
+              {isFiltersPanelCollapsed && (
+                <div className="flex items-center gap-3 flex-1 filter-controls" onClick={(e) => e.stopPropagation()}>
+                  {/* Search - all the way to the left */}
+                  <div className="flex-1 min-w-0">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Rechercher..."
+                        className="px-3 py-1.5 pr-12 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 w-full"
+                      />
+                      <kbd className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded">
+                        ⌘K
+                      </kbd>
+                    </div>
+                  </div>
+
+                  {/* Level filters - in the middle */}
+                  <div className="flex items-center gap-1.5">
+                    {['INFO', 'WARNING', 'ERROR', 'DEBUG'].map(level => (
+                      <button
+                        key={level}
+                        onClick={() => toggleLevelFilter(level)}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-all whitespace-nowrap ${
+                          levelFilters.has(level)
+                            ? `${getLevelColor(level)} opacity-100`
+                            : 'bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-400 opacity-50'
+                        }`}
+                        title={levelFilters.has(level) ? `Cacher ${level}` : `Afficher ${level}`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Module badge - all the way to the right - click to expand */}
+                  {moduleFilters.size > 0 && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 whitespace-nowrap cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                      title={`${moduleFilters.size} module(s) filtré(s) - Cliquer pour voir`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsFiltersPanelCollapsed(false);
+                      }}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 dark:bg-blue-400 animate-pulse"></span>
+                      {moduleFilters.size} module{moduleFilters.size > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <ChevronDown className={`chevron-icon w-5 h-5 text-gray-600 dark:text-gray-400 transition-transform flex-shrink-0 ml-3 ${isFiltersPanelCollapsed ? '-rotate-90' : ''}`} />
+          </div>
         </div>
         {!isFiltersPanelCollapsed && (
         <div className="p-4 pt-3">
