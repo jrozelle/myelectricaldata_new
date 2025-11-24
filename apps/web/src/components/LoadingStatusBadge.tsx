@@ -123,12 +123,6 @@ export function LoadingStatusBadge() {
   const consumptionTasks = tasks.filter(t => t.category === 'consumption')
   const productionTasks = tasks.filter(t => t.category === 'production')
 
-  // Calculate summary for mobile
-  const loadingCount = tasks.filter(t => t.status === 'loading').length
-  const successCount = tasks.filter(t => t.status === 'success').length
-  const errorCount = tasks.filter(t => t.status === 'error').length
-  const totalCount = tasks.length
-
   return (
     <div
       className="relative"

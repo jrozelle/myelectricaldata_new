@@ -650,7 +650,6 @@ export default function AdminOffers() {
             providersData
               .sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }))
               .map((provider) => {
-                const providerOffers = offersByProvider?.[provider.id] || []
                 const allProviderOffers = allOffersByProvider?.[provider.id] || []
                 const activeCount = allProviderOffers.filter(o => o.is_active).length
                 const isLoadingPreview = loadingPreview === provider.id
