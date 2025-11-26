@@ -39,7 +39,7 @@ import { YearlyConsumption } from './components/YearlyConsumption'
 import { HcHpDistribution } from './components/HcHpDistribution'
 import { YearlyStatCards } from './components/YearlyStatCards'
 import { AnnualCurve } from './components/AnnualCurve'
-import { DetailedLoadCurve } from './components/DetailedLoadCurve'
+import { DetailedCurve } from '@/components/DetailedCurve'
 import { MonthlyHcHp } from './components/MonthlyHcHp'
 import { PowerPeaks } from './components/PowerPeaks'
 import { useIsDemo } from '@/hooks/useIsDemo'
@@ -659,7 +659,9 @@ export default function Consumption() {
         {isDetailSectionExpanded && allLoadingComplete && detailByDayData.length > 0 && (
           <div className="px-6 pb-6 space-y-8">
             {/* Detailed Load Curve */}
-            <DetailedLoadCurve
+            <DetailedCurve
+              cacheKeyPrefix="consumptionDetail"
+              curveName="Consommation"
               detailByDayData={detailByDayData}
               selectedPDL={selectedPDL}
               isDarkMode={isDarkMode}

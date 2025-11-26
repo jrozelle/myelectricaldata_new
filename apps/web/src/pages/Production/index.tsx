@@ -17,7 +17,7 @@ import { useProductionCalcs } from './hooks/useProductionCalcs'
 import { YearlyProductionCards } from './components/YearlyProductionCards'
 import { YearlyProduction } from './components/YearlyProduction'
 import { AnnualProductionCurve } from './components/AnnualProductionCurve'
-import { DetailedProductionCurve } from './components/DetailedProductionCurve'
+import { DetailedCurve } from '@/components/DetailedCurve'
 
 export default function Production() {
   const isDemo = useIsDemo()
@@ -500,9 +500,11 @@ export default function Production() {
 
         {isDetailSectionExpanded && allLoadingComplete && (
           <div className="px-6 pb-6">
-            <DetailedProductionCurve
+            <DetailedCurve
+              cacheKeyPrefix="productionDetail"
+              curveName="Production"
               detailByDayData={detailByDayData}
-              selectedPDL={selectedPDL}
+              selectedPDL={actualProductionPDL}
               isDarkMode={isDarkMode}
               isLoadingDetail={isLoadingDetail}
               detailDateRange={detailDateRange}
