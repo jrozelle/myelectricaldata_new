@@ -156,17 +156,7 @@ export default function AdminTempo() {
   return (
     <div className="w-full">
       <div className="space-y-8 w-full">
-        <div>
-          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-            <Calendar className="text-primary-600 dark:text-primary-400" size={32} />
-            Gestion Tempo
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Gérez le cache des données Tempo EDF
-          </p>
-        </div>
-
-      {/* Notification Toast */}
+        {/* Notification Toast */}
       {notification && (
         <div className={`p-4 rounded-lg flex items-start gap-3 ${
           notification.type === 'success'

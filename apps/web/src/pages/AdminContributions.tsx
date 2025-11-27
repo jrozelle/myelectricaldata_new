@@ -311,16 +311,6 @@ export default function AdminContributions() {
       )}
 
       <div className="space-y-6 w-full">
-        <div>
-          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-            <Users className="text-primary-600 dark:text-primary-400" size={32} />
-            Gestion des contributions
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Approuvez ou rejetez les contributions communautaires en attente.
-          </p>
-        </div>
-
       {!contributions || contributions.length === 0 ? (
         <div className="card text-center py-12">
           <Users className="mx-auto text-gray-400 mb-4" size={48} />

@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 
 interface FAQItem {
@@ -118,16 +118,6 @@ export default function FAQ() {
 
   return (
     <div className="pt-6 w-full">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <AlertCircle className="text-primary-600 dark:text-primary-400" size={32} />
-          FAQ - Questions fréquentes Enedis
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Retrouvez ici les réponses aux questions les plus fréquentes et les solutions aux erreurs courantes de l'API Enedis.
-        </p>
-      </div>
-
       <div className="card">
         <div className="space-y-2">
           {faqItems.map((item, index) => (

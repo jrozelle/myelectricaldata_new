@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Zap, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react'
+import { RefreshCw, AlertCircle, CheckCircle } from 'lucide-react'
 import { ecowattApi, type EcoWattSignal } from '../api/ecowatt'
 
 export default function AdminEcoWatt() {
@@ -155,17 +155,6 @@ export default function AdminEcoWatt() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold mb-2 flex items-center gap-3">
-          <Zap className="text-primary-600 dark:text-primary-400" size={28} />
-          Administration EcoWatt
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Gérer les données EcoWatt et la synchronisation avec RTE
-        </p>
-      </div>
-
       {/* Message */}
       {message && (
         <div className={`p-4 rounded-lg border-l-4 ${

@@ -46,13 +46,7 @@ spec:
               value: {{ .Values.backend.env.TZ | quote }}
             - name: PYTHONUNBUFFERED
               value: {{ .Values.backend.env.PYTHONUNBUFFERED | quote }}
-            - name: DATABASE_URL
-              value: {{ include "myelectricaldata.databaseUrl" . | quote }}
-            - name: REDIS_URL
-              value: {{ include "myelectricaldata.redisUrl" . | quote }}
-            - name: ENEDIS_ENVIRONMENT
-              value: {{ .Values.secrets.enedis.environment | quote }}
-            # PostgreSQL password from CloudPirates postgres subchart secret
+            # PostgreSQL password MUST be defined before DATABASE_URL for $(POSTGRES_PASSWORD) substitution
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -63,6 +57,12 @@ spec:
                   name: {{ include "myelectricaldata.fullname" . }}-external-db
                   key: password
                   {{- end }}
+            - name: DATABASE_URL
+              value: {{ include "myelectricaldata.databaseUrl" . | quote }}
+            - name: REDIS_URL
+              value: {{ include "myelectricaldata.redisUrl" . | quote }}
+            - name: ENEDIS_ENVIRONMENT
+              value: {{ .Values.secrets.enedis.environment | quote }}
           envFrom:
             - secretRef:
                 name: {{ include "myelectricaldata.fullname" . }}
@@ -81,6 +81,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/data
+            - name: logs
+              mountPath: /logs
       volumes:
         - name: data
           {{- if .Values.backend.persistence.enabled }}
@@ -89,6 +91,8 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: logs
+          emptyDir: {}
       {{- with .Values.backend.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

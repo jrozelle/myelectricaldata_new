@@ -1,6 +1,6 @@
 import SwaggerUI from 'swagger-ui-react'
 import 'swagger-ui-react/swagger-ui.css'
-import { BookOpen, Key } from 'lucide-react'
+import { Key } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import { useThemeStore } from '@/stores/themeStore'
 import { Link } from 'react-router-dom'
@@ -829,16 +829,6 @@ export default function ApiDocs() {
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <BookOpen className="text-primary-600 dark:text-primary-400" size={32} />
-          Documentation API
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Documentation interactive de l'API MyElectricalData
-        </p>
-      </div>
-
       {/* OAuth 2.0 Authentication Block - Compact version at the top */}
       <div className="mb-3">
         <div className="p-2 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 rounded-lg">

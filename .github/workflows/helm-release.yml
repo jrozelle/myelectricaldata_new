@@ -1,0 +1,89 @@
+name: Release Helm Chart
+
+on:
+  push:
+    tags:
+      - 'helm-v*'  # Déclenché par les tags comme helm-v0.1.0
+    paths:
+      - 'helm/myelectricaldata/**'
+  workflow_dispatch:  # Permet le déclenchement manuel
+    inputs:
+      version:
+        description: 'Version du chart (ex: 0.1.0)'
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  CHART_PATH: helm/myelectricaldata
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Get chart version
+        id: chart_version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/helm-v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#helm-v}"
+          else
+            VERSION=$(grep '^version:' ${{ env.CHART_PATH }}/Chart.yaml | awk '{print $2}')
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Chart version: $VERSION"
+
+      - name: Update chart version
+        run: |
+          sed -i "s/^version:.*/version: ${{ steps.chart_version.outputs.version }}/" ${{ env.CHART_PATH }}/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.chart_version.outputs.version }}\"/" ${{ env.CHART_PATH }}/Chart.yaml
+          cat ${{ env.CHART_PATH }}/Chart.yaml
+
+      - name: Update Helm dependencies
+        run: |
+          helm dependency update ${{ env.CHART_PATH }}
+
+      - name: Lint Helm chart
+        run: |
+          helm lint ${{ env.CHART_PATH }}
+
+      - name: Package Helm chart
+        run: |
+          helm package ${{ env.CHART_PATH }} --destination ./packages
+
+      - name: Push to GHCR
+        run: |
+          CHART_PACKAGE=$(ls ./packages/*.tgz)
+          helm push $CHART_PACKAGE oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+          echo "Chart pushed to: oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/myelectricaldata:${{ steps.chart_version.outputs.version }}"
+
+      - name: Summary
+        run: |
+          echo "## Helm Chart Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart:** myelectricaldata" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.chart_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Installation" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "helm install myelectricaldata oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/myelectricaldata --version ${{ steps.chart_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

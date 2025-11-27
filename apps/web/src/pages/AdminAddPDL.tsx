@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Activity,
   CheckCircle,
   XCircle,
   AlertCircle,
@@ -311,19 +310,12 @@ export default function AdminAddPDL() {
       <div className="space-y-6 w-full max-w-4xl mx-auto">
         <div>
           <Link
-            to="/dashboard"
+            to="/admin/users"
             className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 mb-4 transition-colors"
           >
             <ArrowLeft size={16} />
-            Retour au Dashboard
+            Retour à la gestion des utilisateurs
           </Link>
-          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-            <Activity className="text-amber-600 dark:text-amber-400" size={32} />
-            Ajouter un PDL à un utilisateur
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Fonction d'administration : ajouter un PDL à n'importe quel utilisateur sans consentement
-          </p>
         </div>
 
         {/* Notification Toast - Fixed overlay */}

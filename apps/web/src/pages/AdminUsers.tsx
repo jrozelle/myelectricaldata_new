@@ -279,16 +279,6 @@ export default function AdminUsers() {
   return (
     <div className="w-full">
       <div className="space-y-6 w-full">
-        <div>
-          <h1 className="text-2xl font-bold mb-1 flex items-center gap-2">
-            <Users className="text-primary-600 dark:text-primary-400" size={28} />
-            Gestion des utilisateurs
-          </h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            Gérez les utilisateurs, leurs quotas et leurs rôles
-          </p>
-        </div>
-
         {/* Statistics */}
         {stats && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

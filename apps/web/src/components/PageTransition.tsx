@@ -1,5 +1,4 @@
-import { useLocation } from 'react-router-dom'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 
 interface PageTransitionProps {
   children: React.ReactNode
@@ -7,67 +6,37 @@ interface PageTransitionProps {
 
 /**
  * Composant qui ajoute des transitions fluides entre les pages.
- * Utilise un effet de fade + slide subtil lors du changement de route.
- * Scroll automatiquement vers le haut lors du changement de page.
+ * Utilise un effet de fade + slide subtil lors du montage.
+ * Le composant doit recevoir une key={pathname} pour déclencher l'animation à chaque navigation.
  */
 export function PageTransition({ children }: PageTransitionProps) {
-  const location = useLocation()
-  const [displayChildren, setDisplayChildren] = useState(children)
-  const [transitionState, setTransitionState] = useState<'enter' | 'exit' | 'idle'>('idle')
-  const previousPathRef = useRef(location.pathname)
+  const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
-    // Si le chemin a changé
-    if (location.pathname !== previousPathRef.current) {
-      // Démarrer l'animation de sortie
-      setTransitionState('exit')
+    // Scroll vers le haut
+    window.scrollTo({ top: 0, behavior: 'smooth' })
 
-      // Après l'animation de sortie, mettre à jour le contenu
-      const exitTimer = setTimeout(() => {
-        // Scroll vers le haut de manière fluide
-        window.scrollTo({ top: 0, behavior: 'smooth' })
+    // Déclencher l'animation d'entrée après le montage
+    const timer = requestAnimationFrame(() => {
+      setIsVisible(true)
+    })
 
-        setDisplayChildren(children)
-        setTransitionState('enter')
-
-        // Revenir à idle après l'animation d'entrée
-        const enterTimer = setTimeout(() => {
-          setTransitionState('idle')
-        }, 300)
-
-        return () => clearTimeout(enterTimer)
-      }, 150)
-
-      previousPathRef.current = location.pathname
-
-      return () => clearTimeout(exitTimer)
-    } else {
-      // Même chemin, mettre à jour les enfants directement
-      setDisplayChildren(children)
-    }
-  }, [location.pathname, children])
-
-  const getTransitionClasses = () => {
-    switch (transitionState) {
-      case 'exit':
-        return 'opacity-0 translate-y-2 scale-[0.99]'
-      case 'enter':
-        return 'opacity-100 translate-y-0 scale-100'
-      case 'idle':
-      default:
-        return 'opacity-100 translate-y-0 scale-100'
-    }
-  }
+    return () => cancelAnimationFrame(timer)
+  }, [])
 
   return (
     <div
-      className={`transition-all duration-200 ease-out ${getTransitionClasses()}`}
+      className={`transition-all duration-300 ease-out ${
+        isVisible
+          ? 'opacity-100 translate-y-0 scale-100'
+          : 'opacity-0 translate-y-3 scale-[0.98]'
+      }`}
       style={{
         transformOrigin: 'top center',
-        willChange: transitionState !== 'idle' ? 'opacity, transform' : 'auto'
+        willChange: isVisible ? 'auto' : 'opacity, transform'
       }}
     >
-      {displayChildren}
+      {children}
     </div>
   )
 }

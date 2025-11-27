@@ -146,14 +146,29 @@ secrets:
   # JWT secret key for authentication
   secretKey: ""  # Required - generate with: openssl rand -hex 32
 
+  # Admin emails (comma-separated)
+  adminEmails: ""
+
   # Enedis API credentials
   enedis:
     clientId: ""
     clientSecret: ""
     environment: "sandbox"  # sandbox or production
 
-  # Admin emails (comma-separated)
-  adminEmails: ""
+  # RTE API credentials (for Tempo calendar)
+  rte:
+    clientId: ""
+    clientSecret: ""
+
+  # Mailgun email service
+  mailgun:
+    apiKey: ""
+    domain: ""
+    fromEmail: "MyElectricalData <noreply@myelectricaldata.fr>"
+
+  # Cloudflare Turnstile (anti-spam)
+  turnstile:
+    secretKey: ""
 
 # Redis configuration (CloudPirates subchart)
 # Repository: oci://registry-1.docker.io/cloudpirates/redis

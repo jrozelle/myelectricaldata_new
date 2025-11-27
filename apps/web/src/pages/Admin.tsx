@@ -60,13 +60,6 @@ export default function Admin() {
   return (
     <div className="w-full">
       <div className="space-y-8 w-full">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Tableau de bord Administration</h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Vue d'ensemble et statistiques de la plateforme
-          </p>
-        </div>
-
       {/* Notification Toast */}
       {notification && (
         <div className={`p-4 rounded-lg flex items-start gap-3 ${

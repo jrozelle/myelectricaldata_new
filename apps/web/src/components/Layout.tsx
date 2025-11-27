@@ -454,17 +454,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content Area */}
       <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-56'}`}>
-        {/* Admin/API Docs Tabs - Full Width at the very top */}
-        {location.pathname.startsWith('/admin') && <AdminTabs />}
-        {location.pathname.startsWith('/api-docs') && <ApiDocsTabs />}
-
-        {/* Page Header - Visible sur toutes les pages avec titre + sélecteur PDL optionnel */}
-        <PageHeader />
+        {/* Header sticky : PageHeader + Tabs (si présents) */}
+        <div className="sticky top-0 z-20 flex-shrink-0">
+          <PageHeader />
+          {location.pathname.startsWith('/admin') && <AdminTabs />}
+          {location.pathname.startsWith('/api-docs') && <ApiDocsTabs />}
+        </div>
 
         {/* Main Content */}
         <main className={`flex-1 bg-gray-50 dark:bg-gray-900 ${isAdminLogsPage ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-          <div className={`container mx-auto px-3 sm:px-4 lg:px-6 max-w-[1920px] ${isAdminLogsPage ? 'h-full pb-0' : 'pb-6'}`}>
-            <PageTransition>
+          <div className={`container mx-auto px-3 sm:px-4 lg:px-6 max-w-[1920px] ${isAdminLogsPage ? 'h-full pb-0' : 'pb-6'} ${(location.pathname.startsWith('/admin') || location.pathname.startsWith('/api-docs')) ? 'pt-4' : ''}`}>
+            <PageTransition key={location.pathname}>
               {children}
             </PageTransition>
 

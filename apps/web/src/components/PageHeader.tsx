@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { TrendingUp, Sun, Calculator, Download, Lock, LayoutDashboard, Calendar, Zap, Users } from 'lucide-react'
+import { TrendingUp, Sun, Calculator, Download, Lock, LayoutDashboard, Calendar, Zap, Users, AlertCircle, BookOpen, Settings as SettingsIcon, Key, Shield, FileText, Activity } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { pdlApi } from '@/api/pdl'
 import { usePdlStore } from '@/stores/pdlStore'
@@ -11,7 +11,11 @@ import { LoadingStatusBadge } from './LoadingStatusBadge'
 import type { PDL } from '@/types/api'
 
 // Pages qui affichent le sélecteur de PDL avec bouton "Récupérer"
-const PDL_SELECTOR_PAGES = ['/consumption', '/production', '/simulator', '/dashboard', '/tempo', '/ecowatt', '/contribute']
+const PDL_SELECTOR_PAGES = [
+  '/consumption', '/production', '/simulator', '/dashboard', '/tempo', '/ecowatt', '/contribute',
+  '/faq', '/api-docs', '/api-docs/auth', '/settings',
+  '/admin', '/admin/users', '/admin/tempo', '/admin/ecowatt', '/admin/contributions', '/admin/offers', '/admin/roles', '/admin/logs', '/admin/add-pdl'
+]
 
 // Configuration des titres et icônes par page
 const PAGE_CONFIG: Record<string, { title: string; icon: typeof TrendingUp; subtitle?: string }> = {
@@ -22,6 +26,20 @@ const PAGE_CONFIG: Record<string, { title: string; icon: typeof TrendingUp; subt
   '/tempo': { title: 'Calendrier Tempo', icon: Calendar, subtitle: 'Historique des jours Tempo bleus, blancs et rouges fourni par RTE' },
   '/ecowatt': { title: 'EcoWatt - Signal RTE', icon: Zap, subtitle: 'Suivez en temps réel l\'état du réseau électrique français' },
   '/contribute': { title: 'Contribuer à la base de données', icon: Users, subtitle: 'Aidez la communauté en ajoutant des offres tarifaires' },
+  '/faq': { title: 'FAQ - Questions fréquentes Enedis', icon: AlertCircle, subtitle: 'Réponses aux questions courantes et solutions aux erreurs de l\'API Enedis' },
+  '/api-docs': { title: 'Documentation API', icon: BookOpen, subtitle: 'Explorez et testez les endpoints de l\'API MyElectricalData' },
+  '/api-docs/auth': { title: 'Authentification OAuth 2.0', icon: Key, subtitle: 'Guide complet pour intégrer l\'API MyElectricalData dans vos applications' },
+  '/settings': { title: 'Mon compte', icon: SettingsIcon, subtitle: 'Gérez votre compte et vos préférences' },
+  // Admin pages
+  '/admin': { title: 'Administration', icon: Shield, subtitle: 'Vue d\'ensemble et statistiques de la plateforme' },
+  '/admin/users': { title: 'Gestion des utilisateurs', icon: Users, subtitle: 'Gérez les comptes utilisateurs de la plateforme' },
+  '/admin/tempo': { title: 'Gestion Tempo', icon: Calendar, subtitle: 'Gérez les données du calendrier Tempo RTE' },
+  '/admin/ecowatt': { title: 'Administration EcoWatt', icon: Zap, subtitle: 'Gérez les données EcoWatt RTE' },
+  '/admin/contributions': { title: 'Gestion des contributions', icon: Users, subtitle: 'Modérez les contributions des utilisateurs' },
+  '/admin/offers': { title: 'Gestion des offres', icon: Zap, subtitle: 'Gérez les offres tarifaires des fournisseurs' },
+  '/admin/roles': { title: 'Gestion des rôles', icon: Shield, subtitle: 'Configurez les rôles et permissions' },
+  '/admin/logs': { title: 'Logs d\'application', icon: FileText, subtitle: 'Consultez les logs du système' },
+  '/admin/add-pdl': { title: 'Ajouter un PDL', icon: Activity, subtitle: 'Ajouter un point de livraison à un utilisateur' },
 }
 
 export default function PageHeader() {
@@ -117,7 +135,7 @@ export default function PageHeader() {
     : activePdls
 
   return (
-    <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+    <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
       <div className="container mx-auto px-3 sm:px-4 lg:px-6 max-w-[1920px]">
         <div className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center lg:justify-between">
           {/* Titre avec icône et sous-titre */}

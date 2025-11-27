@@ -25,7 +25,7 @@ export default function AdminTabs() {
   const visibleTabs = tabs.filter(tab => !tab.permission || hasPermission(tab.permission))
 
   return (
-    <div className="w-full border-b border-gray-200 dark:border-gray-700 mb-4 overflow-x-auto bg-white dark:bg-gray-800">
+    <div className="w-full border-b border-gray-200 dark:border-gray-700 overflow-x-auto bg-white dark:bg-gray-800">
       <nav className="flex gap-1 min-w-max px-3 sm:px-4 lg:px-6" aria-label="Tabs">
         {visibleTabs.map((tab) => {
           const isActive = location.pathname === tab.path

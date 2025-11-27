@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Copy, Check, Key } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { Link } from 'react-router-dom'
 
@@ -19,16 +19,6 @@ export default function ApiAuth() {
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <Key className="text-primary-600 dark:text-primary-400" size={32} />
-          Authentification OAuth 2.0
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Guide complet pour s'authentifier à l'API MyElectricalData
-        </p>
-      </div>
-
       <div className="space-y-6">
         {/* Introduction */}
         <div className="card">

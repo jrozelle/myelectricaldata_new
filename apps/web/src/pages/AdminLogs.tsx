@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { RefreshCw, AlertCircle, ChevronUp, ChevronDown, ChevronRight, Copy, FileText } from 'lucide-react';
+import { RefreshCw, AlertCircle, ChevronUp, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { getAdminLogs } from '../api/admin';
 
 type SortField = 'timestamp' | 'level' | 'module' | 'message';
@@ -411,16 +411,7 @@ const AdminLogs: React.FC = () => {
 
   return (
     <div className="pt-6 flex flex-col h-[calc(100vh-64px)] overflow-hidden pb-6">
-      <div className="flex justify-between items-start mb-6 flex-shrink-0">
-        <div>
-          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-            <FileText className="text-primary-600 dark:text-primary-400" size={32} />
-            <span className="text-gray-900 dark:text-white">Logs d'application</span>
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Visualisez et analysez les logs de l'application en temps réel
-          </p>
-        </div>
+      <div className="flex justify-end items-start mb-6 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <label htmlFor="auto-refresh" className="text-sm font-medium text-gray-700 dark:text-gray-300">
