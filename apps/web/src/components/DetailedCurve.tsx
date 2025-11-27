@@ -104,6 +104,8 @@ export function DetailedCurve({
   const [selectedDetailDay, setSelectedDetailDay] = useState(0)
   const [showDetailWeekComparison, setShowDetailWeekComparison] = useState(false)
   const [showDetailYearComparison, setShowDetailYearComparison] = useState(false)
+  const [weekComparisonAvailable, setWeekComparisonAvailable] = useState(false)
+  const [yearComparisonAvailable, setYearComparisonAvailable] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [viewMonth, setViewMonth] = useState(new Date())
   const [hasAutoSelected, setHasAutoSelected] = useState(false)
@@ -113,8 +115,8 @@ export function DetailedCurve({
   // Ref for the carousel container to measure width
   const carouselContainerRef = useRef<HTMLDivElement>(null)
 
-  // Calculate optimal number of visible days based on container width
-  const visibleDayCount = useResponsiveDayCount(carouselContainerRef, 120, 14)
+  // Calculate optimal number of visible days based on container width (max 7 days)
+  const visibleDayCount = useResponsiveDayCount(carouselContainerRef, 120, 7)
 
   // Reset auto-selection flag when PDL changes
   useEffect(() => {
@@ -122,12 +124,13 @@ export function DetailedCurve({
   }, [selectedPDL])
 
   // Auto-select most recent day with data ONLY on initial load
+  // Note: detailDateRange can be null when data comes from cache - we only need detailByDayData
   useEffect(() => {
     const hasUserNavigated = detailWeekOffset !== 0 || selectedDetailDay !== 0
-    if (!selectedPDL || !detailDateRange || hasAutoSelected || hasUserNavigated) return
+    if (!selectedPDL || hasAutoSelected || hasUserNavigated) return
 
     if (detailByDayData.length === 0) {
-      setHasAutoSelected(true)
+      // No data yet - wait for data to load
       return
     }
 
@@ -141,7 +144,7 @@ export function DetailedCurve({
       weekOffset: detailWeekOffset,
       dayIndex: 0
     })
-  }, [selectedPDL, detailDateRange, detailByDayData, hasAutoSelected, detailWeekOffset, selectedDetailDay, curveName])
+  }, [selectedPDL, detailByDayData, hasAutoSelected, detailWeekOffset, selectedDetailDay, curveName])
 
   // Auto-adjust selected day when data changes
   useEffect(() => {
@@ -180,6 +183,91 @@ export function DetailedCurve({
       }
     }
   }, [pendingDateSelection, detailByDayData])
+
+  // Check availability of comparison data when selected day changes
+  useEffect(() => {
+    if (!selectedPDL || !detailByDayData[selectedDetailDay]) {
+      setWeekComparisonAvailable(false)
+      setYearComparisonAvailable(false)
+      return
+    }
+
+    // Calculate current selected date
+    const currentDateStr = detailByDayData[selectedDetailDay].date
+    const [year, month, day] = currentDateStr.split('-').map(Number)
+    const currentDateUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0))
+
+    // Check week-1 availability
+    const weekAgoDateUTC = new Date(Date.UTC(
+      currentDateUTC.getUTCFullYear(),
+      currentDateUTC.getUTCMonth(),
+      currentDateUTC.getUTCDate() - 7,
+      0, 0, 0, 0
+    ))
+    const weekAgoDateStr = weekAgoDateUTC.getUTCFullYear() + '-' +
+                          String(weekAgoDateUTC.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                          String(weekAgoDateUTC.getUTCDate()).padStart(2, '0')
+
+    // Search in cache for week-1 data
+    const queryCache = queryClient.getQueryCache()
+    const allDetailQueries = queryCache.findAll({
+      queryKey: [cacheKeyPrefix, selectedPDL],
+      exact: false,
+    })
+
+    let weekAvailable = false
+    let yearAvailable = false
+
+    for (const query of allDetailQueries) {
+      const responseData = query.state.data as any
+      if (!responseData?.data?.meter_reading?.interval_reading) continue
+
+      const readings = responseData.data.meter_reading.interval_reading
+
+      // Check for week-1
+      if (!weekAvailable) {
+        const hasWeekData = readings.some((reading: any) => {
+          if (!reading.date) return false
+          const readingDate = reading.date.split(' ')[0].split('T')[0]
+          return readingDate === weekAgoDateStr
+        })
+        if (hasWeekData) weekAvailable = true
+      }
+
+      // Check for year-1
+      const yearAgoDateUTC = new Date(Date.UTC(
+        currentDateUTC.getUTCFullYear() - 1,
+        currentDateUTC.getUTCMonth(),
+        currentDateUTC.getUTCDate(),
+        0, 0, 0, 0
+      ))
+      const yearAgoDateStr = yearAgoDateUTC.getUTCFullYear() + '-' +
+                            String(yearAgoDateUTC.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                            String(yearAgoDateUTC.getUTCDate()).padStart(2, '0')
+
+      if (!yearAvailable) {
+        const hasYearData = readings.some((reading: any) => {
+          if (!reading.date) return false
+          const readingDate = reading.date.split(' ')[0].split('T')[0]
+          return readingDate === yearAgoDateStr
+        })
+        if (hasYearData) yearAvailable = true
+      }
+
+      if (weekAvailable && yearAvailable) break
+    }
+
+    setWeekComparisonAvailable(weekAvailable)
+    setYearComparisonAvailable(yearAvailable)
+
+    // Disable comparison if data not available
+    if (!weekAvailable && showDetailWeekComparison) {
+      setShowDetailWeekComparison(false)
+    }
+    if (!yearAvailable && showDetailYearComparison) {
+      setShowDetailYearComparison(false)
+    }
+  }, [selectedDetailDay, detailByDayData, selectedPDL, cacheKeyPrefix, queryClient, showDetailWeekComparison, showDetailYearComparison])
 
   const handleExport = () => {
     if (!detailByDayData[selectedDetailDay]) return
@@ -544,7 +632,8 @@ export function DetailedCurve({
               className="w-full px-4 py-3 rounded-xl border-2 border-primary-300 dark:border-primary-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200 cursor-pointer hover:border-primary-400 dark:hover:border-primary-600 text-center"
             >
               {(() => {
-                if (!detailDateRange || !detailByDayData[selectedDetailDay]) return 'Sélectionner...'
+                // Only check if data exists - detailDateRange can be null if data comes from cache
+                if (!detailByDayData[selectedDetailDay]) return 'Sélectionner...'
                 const selectedDate = new Date(detailByDayData[selectedDetailDay].date + 'T00:00:00')
                 return selectedDate.toLocaleDateString('fr-FR', {
                   weekday: 'long',
@@ -575,7 +664,7 @@ export function DetailedCurve({
               variant="secondary"
               size="md"
               onClick={() => {
-                onWeekOffsetChange(0)
+                // "Hier" = le jour le plus récent (index 0 car trié du plus récent au plus ancien)
                 setSelectedDetailDay(0)
                 toast.success("Retour à la veille")
               }}
@@ -587,9 +676,26 @@ export function DetailedCurve({
               variant="secondary"
               size="md"
               onClick={() => {
-                onWeekOffsetChange(1)
-                setSelectedDetailDay(0)
-                toast.success("Semaine dernière sélectionnée")
+                // Calculer la date d'il y a 7 jours (utilise heure locale pour la perspective utilisateur)
+                const now = new Date()
+                const targetDate = new Date(
+                  now.getFullYear(),
+                  now.getMonth(),
+                  now.getDate() - 8, // -1 pour hier, -7 pour semaine dernière = -8
+                  12, 0, 0, 0  // Utiliser midi pour éviter les problèmes DST
+                )
+                const targetDateStr = targetDate.getFullYear() + '-' +
+                  String(targetDate.getMonth() + 1).padStart(2, '0') + '-' +
+                  String(targetDate.getDate()).padStart(2, '0')
+
+                // Chercher cette date dans les données
+                const targetIndex = detailByDayData.findIndex(d => d.date === targetDateStr)
+                if (targetIndex !== -1) {
+                  setSelectedDetailDay(targetIndex)
+                  toast.success("Semaine dernière sélectionnée")
+                } else {
+                  toast.error("Données non disponibles pour cette date")
+                }
               }}
               className="w-full sm:w-auto"
             >
@@ -599,10 +705,26 @@ export function DetailedCurve({
               variant="secondary"
               size="md"
               onClick={() => {
-                const weeksInYear = 52
-                onWeekOffsetChange(weeksInYear)
-                setSelectedDetailDay(0)
-                toast.success("Il y a un an sélectionné")
+                // Calculer la date d'il y a 1 an (utilise heure locale pour la perspective utilisateur)
+                const now = new Date()
+                const targetDate = new Date(
+                  now.getFullYear() - 1,
+                  now.getMonth(),
+                  now.getDate() - 1, // -1 pour partir d'hier
+                  12, 0, 0, 0  // Utiliser midi pour éviter les problèmes DST
+                )
+                const targetDateStr = targetDate.getFullYear() + '-' +
+                  String(targetDate.getMonth() + 1).padStart(2, '0') + '-' +
+                  String(targetDate.getDate()).padStart(2, '0')
+
+                // Chercher cette date dans les données
+                const targetIndex = detailByDayData.findIndex(d => d.date === targetDateStr)
+                if (targetIndex !== -1) {
+                  setSelectedDetailDay(targetIndex)
+                  toast.success("Il y a un an sélectionné")
+                } else {
+                  toast.error("Données non disponibles pour cette date")
+                }
               }}
               className="w-full sm:w-auto"
             >
@@ -714,9 +836,13 @@ export function DetailedCurve({
         {/* Right side: Comparison and Export buttons */}
         <div className="flex items-center gap-2 justify-end flex-wrap">
           <button
-            onClick={() => setShowDetailYearComparison(!showDetailYearComparison)}
+            onClick={() => yearComparisonAvailable && setShowDetailYearComparison(!showDetailYearComparison)}
+            disabled={!yearComparisonAvailable}
+            title={!yearComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
             className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-              showDetailYearComparison
+              !yearComparisonAvailable
+                ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
+                : showDetailYearComparison
                 ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
                 : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
             }`}
@@ -725,9 +851,13 @@ export function DetailedCurve({
             <span>Année -1</span>
           </button>
           <button
-            onClick={() => setShowDetailWeekComparison(!showDetailWeekComparison)}
+            onClick={() => weekComparisonAvailable && setShowDetailWeekComparison(!showDetailWeekComparison)}
+            disabled={!weekComparisonAvailable}
+            title={!weekComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
             className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-              showDetailWeekComparison
+              !weekComparisonAvailable
+                ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
+                : showDetailWeekComparison
                 ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
                 : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
             }`}
@@ -750,9 +880,13 @@ export function DetailedCurve({
       {/* Smaller screens: Comparison and Export buttons - centered */}
       <div className="lg:hidden flex items-center gap-2 justify-center flex-wrap mb-4">
         <button
-          onClick={() => setShowDetailYearComparison(!showDetailYearComparison)}
+          onClick={() => yearComparisonAvailable && setShowDetailYearComparison(!showDetailYearComparison)}
+          disabled={!yearComparisonAvailable}
+          title={!yearComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
           className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-            showDetailYearComparison
+            !yearComparisonAvailable
+              ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
+              : showDetailYearComparison
               ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
               : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
           }`}
@@ -761,9 +895,13 @@ export function DetailedCurve({
           <span>Année -1</span>
         </button>
         <button
-          onClick={() => setShowDetailWeekComparison(!showDetailWeekComparison)}
+          onClick={() => weekComparisonAvailable && setShowDetailWeekComparison(!showDetailWeekComparison)}
+          disabled={!weekComparisonAvailable}
+          title={!weekComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
           className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-            showDetailWeekComparison
+            !weekComparisonAvailable
+              ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
+              : showDetailWeekComparison
               ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
               : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
           }`}
