@@ -4,7 +4,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { pdlApi } from '@/api/pdl'
 import { oauthApi } from '@/api/oauth'
 import { logger } from '@/utils/logger'
-import { ExternalLink, CheckCircle, XCircle, ArrowUpDown, GripVertical, UserPlus, Filter, Search, Keyboard, X as CloseIcon, AlertCircle, LayoutDashboard } from 'lucide-react'
+import { ExternalLink, CheckCircle, XCircle, ArrowUpDown, GripVertical, UserPlus, Filter, Search, Keyboard, X as CloseIcon, AlertCircle } from 'lucide-react'
 import PDLDetails from '@/components/PDLDetails'
 import PDLCard from '@/components/PDLCard'
 import { PDLCardSkeleton } from '@/components/Skeleton'
@@ -631,15 +631,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div>
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <LayoutDashboard className="text-primary-600 dark:text-primary-400" size={32} />
-          Tableau de bord
-        </h1>
-        <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">
-          Gérez vos points de livraison
-        </p>
-      </div>
 
       {/* Info Section */}
       {pdls.length === 0 && (

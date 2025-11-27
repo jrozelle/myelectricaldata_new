@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { TrendingUp, Sun, Calculator, Download, Lock } from 'lucide-react'
+import { TrendingUp, Sun, Calculator, Download, Lock, LayoutDashboard, Calendar, Zap, Users } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { pdlApi } from '@/api/pdl'
 import { usePdlStore } from '@/stores/pdlStore'
@@ -10,15 +10,18 @@ import { useUnifiedDataFetch } from '@/hooks/useUnifiedDataFetch'
 import { LoadingStatusBadge } from './LoadingStatusBadge'
 import type { PDL } from '@/types/api'
 
-// Pages qui affichent le sélecteur de PDL
-const PDL_SELECTOR_PAGES = ['/consumption', '/production', '/simulator']
+// Pages qui affichent le sélecteur de PDL avec bouton "Récupérer"
+const PDL_SELECTOR_PAGES = ['/consumption', '/production', '/simulator', '/dashboard', '/tempo', '/ecowatt', '/contribute']
 
 // Configuration des titres et icônes par page
 const PAGE_CONFIG: Record<string, { title: string; icon: typeof TrendingUp; subtitle?: string }> = {
-  '/dashboard': { title: 'Tableau de bord', icon: TrendingUp },
+  '/dashboard': { title: 'Tableau de bord', icon: LayoutDashboard, subtitle: 'Gérez vos points de livraison' },
   '/consumption': { title: 'Consommation', icon: TrendingUp, subtitle: 'Visualisez et analysez votre consommation électrique' },
   '/production': { title: 'Production', icon: Sun, subtitle: 'Visualisez et analysez votre production d\'énergie solaire' },
   '/simulator': { title: 'Comparateur des abonnements', icon: Calculator, subtitle: 'Comparez automatiquement le coût de toutes les offres disponibles' },
+  '/tempo': { title: 'Calendrier Tempo', icon: Calendar, subtitle: 'Historique des jours Tempo bleus, blancs et rouges fourni par RTE' },
+  '/ecowatt': { title: 'EcoWatt - Signal RTE', icon: Zap, subtitle: 'Suivez en temps réel l\'état du réseau électrique français' },
+  '/contribute': { title: 'Contribuer à la base de données', icon: Users, subtitle: 'Aidez la communauté en ajoutant des offres tarifaires' },
 }
 
 export default function PageHeader() {
@@ -42,10 +45,8 @@ export default function PageHeader() {
   const pdls: PDL[] = Array.isArray(pdlsResponse) ? pdlsResponse : []
   const selectedPDLDetails = pdls.find(p => p.usage_point_id === selectedPdl)
 
-  // Determine page context for data fetching
-  const pageContext = location.pathname === '/production' ? 'production' as const
-    : location.pathname === '/consumption' ? 'consumption' as const
-    : 'all' as const
+  // Toujours récupérer toutes les données (consommation + production), quelle que soit la page
+  const pageContext = 'all' as const
 
   // Hook unifié pour récupérer toutes les données
   const { fetchAllData } = useUnifiedDataFetch({
