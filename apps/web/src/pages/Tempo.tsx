@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query'
-import { Calendar } from 'lucide-react'
 import { tempoApi, type TempoDay } from '../api/tempo'
 
 export default function Tempo() {
@@ -199,13 +198,6 @@ export default function Tempo() {
 
   return (
     <div className="pt-6 w-full">
-      <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-        <Calendar className="text-primary-600 dark:text-primary-400" size={32} />
-        Calendrier Tempo
-      </h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-6">
-        Historique des jours Tempo bleus, blancs et rouges fourni par RTE
-      </p>
 
       {/* Current Season Summary */}
       {currentSeasonStats && (

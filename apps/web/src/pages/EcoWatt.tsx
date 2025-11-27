@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Zap, AlertTriangle, CheckCircle, AlertCircle, Calendar } from 'lucide-react'
+import { AlertTriangle, CheckCircle, AlertCircle, Calendar } from 'lucide-react'
 import { ecowattApi, type EcoWattSignal, type EcoWattStatistics } from '../api/ecowatt'
 
 
@@ -135,16 +135,6 @@ export default function EcoWatt() {
 
   return (
     <div className="pt-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <Zap className="text-primary-600 dark:text-primary-400" size={32} />
-          EcoWatt - Signal RTE
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Suivez en temps réel l'état du réseau électrique français et anticipez les tensions
-        </p>
-      </div>
 
       {/* Current Signal */}
       <div className={`card p-6 border-l-4 ${currentInfo.borderColor}`}>

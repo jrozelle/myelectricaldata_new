@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, CheckCircle, Clock, XCircle, List, Zap, Upload, FileJson } from 'lucide-react'
+import { CheckCircle, Clock, XCircle, List, Zap, Upload, FileJson } from 'lucide-react'
 import { energyApi, type EnergyProvider, type ContributionData, type EnergyOffer } from '@/api/energy'
 
 export default function Contribute() {
@@ -310,17 +310,7 @@ export default function Contribute() {
         </div>
       )}
 
-      <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-            <Users className="text-primary-600 dark:text-primary-400" size={32} />
-            Contribuer à la base de données
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Aidez la communauté en ajoutant ou mettant à jour les offres tarifaires des fournisseurs d'énergie.
-            Les administrateurs vérifieront votre contribution avant publication.
-          </p>
-        </div>
+      <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-end gap-4">
         <button
           onClick={() => setShowJsonImport(!showJsonImport)}
           className="btn btn-secondary flex items-center gap-2 whitespace-nowrap"
