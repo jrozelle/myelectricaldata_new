@@ -18,15 +18,44 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_BACKEND: ghcr.io/myelectricaldata/myelectricaldata_new/backend
-  IMAGE_FRONTEND: ghcr.io/myelectricaldata/myelectricaldata_new/frontend
+  IMAGE_PREFIX: ghcr.io/myelectricaldata/myelectricaldata_new
 
 jobs:
-  build-and-push:
+  # Prepare version info (shared by all build jobs)
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="latest"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+  # Build images in parallel using matrix strategy
+  build:
+    needs: prepare
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./apps/api
+          - image: frontend
+            context: ./apps/web
 
     steps:
       - name: Checkout repository
@@ -46,63 +75,39 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get version
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"
-          else
-            VERSION="latest"
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
-
-      - name: Build and push backend
+      - name: Build and push ${{ matrix.image }}
         uses: docker/build-push-action@v6
         with:
-          context: ./apps/api
+          context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ${{ env.IMAGE_BACKEND }}:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_BACKEND }}:latest
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ needs.prepare.outputs.version }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Build and push frontend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./apps/web
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            ${{ env.IMAGE_FRONTEND }}:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_FRONTEND }}:latest
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-
+  # Summary job (runs after all builds complete)
+  summary:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
       - name: Create summary
-        if: github.event_name != 'pull_request'
         run: |
           echo "## Docker Images Published 🐳" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Images" >> $GITHUB_STEP_SUMMARY
           echo "| Image | Tag | Architectures |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-----|---------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| \`${{ env.IMAGE_BACKEND }}\` | \`${{ steps.version.outputs.version }}\` | amd64, arm64 |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`${{ env.IMAGE_FRONTEND }}\` | \`${{ steps.version.outputs.version }}\` | amd64, arm64 |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`${{ env.IMAGE_PREFIX }}/backend\` | \`${{ needs.prepare.outputs.version }}\` | amd64, arm64 |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`${{ env.IMAGE_PREFIX }}/frontend\` | \`${{ needs.prepare.outputs.version }}\` | amd64, arm64 |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pull Commands" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.IMAGE_BACKEND }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.IMAGE_FRONTEND }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_PREFIX }}/backend:${{ needs.prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_PREFIX }}/frontend:${{ needs.prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
