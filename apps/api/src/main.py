@@ -214,48 +214,42 @@ app.include_router(logs_router)
 # Consent callback endpoint
 @app.get("/consent", tags=["OAuth"])
 async def consent_callback(
+    request: Request,
     code: str = Query(..., description="Authorization code from Enedis"),
-    state: str = Query(..., description="State parameter containing user_id"),
+    state: str = Query(None, description="State parameter (ignored - user identified via JWT)"),
     usage_point_id: str = Query(None, description="Usage point ID from Enedis"),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
-    """Handle consent redirect from Enedis and redirect to frontend dashboard"""
+    """Handle consent redirect from Enedis and redirect to frontend dashboard.
+
+    The user is identified via their JWT token (from cookie or localStorage).
+    The PDL(s) from Enedis are automatically added to the authenticated user's account.
+    """
     # Frontend URL from settings
     frontend_url = f"{settings.FRONTEND_URL}/dashboard"
 
     logger.info("=" * 60)
     logger.debug("[CONSENT] ===== DEBUT CALLBACK ENEDIS =====")
-    logger.debug(f"[CONSENT] Code reçu: {code[:20]}...")
+    logger.debug(f"[CONSENT] Code reçu: {code[:20]}..." if code else "[CONSENT] Pas de code")
     logger.debug(f"[CONSENT] State reçu: {state}")
     logger.debug(f"[CONSENT] Usage Point ID reçu: {usage_point_id}")
     logger.debug(f"[CONSENT] Frontend URL: {frontend_url}")
-    logger.debug(f"[CONSENT] Redirect URI configuré: {settings.ENEDIS_REDIRECT_URI}")
     logger.info("=" * 60)
 
     try:
-        # Parse state - Enedis may return it with format "user_id:usage_point_id" or just "user_id"
-        # Extract only the user_id part (before the colon if present)
-        if ":" in state:
-            user_id = state.split(":")[0].strip()
-        else:
-            user_id = state.strip()
+        # Get the authenticated user from JWT token
+        from .middleware.auth import get_current_user_optional
 
-        # Log for debugging
-        logger.debug(f"[CONSENT] User ID extrait du state: {user_id}")
-
-        # Verify user exists
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
+        user = await get_current_user_optional(request, db)
 
         if not user:
-            # Log all users for debugging
-            all_users = await db.execute(select(User))
-            user_ids = [u.id for u in all_users.scalars().all()]
-            logger.error(f"[CONSENT] User not found with ID: {user_id}")
-            logger.debug(f"[CONSENT] Available users: {user_ids}")
-            # Redirect to frontend dashboard with error
-            error_msg = f"user_not_found (looking for: {user_id[:8]}...)"
-            return RedirectResponse(url=f"{frontend_url}?consent_error={error_msg}")
+            logger.error("[CONSENT] ✗ Utilisateur non authentifié - redirection vers login")
+            # Redirect to login with return URL
+            return_url = f"/oauth/callback?code={code}&usage_point_id={usage_point_id}" if usage_point_id else f"/oauth/callback?code={code}"
+            return RedirectResponse(url=f"{settings.FRONTEND_URL}/login?redirect={return_url}")
+
+        user_id = user.id
+        logger.info(f"[CONSENT] ✓ Utilisateur authentifié: {user.email} (ID: {user_id})")
 
         # Just create PDL - token will be managed globally via Client Credentials
         logger.debug("[CONSENT] ===== TRAITEMENT DU PDL =====")
@@ -283,61 +277,76 @@ async def consent_callback(
                 logger.warning(f"[CONSENT] ⚠ PDL ignoré (pas d'ID): {up}")
                 continue
 
-            # Check if PDL already exists
+            # Check if PDL already exists (globally)
             from .models import PDL
 
-            result = await db.execute(select(PDL).where(PDL.user_id == user_id, PDL.usage_point_id == usage_point_id))
-            existing_pdl = result.scalar_one_or_none()
+            result = await db.execute(select(PDL).where(PDL.usage_point_id == usage_point_id))
+            existing_pdl = result.scalars().first()
 
-            if not existing_pdl:
-                # Create new PDL
+            if existing_pdl:
+                # PDL already exists - reject via consent flow
+                # Admin must use the manual "Add PDL (admin)" button instead
+                logger.warning(f"[CONSENT] ⚠ PDL {usage_point_id} existe déjà (user_id: {existing_pdl.user_id}) - refusé")
+                return RedirectResponse(
+                    url=f"{frontend_url}?consent_error=pdl_already_exists&pdl={usage_point_id}"
+                )
+
+            # Create new PDL with race condition handling
+            try:
                 new_pdl = PDL(user_id=user_id, usage_point_id=usage_point_id)
                 db.add(new_pdl)
-                await db.flush()  # Flush to get the ID
+                await db.flush()  # Flush to get the ID - will raise IntegrityError if duplicate
                 created_count += 1
                 logger.info(f"[CONSENT] ✓ PDL créé: {usage_point_id}")
+            except Exception as e:
+                # Handle race condition: another request created the PDL between our check and insert
+                if "UNIQUE constraint failed" in str(e) or "duplicate key" in str(e).lower():
+                    logger.warning(f"[CONSENT] ⚠ PDL {usage_point_id} créé par requête concurrente - abandon silencieux")
+                    # Don't redirect with error - let the first request handle it
+                    # Just return empty response to avoid double redirect
+                    from fastapi.responses import Response
+                    return Response(status_code=204)  # No Content - browser will ignore
+                raise  # Re-raise other exceptions
 
-                # Try to fetch contract info automatically
-                try:
-                    from .adapters import enedis_adapter
-                    from .routers.enedis import get_valid_token
+            # Try to fetch contract info automatically
+            try:
+                from .adapters import enedis_adapter
+                from .routers.enedis import get_valid_token
 
-                    access_token = await get_valid_token(usage_point_id, user, db)
-                    if access_token:
-                        contract_data = await enedis_adapter.get_contract(usage_point_id, access_token)
+                access_token = await get_valid_token(usage_point_id, user, db)
+                if access_token:
+                    contract_data = await enedis_adapter.get_contract(usage_point_id, access_token)
 
-                        if (
-                            contract_data
-                            and "customer" in contract_data
-                            and "usage_points" in contract_data["customer"]
-                        ):
-                            usage_points = contract_data["customer"]["usage_points"]
-                            if usage_points and len(usage_points) > 0:
-                                usage_point = usage_points[0]
+                    if (
+                        contract_data
+                        and "customer" in contract_data
+                        and "usage_points" in contract_data["customer"]
+                    ):
+                        usage_points_data = contract_data["customer"]["usage_points"]
+                        if usage_points_data and len(usage_points_data) > 0:
+                            usage_point_data = usage_points_data[0]
 
-                                if "contracts" in usage_point:
-                                    contract = usage_point["contracts"]
+                            if "contracts" in usage_point_data:
+                                contract = usage_point_data["contracts"]
 
-                                    if "subscribed_power" in contract:
-                                        power_str = str(contract["subscribed_power"])
-                                        new_pdl.subscribed_power = int(
-                                            power_str.replace("kVA", "").replace(" ", "").strip()
-                                        )
-                                        print(
-                                            f"[CONSENT] ✓ Puissance souscrite récupérée: {new_pdl.subscribed_power} kVA"
-                                        )
+                                if "subscribed_power" in contract:
+                                    power_str = str(contract["subscribed_power"])
+                                    new_pdl.subscribed_power = int(
+                                        power_str.replace("kVA", "").replace(" ", "").strip()
+                                    )
+                                    logger.info(
+                                        f"[CONSENT] ✓ Puissance souscrite récupérée: {new_pdl.subscribed_power} kVA"
+                                    )
 
-                                    if "offpeak_hours" in contract:
-                                        offpeak = contract["offpeak_hours"]
-                                        if isinstance(offpeak, str):
-                                            new_pdl.offpeak_hours = {"default": offpeak}
-                                        elif isinstance(offpeak, dict):
-                                            new_pdl.offpeak_hours = offpeak
-                                        logger.info(f"[CONSENT] ✓ Heures creuses récupérées: {new_pdl.offpeak_hours}")
-                except Exception as e:
-                    logger.warning(f"[CONSENT] ⚠ Impossible de récupérer les infos du contrat: {e}")
-            else:
-                logger.debug(f"[CONSENT] PDL existe déjà: {usage_point_id}")
+                                if "offpeak_hours" in contract:
+                                    offpeak = contract["offpeak_hours"]
+                                    if isinstance(offpeak, str):
+                                        new_pdl.offpeak_hours = {"default": offpeak}
+                                    elif isinstance(offpeak, dict):
+                                        new_pdl.offpeak_hours = offpeak
+                                    logger.info(f"[CONSENT] ✓ Heures creuses récupérées: {new_pdl.offpeak_hours}")
+            except Exception as e:
+                logger.warning(f"[CONSENT] ⚠ Impossible de récupérer les infos du contrat: {e}")
 
         await db.commit()
         logger.info("[CONSENT] ✓ Commit effectué en base de données")

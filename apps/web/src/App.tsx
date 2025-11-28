@@ -7,6 +7,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import OAuthCallback from './pages/OAuthCallback'
+import ConsentRedirect from './pages/ConsentRedirect'
 import Settings from './pages/Settings'
 import VerifyEmail from './pages/VerifyEmail'
 import Admin from './pages/Admin'
@@ -324,6 +325,8 @@ function App() {
           </ProtectedRoute>
         }
       />
+      {/* Route for Enedis consent redirect - forwards to backend */}
+      <Route path="/consent" element={<ConsentRedirect />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
 
       {/* Error pages */}

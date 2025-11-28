@@ -4,7 +4,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { pdlApi } from '@/api/pdl'
 import { oauthApi } from '@/api/oauth'
 import { logger } from '@/utils/logger'
-import { ExternalLink, CheckCircle, XCircle, ArrowUpDown, GripVertical, UserPlus, Filter, Search, Keyboard, X as CloseIcon, AlertCircle } from 'lucide-react'
+import { ExternalLink, CheckCircle, XCircle, ArrowUpDown, GripVertical, UserPlus, Search, Keyboard, X as CloseIcon, AlertCircle, ChevronDown } from 'lucide-react'
 import PDLDetails from '@/components/PDLDetails'
 import PDLCard from '@/components/PDLCard'
 import { PDLCardSkeleton } from '@/components/Skeleton'
@@ -27,19 +27,26 @@ import type { PDL } from '@/types/api'
 
 export default function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null)
+  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string, title?: string, pdl?: string} | null>(null)
   const [selectedPdl, setSelectedPdl] = useState<string | null>(null)
   const [sortOrder, setSortOrder] = useState<'name' | 'date' | 'id' | 'custom'>('custom')
   const [draggedPdl, setDraggedPdl] = useState<PDL | null>(null)
   const [dragOverPdl, setDragOverPdl] = useState<PDL | null>(null)
   const [isDraggingEnabled, setIsDraggingEnabled] = useState(false)
   const [tempPdlOrder, setTempPdlOrder] = useState<PDL[] | null>(null)
-  const [showInactive, setShowInactive] = useState(true)
+  const showInactive = true // Always show inactive PDLs
+  const [inactiveSectionCollapsed, setInactiveSectionCollapsed] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
   const [showWelcomeModal, setShowWelcomeModal] = useState(false)
   const [showOnboardingTour, setShowOnboardingTour] = useState(false)
   const [shouldPulseHelp, setShouldPulseHelp] = useState(false)
+  const [syncingPdlIds, setSyncingPdlIds] = useState<Set<string>>(new Set())
+  // Use sessionStorage to persist loading state across component remounts
+  const [isLoadingAfterConsent, setIsLoadingAfterConsent] = useState(() => {
+    return sessionStorage.getItem('consent_loading') === 'true'
+  })
+  const consentProcessedRef = useRef(false)
   const lastHapticPdlId = useRef<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
@@ -69,6 +76,32 @@ export default function Dashboard() {
     }
   }, [])
 
+  // Recover error message from sessionStorage after component remount
+  // This runs ONCE on mount, before the consent check useEffect
+  useEffect(() => {
+    const storedErrorData = sessionStorage.getItem('consent_error_data')
+    if (storedErrorData) {
+      try {
+        const errorData = JSON.parse(storedErrorData)
+        logger.log('[Dashboard] Recovering error from sessionStorage:', errorData)
+        setNotification({
+          type: 'error',
+          title: errorData.title,
+          message: errorData.message,
+          pdl: errorData.pdl
+        })
+        // Start a new auto-hide timer for the recovered message
+        const timer = setTimeout(() => {
+          setNotification(null)
+          sessionStorage.removeItem('consent_error_data')
+        }, 15000)
+        return () => clearTimeout(timer)
+      } catch {
+        sessionStorage.removeItem('consent_error_data')
+      }
+    }
+  }, []) // Empty deps = runs once on mount only
+
   // Check for consent callback parameters
   useEffect(() => {
     const consentSuccess = searchParams.get('consent_success')
@@ -76,9 +109,23 @@ export default function Dashboard() {
     const pdlCount = searchParams.get('pdl_count')
     const createdCount = searchParams.get('created_count')
 
+    logger.log('[Dashboard] useEffect consent check:', { consentSuccess, consentError, pdlCount, createdCount, processed: consentProcessedRef.current })
+
+    // Skip if already processed (prevents double execution on remount)
+    if (consentProcessedRef.current) {
+      logger.log('[Dashboard] Consent already processed, skipping')
+      return
+    }
+
     if (consentSuccess === 'true') {
+      consentProcessedRef.current = true
+      logger.log('[Dashboard] Consent success detected, forcing refetch...')
       const total = pdlCount ? parseInt(pdlCount) : 0
       const created = createdCount ? parseInt(createdCount) : 0
+
+      // Show global loading screen immediately (persist in sessionStorage for remounts)
+      sessionStorage.setItem('consent_loading', 'true')
+      setIsLoadingAfterConsent(true)
 
       let message = 'Bravo ! Votre consentement s\'est effectué sans souci.'
       if (total > 0) {
@@ -93,59 +140,101 @@ export default function Dashboard() {
         type: 'success',
         message
       })
-      // Clear params after showing notification
-      setSearchParams({})
-      // Refresh PDL list
-      queryClient.invalidateQueries({ queryKey: ['pdls'] })
+      // Force immediate refresh of PDL list BEFORE clearing params
+      // (refetchQueries ignores staleTime)
+      queryClient.refetchQueries({ queryKey: ['pdls'] }).then(() => {
+        // Clear params only after refetch completes
+        setSearchParams({})
+        // Hide global loading (individual PDL sync will show on cards)
+        sessionStorage.removeItem('consent_loading')
+        setIsLoadingAfterConsent(false)
+      })
 
-      // Auto-sync new PDLs after a short delay to let the list refresh
+      // Auto-sync only NEW PDLs (those without contract info yet)
       if (created > 0) {
         setTimeout(async () => {
-          // Get the updated PDL list and sync all PDLs
           const data: any = await queryClient.fetchQuery({ queryKey: ['pdls'] })
           if (Array.isArray(data)) {
-            // Sync all PDLs in parallel and wait for all to complete
-            const syncPromises = data.map((pdl: PDL) =>
-              pdlApi.fetchContract(pdl.id).catch((error) => {
-                logger.warn(`Failed to sync PDL ${pdl.usage_point_id}:`, error)
-                return null
+            // Only sync PDLs that don't have contract info yet (new PDLs)
+            const newPdls = data.filter((pdl: PDL) => !pdl.subscribed_power)
+
+            if (newPdls.length > 0) {
+              // Mark PDLs as syncing BEFORE starting (so UI shows loading immediately)
+              const newPdlIds = new Set(newPdls.map((pdl: PDL) => pdl.id))
+              setSyncingPdlIds(newPdlIds)
+
+              // Sync each PDL and remove from syncing set when done
+              const syncPromises = newPdls.map(async (pdl: PDL) => {
+                try {
+                  await pdlApi.fetchContract(pdl.id)
+                } catch (error) {
+                  logger.warn(`Failed to sync PDL ${pdl.usage_point_id}:`, error)
+                } finally {
+                  // Remove this PDL from syncing set
+                  setSyncingPdlIds(prev => {
+                    const next = new Set(prev)
+                    next.delete(pdl.id)
+                    return next
+                  })
+                  // Refresh PDL list to show updated data for this specific PDL
+                  queryClient.refetchQueries({ queryKey: ['pdls'] })
+                }
               })
-            )
 
-            // Wait for all syncs to complete
-            const results = await Promise.all(syncPromises)
-
-            if (import.meta.env.VITE_DEBUG === 'true') {
-              logger.log('All sync results:', results)
+              await Promise.all(syncPromises)
             }
-
-            // Now refresh the PDL list to show all updated data
-            queryClient.invalidateQueries({ queryKey: ['pdls'] })
           }
-        }, 1000)
+        }, 500) // Reduced delay for faster feedback
       }
 
       // Auto-hide after 10 seconds
       setTimeout(() => setNotification(null), 10000)
     } else if (consentError) {
+      consentProcessedRef.current = true
+      const pdlId = searchParams.get('pdl')
+      let errorTitle = 'Erreur de consentement'
+      let errorMessage = consentError
+
+      if (consentError === 'pdl_already_exists') {
+        errorTitle = 'Point de livraison déjà enregistré'
+        errorMessage = 'Contactez l\'administrateur si vous pensez qu\'il s\'agit d\'une erreur.'
+      } else if (consentError === 'user_not_found') {
+        errorTitle = 'Utilisateur non trouvé'
+        errorMessage = 'Veuillez vous reconnecter.'
+      } else if (consentError === 'no_usage_point_id') {
+        errorTitle = 'Aucun PDL détecté'
+        errorMessage = 'Aucun point de livraison n\'a été retourné par Enedis.'
+      }
+
+      // Store error in sessionStorage to survive component remount (as JSON for rich data)
+      const errorData = { title: errorTitle, message: errorMessage, pdl: pdlId || undefined }
+      sessionStorage.setItem('consent_error_data', JSON.stringify(errorData))
       setNotification({
         type: 'error',
-        message: `Erreur lors du consentement : ${consentError}`
+        title: errorTitle,
+        message: errorMessage,
+        pdl: pdlId || undefined
       })
       setSearchParams({})
 
-      // Auto-hide after 10 seconds
-      setTimeout(() => setNotification(null), 10000)
+      // Auto-hide after 15 seconds (longer for important errors)
+      setTimeout(() => {
+        setNotification(null)
+        sessionStorage.removeItem('consent_error_data')
+      }, 15000)
     }
   }, [searchParams, setSearchParams, queryClient])
 
   const { data: pdlsData, isLoading: pdlsLoading } = useQuery({
     queryKey: ['pdls'],
     queryFn: async () => {
+      logger.log('[Dashboard] Fetching PDLs from API...')
       const response = await pdlApi.list()
       if (response.success && Array.isArray(response.data)) {
+        logger.log(`[Dashboard] Received ${response.data.length} PDLs`)
         return response.data as PDL[]
       }
+      logger.log('[Dashboard] No PDLs received or error')
       return []
     },
     // Keep data fresh for 5 minutes to prevent automatic refetches from overwriting optimistic updates
@@ -322,6 +411,17 @@ export default function Dashboard() {
 
   const pdls = Array.isArray(pdlsData) ? pdlsData : []
 
+  // Handle loading state recovery after component remount
+  // If we were loading but the component remounted, continue the loading and finish when data is ready
+  useEffect(() => {
+    if (isLoadingAfterConsent && !pdlsLoading && pdls.length > 0) {
+      // Data is loaded, hide the loading screen
+      logger.log('[Dashboard] Data loaded after consent, hiding loading screen')
+      sessionStorage.removeItem('consent_loading')
+      setIsLoadingAfterConsent(false)
+    }
+  }, [isLoadingAfterConsent, pdlsLoading, pdls.length])
+
   const activePdlsCount = pdls.filter(pdl => pdl.is_active ?? true).length
   const inactivePdlsCount = pdls.length - activePdlsCount
 
@@ -461,9 +561,9 @@ export default function Dashboard() {
     onResetOnboarding: handleResetOnboarding,
   })
 
-  const sortedPdls = useMemo(() => {
-    // Filter by active status first
-    let filteredPdls = showInactive ? [...pdls] : pdls.filter(pdl => pdl.is_active ?? true)
+  // Separate active and inactive PDLs
+  const { activePdls, inactivePdls } = useMemo(() => {
+    let filteredPdls = [...pdls]
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -474,25 +574,37 @@ export default function Dashboard() {
       )
     }
 
-    switch (sortOrder) {
-      case 'name':
-        return filteredPdls.sort((a, b) => {
-          const nameA = (a.name || a.usage_point_id).toLowerCase()
-          const nameB = (b.name || b.usage_point_id).toLowerCase()
-          return nameA.localeCompare(nameB)
-        })
-      case 'id':
-        return filteredPdls.sort((a, b) => a.usage_point_id.localeCompare(b.usage_point_id))
-      case 'date':
-        return filteredPdls.sort((a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )
-      case 'custom':
-      default:
-        // Already sorted by display_order from backend
-        return filteredPdls
+    // Sort function
+    const sortFn = (list: PDL[]) => {
+      switch (sortOrder) {
+        case 'name':
+          return list.sort((a, b) => {
+            const nameA = (a.name || a.usage_point_id).toLowerCase()
+            const nameB = (b.name || b.usage_point_id).toLowerCase()
+            return nameA.localeCompare(nameB)
+          })
+        case 'id':
+          return list.sort((a, b) => a.usage_point_id.localeCompare(b.usage_point_id))
+        case 'date':
+          return list.sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          )
+        case 'custom':
+        default:
+          return list
+      }
     }
-  }, [pdls, sortOrder, showInactive, searchQuery])
+
+    const active = sortFn(filteredPdls.filter(pdl => pdl.is_active ?? true))
+    const inactive = sortFn(filteredPdls.filter(pdl => !(pdl.is_active ?? true)))
+
+    return { activePdls: active, inactivePdls: inactive }
+  }, [pdls, sortOrder, searchQuery])
+
+  // For drag & drop compatibility, combine lists
+  const sortedPdls = useMemo(() => {
+    return showInactive ? [...activePdls, ...inactivePdls] : activePdls
+  }, [activePdls, inactivePdls, showInactive])
 
   const handleDragStart = (pdl: PDL) => {
     setDraggedPdl(pdl)
@@ -603,7 +715,7 @@ export default function Dashboard() {
           className={`p-4 rounded-lg flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300 ${
             notification.type === 'success'
               ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
-              : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+              : 'bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 shadow-lg'
           }`}
           role="alert"
           aria-live="polite"
@@ -611,22 +723,48 @@ export default function Dashboard() {
           {notification.type === 'success' ? (
             <CheckCircle className="text-green-600 dark:text-green-400 flex-shrink-0 animate-in zoom-in duration-500" size={24} />
           ) : (
-            <XCircle className="text-red-600 dark:text-red-400 flex-shrink-0 animate-in zoom-in duration-500" size={24} />
+            <XCircle className="text-red-600 dark:text-red-400 flex-shrink-0 animate-in zoom-in duration-500 mt-0.5" size={28} />
           )}
-          <div className="flex-1">
-            <p className={notification.type === 'success'
-              ? 'text-green-800 dark:text-green-200 font-medium'
-              : 'text-red-800 dark:text-red-200 font-medium'
-            }>
+          <div className="flex-1 min-w-0">
+            {/* Title */}
+            {notification.title && (
+              <p className={`font-semibold text-base ${
+                notification.type === 'success'
+                  ? 'text-green-800 dark:text-green-200'
+                  : 'text-red-800 dark:text-red-200'
+              }`}>
+                {notification.title}
+              </p>
+            )}
+            {/* PDL Number - Highlighted */}
+            {notification.pdl && (
+              <div className="mt-2 mb-2">
+                <span className="inline-flex items-center px-3 py-1.5 rounded-md bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-600">
+                  <span className="text-xs text-red-600 dark:text-red-300 mr-2">PDL</span>
+                  <span className="font-mono font-bold text-red-800 dark:text-red-100 text-lg tracking-wider">
+                    {notification.pdl}
+                  </span>
+                </span>
+              </div>
+            )}
+            {/* Message */}
+            <p className={`text-sm ${
+              notification.type === 'success'
+                ? 'text-green-700 dark:text-green-300'
+                : 'text-red-700 dark:text-red-300'
+            }`}>
               {notification.message}
             </p>
           </div>
           <button
-            onClick={() => setNotification(null)}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+            onClick={() => {
+              setNotification(null)
+              sessionStorage.removeItem('consent_error_data')
+            }}
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors p-1"
             aria-label="Fermer la notification"
           >
-            ✕
+            <CloseIcon size={20} />
           </button>
         </div>
       )}
@@ -731,19 +869,7 @@ export default function Dashboard() {
           )}
 
           {pdls.length > 1 && (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end gap-3 text-sm" data-tour="sort-options">
-              <div className="flex items-center gap-2">
-                <Filter size={16} className="text-gray-500 flex-shrink-0" />
-                <label className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
-                  <input
-                    type="checkbox"
-                    checked={showInactive}
-                    onChange={(e) => setShowInactive(e.target.checked)}
-                    className="w-4 h-4 flex-shrink-0 text-primary-600 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded cursor-pointer focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 accent-primary-600"
-                  />
-                  <span className="text-sm select-none">Afficher les PDL désactivés</span>
-                </label>
-              </div>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 text-sm" data-tour="sort-options">
               <div className="flex items-center gap-2">
                 <ArrowUpDown size={16} className="text-gray-500 flex-shrink-0" />
                 <select
@@ -761,11 +887,27 @@ export default function Dashboard() {
           )}
         </div>
 
-        {pdlsLoading ? (
-          <div className="space-y-3">
-            <PDLCardSkeleton />
-            <PDLCardSkeleton />
-            <PDLCardSkeleton />
+        {pdlsLoading || isLoadingAfterConsent ? (
+          <div className="space-y-4">
+            {isLoadingAfterConsent && (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <div className="relative mb-4">
+                  <div className="w-16 h-16 border-4 border-primary-200 dark:border-primary-800 rounded-full"></div>
+                  <div className="absolute inset-0 w-16 h-16 border-4 border-primary-600 dark:border-primary-400 rounded-full border-t-transparent animate-spin"></div>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                  Chargement de vos points de livraison
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Récupération des données depuis Enedis...
+                </p>
+              </div>
+            )}
+            <div className="space-y-3">
+              <PDLCardSkeleton />
+              <PDLCardSkeleton />
+              {!isLoadingAfterConsent && <PDLCardSkeleton />}
+            </div>
           </div>
         ) : pdls.length === 0 ? (
           <div className="text-center py-8">
@@ -777,54 +919,107 @@ export default function Dashboard() {
             </p>
           </div>
         ) : (
-          <div className="space-y-3" data-tour="pdl-list">
-            {(tempPdlOrder || sortedPdls).map((pdl, index) => (
-              <div
-                key={pdl.id}
-                draggable={sortOrder === 'custom' && isDraggingEnabled}
-                onDragStart={() => handleDragStart(pdl)}
-                onDragOver={(e) => handleDragOver(e, pdl)}
-                onDrop={handleDrop}
-                onDragLeave={handleDragLeave}
-                onDragEnd={() => {
-                  handleDragEnd()
-                  setIsDraggingEnabled(false)
-                }}
-                className={`animate-in fade-in slide-in-from-bottom-2 transition-all duration-200 ${
-                  draggedPdl?.id === pdl.id
-                    ? 'opacity-30 scale-95 cursor-grabbing'
-                    : dragOverPdl?.id === pdl.id
-                    ? 'ring-2 ring-primary-500 ring-offset-2 dark:ring-offset-gray-950 scale-[1.02] shadow-lg'
-                    : sortOrder === 'custom' && isDraggingEnabled
-                    ? 'hover:ring-2 hover:ring-primary-300 hover:ring-offset-2 dark:hover:ring-offset-gray-950 cursor-grab'
-                    : ''
-                }`}
-                style={{
-                  animationDelay: `${index * 50}ms`,
-                  animationFillMode: 'backwards'
-                }}
-              >
-                {sortOrder === 'custom' && !isDemo && (
+          <div className="space-y-6" data-tour="pdl-list">
+            {/* Active PDLs Section */}
+            {activePdls.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
+                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                  PDL actifs ({activePdls.length})
+                </div>
+                {(tempPdlOrder ? tempPdlOrder.filter(p => p.is_active ?? true) : activePdls).map((pdl, index) => (
                   <div
-                    className="flex items-center gap-2 mb-1 text-gray-400 cursor-move hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                    onMouseDown={() => setIsDraggingEnabled(true)}
-                    onMouseUp={() => setIsDraggingEnabled(false)}
+                    key={pdl.id}
+                    draggable={sortOrder === 'custom' && isDraggingEnabled}
+                    onDragStart={() => handleDragStart(pdl)}
+                    onDragOver={(e) => handleDragOver(e, pdl)}
+                    onDrop={handleDrop}
+                    onDragLeave={handleDragLeave}
+                    onDragEnd={() => {
+                      handleDragEnd()
+                      setIsDraggingEnabled(false)
+                    }}
+                    className={`animate-in fade-in slide-in-from-bottom-2 transition-all duration-200 ${
+                      draggedPdl?.id === pdl.id
+                        ? 'opacity-30 scale-95 cursor-grabbing'
+                        : dragOverPdl?.id === pdl.id
+                        ? 'ring-2 ring-primary-500 ring-offset-2 dark:ring-offset-gray-950 scale-[1.02] shadow-lg'
+                        : sortOrder === 'custom' && isDraggingEnabled
+                        ? 'hover:ring-2 hover:ring-primary-300 hover:ring-offset-2 dark:hover:ring-offset-gray-950 cursor-grab'
+                        : ''
+                    }`}
+                    style={{
+                      animationDelay: `${index * 50}ms`,
+                      animationFillMode: 'backwards'
+                    }}
                   >
-                    <GripVertical size={16} />
-                    <span className="text-xs select-none">Glissez pour réorganiser</span>
+                    {sortOrder === 'custom' && !isDemo && (
+                      <div
+                        className="flex items-center gap-2 mb-1 text-gray-400 cursor-move hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onMouseDown={() => setIsDraggingEnabled(true)}
+                        onMouseUp={() => setIsDraggingEnabled(false)}
+                      >
+                        <GripVertical size={16} />
+                        <span className="text-xs select-none">Glissez pour réorganiser</span>
+                      </div>
+                    )}
+                    <div className={`select-text ${isDemo ? 'opacity-60 pointer-events-none' : ''}`}>
+                      <PDLCard
+                        pdl={pdl}
+                        onViewDetails={() => setSelectedPdl(pdl.usage_point_id)}
+                        onDelete={() => deletePdlMutation.mutate(pdl.id)}
+                        isDemo={isDemo}
+                        allPdls={pdls}
+                        isAutoSyncing={syncingPdlIds.has(pdl.id)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Inactive PDLs Section - Collapsable */}
+            {showInactive && inactivePdls.length > 0 && (
+              <div className="space-y-3">
+                <button
+                  onClick={() => setInactiveSectionCollapsed(!inactiveSectionCollapsed)}
+                  className="flex items-center gap-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors w-full"
+                >
+                  <ChevronDown
+                    size={16}
+                    className={`transition-transform duration-200 ${inactiveSectionCollapsed ? '-rotate-90' : ''}`}
+                  />
+                  <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                  <span>PDL désactivés ({inactivePdls.length})</span>
+                </button>
+                {!inactiveSectionCollapsed && (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                    {(tempPdlOrder ? tempPdlOrder.filter(p => !(p.is_active ?? true)) : inactivePdls).map((pdl, index) => (
+                      <div
+                        key={pdl.id}
+                        className="animate-in fade-in slide-in-from-bottom-2 transition-all duration-200"
+                        style={{
+                          animationDelay: `${index * 50}ms`,
+                          animationFillMode: 'backwards'
+                        }}
+                      >
+                        <div className={`select-text ${isDemo ? 'opacity-60 pointer-events-none' : ''}`}>
+                          <PDLCard
+                            pdl={pdl}
+                            onViewDetails={() => setSelectedPdl(pdl.usage_point_id)}
+                            onDelete={() => deletePdlMutation.mutate(pdl.id)}
+                            isDemo={isDemo}
+                            allPdls={pdls}
+                            compact={true}
+                            isAutoSyncing={syncingPdlIds.has(pdl.id)}
+                          />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
-                <div className={`select-text ${isDemo ? 'opacity-60 pointer-events-none' : ''}`}>
-                  <PDLCard
-                    pdl={pdl}
-                    onViewDetails={() => setSelectedPdl(pdl.usage_point_id)}
-                    onDelete={() => deletePdlMutation.mutate(pdl.id)}
-                    isDemo={isDemo}
-                    allPdls={pdls}
-                  />
-                </div>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>

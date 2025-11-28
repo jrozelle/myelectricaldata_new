@@ -87,3 +87,49 @@ async def get_current_user(
 
     logger.error("[AUTH] Authentication failed")
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+
+
+async def get_current_user_optional(
+    request: Request,
+    db: AsyncSession,
+) -> Optional[User]:
+    """Get current user if authenticated, return None otherwise (no exception raised).
+
+    Used for endpoints that can work with or without authentication.
+    Also checks for token in query params or cookies for OAuth callbacks.
+    """
+    # Try to get token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    token = None
+
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+
+    # Try to get token from query params (for OAuth callbacks)
+    if not token:
+        token = request.query_params.get("access_token")
+
+    # Try to get token from cookies
+    if not token:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        return None
+
+    # Try JWT token
+    payload = decode_access_token(token)
+    if payload:
+        user_id = payload.get("sub")
+        if user_id:
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if user and user.is_active:
+                return user
+
+    # Try API key (client_secret)
+    result = await db.execute(select(User).where(User.client_secret == token))
+    user = result.scalar_one_or_none()
+    if user and user.is_active:
+        return user
+
+    return None

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Info, Trash2, RefreshCw, Edit2, Save, X, Zap, Clock, Factory, Plus, Minus, Eye, EyeOff, Calendar, MoreVertical } from 'lucide-react'
 import { pdlApi } from '@/api/pdl'
@@ -11,9 +12,11 @@ interface PDLCardProps {
   onDelete: () => void
   isDemo?: boolean
   allPdls?: PDL[] // All PDLs for linking production
+  compact?: boolean // Only show header (name, buttons) - hide configuration details
+  isAutoSyncing?: boolean // Show loading overlay when auto-syncing after consent
 }
 
-export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, allPdls = [] }: PDLCardProps) {
+export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, allPdls = [], compact = false, isAutoSyncing = false }: PDLCardProps) {
   const [isEditingName, setIsEditingName] = useState(false)
   const [showSyncWarning, setShowSyncWarning] = useState(false)
   const [showDeleteWarning, setShowDeleteWarning] = useState(false)
@@ -424,20 +427,29 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
   }
 
 
+  const isLoading = fetchContractMutation.isPending || isAutoSyncing
+
   return (
     <div className={`p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border-2 shadow-lg hover:shadow-xl relative transition-all ${
       hasConsentError
         ? 'border-red-400 dark:border-red-500'
+        : isAutoSyncing
+        ? 'border-primary-400 dark:border-primary-500 ring-2 ring-primary-200 dark:ring-primary-800'
         : 'border-gray-300 dark:border-gray-600'
-    } ${fetchContractMutation.isPending ? 'pointer-events-none' : ''} ${
-      !(pdl.is_active ?? true) ? 'opacity-60 bg-gray-100 dark:bg-gray-700/30' : ''
-    }`}>
+    } ${isLoading ? 'pointer-events-none' : ''}`}>
       {/* Loading overlay */}
-      {fetchContractMutation.isPending && (
+      {isLoading && (
         <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm rounded-lg flex items-center justify-center z-10">
-          <div className="flex items-center gap-2 text-primary-600 dark:text-primary-400">
-            <RefreshCw size={20} className="animate-spin" />
-            <span className="text-sm font-medium">Récupération en cours...</span>
+          <div className="flex flex-col items-center gap-2 text-primary-600 dark:text-primary-400">
+            <RefreshCw size={24} className="animate-spin" />
+            <span className="text-sm font-medium">
+              {isAutoSyncing ? 'Synchronisation automatique...' : 'Récupération en cours...'}
+            </span>
+            {isAutoSyncing && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Récupération des informations du contrat Enedis
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -505,26 +517,30 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
               </span>
             )}
 
-            {/* Desktop: Show all buttons */}
+            {/* Desktop: Show all buttons (or just Activer in compact mode) */}
             <div className="hidden md:flex gap-2" data-tour="pdl-actions">
-              <button
-                onClick={onViewDetails}
-                className="px-3 py-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex items-center gap-1.5 text-sm"
-                title="Voir les détails"
-                data-tour="pdl-details-btn"
-              >
-                <Info size={16} />
-                <span>Détails</span>
-              </button>
-              <button
-                onClick={() => setShowSyncWarning(true)}
-                className="px-3 py-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded flex items-center gap-1.5 text-sm font-medium"
-                title="Synchroniser avec Enedis"
-                data-tour="pdl-sync-btn"
-              >
-                <RefreshCw size={16} />
-                <span>Sync</span>
-              </button>
+              {!compact && (
+                <>
+                  <button
+                    onClick={onViewDetails}
+                    className="px-3 py-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex items-center gap-1.5 text-sm"
+                    title="Voir les détails"
+                    data-tour="pdl-details-btn"
+                  >
+                    <Info size={16} />
+                    <span>Détails</span>
+                  </button>
+                  <button
+                    onClick={() => setShowSyncWarning(true)}
+                    className="px-3 py-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded flex items-center gap-1.5 text-sm font-medium"
+                    title="Synchroniser avec Enedis"
+                    data-tour="pdl-sync-btn"
+                  >
+                    <RefreshCw size={16} />
+                    <span>Sync</span>
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => toggleActiveMutation.mutate(!(pdl.is_active ?? true))}
                 disabled={toggleActiveMutation.isPending}
@@ -550,67 +566,92 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
               </button>
             </div>
 
-            {/* Mobile: Show menu button */}
+            {/* Mobile: Show menu button (or Activer + Supprimer in compact mode) */}
             <div className="md:hidden relative" ref={mobileMenuRef}>
-              <button
-                onClick={() => setShowMobileMenu(!showMobileMenu)}
-                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex items-center justify-center"
-                title="Actions"
-                aria-label="Menu d'actions"
-              >
-                <MoreVertical size={20} />
-              </button>
-
-              {/* Mobile dropdown menu */}
-              {showMobileMenu && (
-                <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 py-1">
+              {compact ? (
+                /* Compact mode: show Activer + Supprimer buttons */
+                <div className="flex gap-2">
                   <button
-                    onClick={() => {
-                      onViewDetails()
-                      setShowMobileMenu(false)
-                    }}
-                    className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-left"
-                  >
-                    <Info size={16} className="flex-shrink-0" />
-                    <span>Voir les détails</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowSyncWarning(true)
-                      setShowMobileMenu(false)
-                    }}
-                    className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-blue-600 dark:text-blue-400 text-left"
-                  >
-                    <RefreshCw size={16} className="flex-shrink-0" />
-                    <span>Synchroniser</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      toggleActiveMutation.mutate(!(pdl.is_active ?? true))
-                      setShowMobileMenu(false)
-                    }}
+                    onClick={() => toggleActiveMutation.mutate(!(pdl.is_active ?? true))}
                     disabled={toggleActiveMutation.isPending}
-                    className={`w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-left ${
-                      pdl.is_active ?? true
-                        ? 'text-orange-600 dark:text-orange-400'
-                        : 'text-green-600 dark:text-green-400'
-                    }`}
+                    className="px-3 py-2 rounded flex items-center gap-1.5 text-sm font-medium hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400"
+                    title="Activer ce PDL"
                   >
-                    {pdl.is_active ?? true ? <EyeOff size={16} className="flex-shrink-0" /> : <Eye size={16} className="flex-shrink-0" />}
-                    <span>{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
+                    <Eye size={16} />
+                    <span>Activer</span>
                   </button>
-                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
                   <button
-                    onClick={() => {
-                      setShowDeleteWarning(true)
-                      setShowMobileMenu(false)
-                    }}
-                    className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-red-600 dark:text-red-400 text-left"
+                    onClick={() => setShowDeleteWarning(true)}
+                    className="px-3 py-2 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex items-center gap-1.5 text-sm"
+                    title="Supprimer"
                   >
-                    <Trash2 size={16} className="flex-shrink-0" />
+                    <Trash2 size={16} />
                     <span>Supprimer</span>
                   </button>
                 </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setShowMobileMenu(!showMobileMenu)}
+                    className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex items-center justify-center"
+                    title="Actions"
+                    aria-label="Menu d'actions"
+                  >
+                    <MoreVertical size={20} />
+                  </button>
+
+                  {/* Mobile dropdown menu */}
+                  {showMobileMenu && (
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 py-1">
+                      <button
+                        onClick={() => {
+                          onViewDetails()
+                          setShowMobileMenu(false)
+                        }}
+                        className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-left"
+                      >
+                        <Info size={16} className="flex-shrink-0" />
+                        <span>Voir les détails</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowSyncWarning(true)
+                          setShowMobileMenu(false)
+                        }}
+                        className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-blue-600 dark:text-blue-400 text-left"
+                      >
+                        <RefreshCw size={16} className="flex-shrink-0" />
+                        <span>Synchroniser</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          toggleActiveMutation.mutate(!(pdl.is_active ?? true))
+                          setShowMobileMenu(false)
+                        }}
+                        disabled={toggleActiveMutation.isPending}
+                        className={`w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-left ${
+                          pdl.is_active ?? true
+                            ? 'text-orange-600 dark:text-orange-400'
+                            : 'text-green-600 dark:text-green-400'
+                        }`}
+                      >
+                        {pdl.is_active ?? true ? <EyeOff size={16} className="flex-shrink-0" /> : <Eye size={16} className="flex-shrink-0" />}
+                        <span>{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
+                      </button>
+                      <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                      <button
+                        onClick={() => {
+                          setShowDeleteWarning(true)
+                          setShowMobileMenu(false)
+                        }}
+                        className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-red-600 dark:text-red-400 text-left"
+                      >
+                        <Trash2 size={16} className="flex-shrink-0" />
+                        <span>Supprimer</span>
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -719,11 +760,12 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
         </div>
       )}
 
-      {/* Contract Info */}
-      <div className={`space-y-2 text-sm ${hasConsentError ? 'opacity-50 pointer-events-none' : ''}`}>
-        {/* PDL Type - Consumption - Only show if no consent error */}
-        {!hasConsentError && (
-          <>
+      {/* Contract Info - Hidden in compact mode */}
+      {!compact && (
+        <div className={`space-y-2 text-sm ${hasConsentError ? 'opacity-50 pointer-events-none' : ''}`}>
+          {/* PDL Type - Consumption - Only show if no consent error */}
+          {!hasConsentError && (
+            <>
             {/* Consumption Section */}
             <div className="border-2 border-blue-200 dark:border-blue-700 rounded-lg overflow-hidden shadow-md">
               {/* Consumption Header */}
@@ -1030,7 +1072,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
           </div>
         )}
       </div>
-
+      )}
 
       {/* Error messages */}
       {fetchContractMutation.isError && (
@@ -1054,8 +1096,8 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
         </div>
       )}
 
-      {/* Sync Warning Modal */}
-      {showSyncWarning && (
+      {/* Sync Warning Modal - using portal to escape transform context */}
+      {showSyncWarning && createPortal(
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex items-start gap-3 mb-4">
@@ -1097,11 +1139,12 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Delete Warning Modal */}
-      {showDeleteWarning && (
+      {/* Delete Warning Modal - using portal to escape transform context */}
+      {showDeleteWarning && createPortal(
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex items-start gap-3 mb-4">
@@ -1136,7 +1179,8 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

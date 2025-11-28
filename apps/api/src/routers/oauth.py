@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, UTC
 from fastapi import APIRouter, Depends, Query, Path
 from fastapi.responses import RedirectResponse
@@ -9,8 +10,12 @@ from ..schemas import APIResponse, ErrorDetail
 from ..middleware import get_current_user
 from ..adapters import enedis_adapter
 from ..config import settings
+from ..services.cache import cache_service
 
 router = APIRouter(prefix="/oauth", tags=["OAuth"])
+
+# TTL for OAuth state mapping (10 minutes)
+OAUTH_STATE_TTL = 600
 
 
 @router.get("/authorize", response_model=APIResponse)
@@ -18,13 +23,24 @@ async def get_authorize_url(
     current_user: User = Depends(get_current_user),
 ) -> APIResponse:
     """Get Enedis OAuth authorization URL - Consent is account-level, not per PDL"""
+    # Generate a random state for CSRF protection
+    state = str(uuid.uuid4())
+
+    # Store the mapping state -> user_id in Redis (TTL: 10 minutes)
+    if cache_service.redis_client:
+        await cache_service.redis_client.set(
+            f"oauth_state:{state}",
+            current_user.id,
+            ex=OAUTH_STATE_TTL
+        )
+
     # Build authorization URL
     params = {
         "client_id": settings.ENEDIS_CLIENT_ID,
         "response_type": "code",
         "duration": "P36M",  # 36 months
         "redirect_uri": settings.ENEDIS_REDIRECT_URI,
-        "state": current_user.id,  # Only user_id in state
+        "state": state,
     }
 
     param_str = "&".join([f"{k}={v}" for k, v in params.items()])
@@ -37,6 +53,20 @@ async def get_authorize_url(
             "description": "Redirect the user to this URL to initiate Enedis consent flow. This will grant access to all your PDL.",
         },
     )
+
+
+@router.get("/verify-state", response_model=APIResponse)
+async def verify_oauth_state(
+    state: str = Query(..., description="OAuth state to verify"),
+) -> APIResponse:
+    """Verify an OAuth state and return the associated user_id (for debugging)"""
+    if not cache_service.redis_client:
+        return APIResponse(success=False, error=ErrorDetail(code="CACHE_ERROR", message="Cache not available"))
+
+    user_id = await cache_service.redis_client.get(f"oauth_state:{state}")
+    if user_id:
+        return APIResponse(success=True, data={"user_id": user_id.decode() if isinstance(user_id, bytes) else user_id, "state": state})
+    return APIResponse(success=False, error=ErrorDetail(code="STATE_NOT_FOUND", message="State not found or expired"))
 
 
 @router.get("/callback", response_model=APIResponse)
