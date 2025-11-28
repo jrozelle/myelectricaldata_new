@@ -67,17 +67,20 @@ help:
 	@echo "  make rebuild      - Rebuild all containers"
 	@echo ""
 	@echo "$(YELLOW)Docker Registry (ghcr.io):$(NC)"
-	@echo "  make docker-login     - Login to GitHub Container Registry"
-	@echo "  make docker-build     - Build all Docker images"
-	@echo "  make docker-push      - Push all images to ghcr.io"
-	@echo "  make docker-release   - Build and push all images (dev)"
-	@echo "  make docker-build-backend  - Build backend image only"
-	@echo "  make docker-build-frontend - Build frontend image only"
-	@echo "  make docker-push-backend   - Push backend image only"
-	@echo "  make docker-push-frontend  - Push frontend image only"
+	@echo "  make docker-login          - Login to GitHub Container Registry"
+	@echo "  make docker-build          - Build all Docker images (local arch)"
+	@echo "  make docker-push           - Push all images to ghcr.io"
+	@echo "  make docker-release        - Build and push all images (local arch)"
+	@echo "  make docker-release-native - Build native arch only (fast, for local testing)"
+	@echo "  make docker-release-amd64  - Build and push amd64 images (x86_64 servers)"
+	@echo "  make docker-release-arm64  - Build and push arm64 images (ARM servers)"
+	@echo "  make docker-release-multiarch - Build multi-arch via buildx (may fail with QEMU)"
+	@echo "  make docker-release-ci     - Trigger GitHub Actions for multi-arch (recommended)"
+	@echo "  make docker-buildx-setup   - Setup buildx for multi-platform builds"
+	@echo "  make docker-info           - Show current image tags and config"
 	@echo ""
 	@echo "$(YELLOW)Docker Registry Variables:$(NC)"
-	@echo "  VERSION=$(VERSION)  (set with: make docker-release VERSION=1.0.0)"
+	@echo "  VERSION=$(VERSION)  (set with: make docker-release-amd64 VERSION=1.0.0)"
 	@echo "  REGISTRY=$(REGISTRY)"
 	@echo "  GITHUB_ORG=$(GITHUB_ORG)"
 	@echo ""
@@ -348,6 +351,86 @@ docker-release-multiarch: docker-login
 		./apps/web
 	@echo "$(GREEN)Multi-platform release complete!$(NC)"
 
+## Build and push amd64 images only (for x86_64 servers)
+docker-release-amd64: docker-login
+	@echo "$(GREEN)Building and pushing amd64 images...$(NC)"
+	docker buildx build --platform linux/amd64 \
+		-t $(IMAGE_BACKEND):$(VERSION) \
+		-t $(IMAGE_BACKEND):latest \
+		--label "org.opencontainers.image.source=https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)" \
+		--label "org.opencontainers.image.revision=$(GIT_COMMIT)" \
+		--label "org.opencontainers.image.version=$(VERSION)" \
+		--push \
+		./apps/api
+	docker buildx build --platform linux/amd64 \
+		-t $(IMAGE_FRONTEND):$(VERSION) \
+		-t $(IMAGE_FRONTEND):latest \
+		--label "org.opencontainers.image.source=https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)" \
+		--label "org.opencontainers.image.revision=$(GIT_COMMIT)" \
+		--label "org.opencontainers.image.version=$(VERSION)" \
+		--push \
+		./apps/web
+	@echo "$(GREEN)amd64 release complete!$(NC)"
+	@echo "$(GREEN)Images:$(NC)"
+	@echo "  - $(IMAGE_BACKEND):$(VERSION)"
+	@echo "  - $(IMAGE_FRONTEND):$(VERSION)"
+
+## Build and push arm64 images only (for ARM servers like Raspberry Pi, Apple Silicon)
+docker-release-arm64: docker-login
+	@echo "$(GREEN)Building and pushing arm64 images...$(NC)"
+	docker buildx build --platform linux/arm64 \
+		-t $(IMAGE_BACKEND):$(VERSION) \
+		-t $(IMAGE_BACKEND):latest \
+		--label "org.opencontainers.image.source=https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)" \
+		--label "org.opencontainers.image.revision=$(GIT_COMMIT)" \
+		--label "org.opencontainers.image.version=$(VERSION)" \
+		--push \
+		./apps/api
+	docker buildx build --platform linux/arm64 \
+		-t $(IMAGE_FRONTEND):$(VERSION) \
+		-t $(IMAGE_FRONTEND):latest \
+		--label "org.opencontainers.image.source=https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)" \
+		--label "org.opencontainers.image.revision=$(GIT_COMMIT)" \
+		--label "org.opencontainers.image.version=$(VERSION)" \
+		--push \
+		./apps/web
+	@echo "$(GREEN)arm64 release complete!$(NC)"
+
+## Setup buildx for multi-platform builds
+docker-buildx-setup:
+	@echo "$(GREEN)Setting up Docker buildx...$(NC)"
+	docker buildx create --name myelectricaldata-builder --use --bootstrap 2>/dev/null || docker buildx use myelectricaldata-builder
+	docker buildx inspect --bootstrap
+	@echo "$(GREEN)Buildx ready for multi-platform builds$(NC)"
+
+## Trigger GitHub Actions to build multi-arch images (recommended for cross-platform)
+docker-release-ci:
+	@echo "$(GREEN)Triggering GitHub Actions for multi-arch build...$(NC)"
+	@if [ -z "$(CI_VERSION)" ]; then \
+		echo "$(YELLOW)No version specified, using 'latest'$(NC)"; \
+		gh workflow run docker-release.yml; \
+	else \
+		echo "$(YELLOW)Version: $(CI_VERSION)$(NC)"; \
+		gh workflow run docker-release.yml -f version=$(CI_VERSION); \
+	fi
+	@echo "$(GREEN)Workflow triggered! Check progress at:$(NC)"
+	@echo "  https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)/actions"
+
+## Build native architecture only (fast, for local testing)
+docker-release-native: docker-login
+	@echo "$(GREEN)Building and pushing native architecture images...$(NC)"
+	docker build -t $(IMAGE_BACKEND):$(VERSION) \
+		-t $(IMAGE_BACKEND):latest \
+		--label "org.opencontainers.image.source=https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)" \
+		--push \
+		./apps/api
+	docker build -t $(IMAGE_FRONTEND):$(VERSION) \
+		-t $(IMAGE_FRONTEND):latest \
+		--label "org.opencontainers.image.source=https://github.com/$(GITHUB_ORG)/$(GITHUB_REPO)" \
+		--push \
+		./apps/web
+	@echo "$(GREEN)Native release complete!$(NC)"
+
 ## Show current Docker image tags
 docker-info:
 	@echo "$(GREEN)Docker Registry Configuration$(NC)"
@@ -361,4 +444,4 @@ docker-info:
 	@echo "  Backend:  $(IMAGE_BACKEND):$(VERSION)"
 	@echo "  Frontend: $(IMAGE_FRONTEND):$(VERSION)"
 
-.PHONY: help dev up up-fg down restart watch stop-watch stop-docs backend-logs backend-restart db-shell db-backup migrate logs ps clean rebuild check-deps install-fswatch docs docs-build docs-dev docs-down docker-login docker-build docker-build-backend docker-build-frontend docker-push docker-push-backend docker-push-frontend docker-release docker-release-multiarch docker-info
+.PHONY: help dev up up-fg down restart watch stop-watch stop-docs backend-logs backend-restart db-shell db-backup migrate logs ps clean rebuild check-deps install-fswatch docs docs-build docs-dev docs-down docker-login docker-build docker-build-backend docker-build-frontend docker-push docker-push-backend docker-push-frontend docker-release docker-release-native docker-release-multiarch docker-release-amd64 docker-release-arm64 docker-release-ci docker-buildx-setup docker-info

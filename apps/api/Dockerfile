@@ -12,16 +12,13 @@ RUN apt-get update && apt-get install -y \
 ENV TZ=Europe/Paris
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# Install uv for faster dependency installation
-RUN pip install uv
-
 # Copy dependency files
 COPY pyproject.toml .
-COPY uv.lock* ./
 COPY README.md .
 
-# Install dependencies using uv into system python
-RUN uv pip install --system -r pyproject.toml
+# Install dependencies using pip (compatible with cross-platform builds)
+# uv crashes under QEMU emulation, so we use pip for multi-arch builds
+RUN pip install --no-cache-dir .
 
 # Copy application code
 COPY . .
@@ -29,5 +26,5 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Start the application directly with uvicorn (no uv run)
+# Start the application directly with uvicorn
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
