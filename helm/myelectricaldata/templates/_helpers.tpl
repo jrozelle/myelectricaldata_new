@@ -191,12 +191,44 @@ postgresql+asyncpg://{{ $username }}:$(POSTGRES_PASSWORD)@{{ $host }}:{{ $port }
 {{- end }}
 
 {{/*
-Redis URL
+Redis secret name - Supports external secrets or subchart-generated secrets
+*/}}
+{{- define "myelectricaldata.redis.secretName" -}}
+{{- if .Values.redis.enabled }}
+  {{- if .Values.redis.auth.existingSecret }}
+    {{- .Values.redis.auth.existingSecret }}
+  {{- else }}
+    {{- printf "%s-redis" .Release.Name }}
+  {{- end }}
+{{- else if .Values.externalRedis.existingSecret }}
+  {{- .Values.externalRedis.existingSecret }}
+{{- else }}
+  {{- printf "%s-external-redis" (include "myelectricaldata.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Redis secret key - Returns the key name for the password in the secret
+*/}}
+{{- define "myelectricaldata.redis.secretKey" -}}
+{{- if .Values.redis.enabled }}
+  {{- if .Values.redis.auth.existingSecret }}
+    {{- .Values.redis.auth.existingSecretKey | default "redis-password" }}
+  {{- else }}
+    {{- "redis-password" }}
+  {{- end }}
+{{- else }}
+  {{- "password" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Redis URL - uses REDIS_PASSWORD env var for the password
 */}}
 {{- define "myelectricaldata.redisUrl" -}}
 {{- $host := include "myelectricaldata.redis.host" . -}}
 {{- $port := include "myelectricaldata.redis.port" . -}}
-redis://{{ $host }}:{{ $port }}/0
+redis://:$(REDIS_PASSWORD)@{{ $host }}:{{ $port }}/0
 {{- end }}
 
 {{/*

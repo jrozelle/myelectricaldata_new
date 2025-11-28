@@ -67,6 +67,12 @@ spec:
                   key: {{ include "myelectricaldata.postgres.secretKey" . | trim }}
             - name: DATABASE_URL
               value: {{ include "myelectricaldata.databaseUrl" . | quote }}
+            # Redis password MUST be defined before REDIS_URL for $(REDIS_PASSWORD) substitution
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "myelectricaldata.redis.secretName" . | trim }}
+                  key: {{ include "myelectricaldata.redis.secretKey" . | trim }}
             - name: REDIS_URL
               value: {{ include "myelectricaldata.redisUrl" . | quote }}
             - name: ENEDIS_ENVIRONMENT

@@ -250,6 +250,15 @@ redis:
     tag: "7-alpine"
     pullPolicy: IfNotPresent
 
+  # Redis authentication
+  auth:
+    # Option 1: Set password directly (Helm creates the secret)
+    password: ""
+    # Option 2: Use an existing secret with a generated password
+    # The secret must contain the key specified in existingSecretKey
+    existingSecret: ""           # e.g., "redis-credentials"
+    existingSecretKey: "redis-password"  # Key containing the password in the secret
+
   # Redis configuration
   config:
     maxmemory: "256mb"

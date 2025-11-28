@@ -271,8 +271,9 @@ async def get_current_user_info(
     )
 
     # Add is_admin field, debug_mode, and role
+    # is_admin is true if: database flag OR email in ADMIN_EMAILS env var
     user_data = user_response.model_dump()
-    user_data['is_admin'] = settings.is_admin(user.email)
+    user_data['is_admin'] = user.is_admin or settings.is_admin(user.email)
     user_data['debug_mode'] = user.debug_mode
 
     # Add role information with permissions
