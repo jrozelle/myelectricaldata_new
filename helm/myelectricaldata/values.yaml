@@ -94,6 +94,12 @@ frontend:
       cpu: 50m
       memory: 64Mi
 
+  # Environment variables for the frontend
+  # These are injected at runtime via env.js
+  env:
+    VITE_API_BASE_URL: "/api"
+    VITE_BACKEND_URL: "/api"
+
   livenessProbe:
     httpGet:
       path: /
@@ -146,6 +152,8 @@ config:
   adminEmails: ""           # Comma-separated list of admin emails
   mailgunDomain: ""         # Mailgun domain
   mailgunFromEmail: ""      # Mailgun from email address
+  enedisRedirectUri: ""     # Enedis OAuth callback URL (e.g., https://example.com/consent)
+  frontendUrl: ""           # Frontend URL for redirects (e.g., https://example.com)
 
 # Application secrets
 # You can configure secrets in 3 ways:

@@ -43,4 +43,10 @@ data:
   {{- if .Values.config.mailgunFromEmail }}
   MAILGUN_FROM_EMAIL: {{ .Values.config.mailgunFromEmail | quote }}
   {{- end }}
+  {{- if .Values.config.enedisRedirectUri }}
+  ENEDIS_REDIRECT_URI: {{ .Values.config.enedisRedirectUri | quote }}
+  {{- end }}
+  {{- if .Values.config.frontendUrl }}
+  FRONTEND_URL: {{ .Values.config.frontendUrl | quote }}
+  {{- end }}
   {{- end }}

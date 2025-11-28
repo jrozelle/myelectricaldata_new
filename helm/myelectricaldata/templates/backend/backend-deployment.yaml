@@ -157,6 +157,22 @@ spec:
                   name: {{ include "myelectricaldata.secretRef.name" (dict "root" . "secretConfig" .Values.secrets.turnstile.secretKey "defaultKey" "TURNSTILE_SECRET_KEY") }}
                   key: {{ include "myelectricaldata.secretRef.key" (dict "secretConfig" .Values.secrets.turnstile.secretKey "defaultKey" "TURNSTILE_SECRET_KEY") }}
             {{- end }}
+            # ENEDIS_REDIRECT_URI (from ConfigMap)
+            {{- if .Values.config.enedisRedirectUri }}
+            - name: ENEDIS_REDIRECT_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "myelectricaldata.fullname" . }}
+                  key: ENEDIS_REDIRECT_URI
+            {{- end }}
+            # FRONTEND_URL (from ConfigMap)
+            {{- if .Values.config.frontendUrl }}
+            - name: FRONTEND_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "myelectricaldata.fullname" . }}
+                  key: FRONTEND_URL
+            {{- end }}
           {{- with .Values.backend.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

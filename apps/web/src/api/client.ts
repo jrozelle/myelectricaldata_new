@@ -2,7 +2,18 @@ import axios, { AxiosError, AxiosInstance } from 'axios'
 import type { APIResponse } from '@/types/api'
 import { logger, isDebugEnabled } from '@/utils/logger'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+// Runtime environment from env.js (generated at container startup)
+// Falls back to build-time env or default
+declare global {
+  interface Window {
+    __ENV__?: {
+      VITE_API_BASE_URL?: string
+      VITE_BACKEND_URL?: string
+    }
+  }
+}
+
+const API_BASE_URL = window.__ENV__?.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api'
 
 class APIClient {
   private client: AxiosInstance

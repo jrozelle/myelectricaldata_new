@@ -90,7 +90,13 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 
 # Trusted Host middleware to handle proxy headers
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["myelectricaldata.fr", "localhost", "127.0.0.1", "backend"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
+    "myelectricaldata.fr",
+    "*.myelectricaldata.fr",  # Allow all subdomains
+    "localhost",
+    "127.0.0.1",
+    "backend",
+])
 
 # CORS middleware
 app.add_middleware(
