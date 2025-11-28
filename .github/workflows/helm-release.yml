@@ -28,6 +28,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set lowercase owner
+        id: repo
+        run: |
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
@@ -72,8 +77,8 @@ jobs:
       - name: Push to GHCR
         run: |
           CHART_PACKAGE=$(ls ./packages/*.tgz)
-          helm push $CHART_PACKAGE oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
-          echo "Chart pushed to: oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/myelectricaldata:${{ steps.chart_version.outputs.version }}"
+          helm push $CHART_PACKAGE oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner }}/charts
+          echo "Chart pushed to: oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner }}/charts/myelectricaldata:${{ steps.chart_version.outputs.version }}"
 
       - name: Summary
         run: |
@@ -81,9 +86,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Chart:** myelectricaldata" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ steps.chart_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Registry:** oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner }}/charts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Installation" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "helm install myelectricaldata oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/myelectricaldata --version ${{ steps.chart_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "helm install myelectricaldata oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner }}/charts/myelectricaldata --version ${{ steps.chart_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
