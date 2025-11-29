@@ -67,7 +67,6 @@ export default function AdminOffers() {
   // Preview modal state
   const [previewData, setPreviewData] = useState<RefreshPreview | null>(null)
   const [previewModalOpen, setPreviewModalOpen] = useState(false)
-  const [applyProgress, setApplyProgress] = useState(0)
   const [previewActiveTab, setPreviewActiveTab] = useState<'new' | 'updated' | 'deactivated'>('new')
   const [loadingPreview, setLoadingPreview] = useState<string | null>(null)
   const [refreshingProvider, setRefreshingProvider] = useState<string | null>(null)
@@ -188,7 +187,6 @@ export default function AdminOffers() {
     }
 
     setRefreshingProvider(providerId)
-    // Don't reset applyProgress - let syncStatus.progress from backend continue
 
     // Start polling sync status immediately
     refetchSyncStatus()
@@ -2321,31 +2319,6 @@ export default function AdminOffers() {
                 </div>
               )}
             </div>
-
-            {/* Progress bar */}
-            {refreshingProvider && applyProgress > 0 && (
-              <div className="mx-6 mb-6 mt-4 p-4 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg">
-                <div className="mb-3 flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="animate-spin text-primary-600 dark:text-primary-400" size={20} />
-                    <span className="text-base font-semibold text-primary-900 dark:text-primary-100">
-                      Application des changements...
-                    </span>
-                  </div>
-                  <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
-                    {applyProgress}%
-                  </span>
-                </div>
-                <div className="w-full bg-primary-100 dark:bg-primary-900/40 rounded-full h-4 overflow-hidden shadow-inner">
-                  <div
-                    className="bg-gradient-to-r from-primary-500 to-primary-600 dark:from-primary-400 dark:to-primary-500 h-4 rounded-full transition-all duration-500 ease-out shadow-lg"
-                    style={{ width: `${applyProgress}%` }}
-                  >
-                    <div className="h-full w-full bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse"></div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Actions */}
             <div className="p-6 border-t border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
