@@ -54,6 +54,11 @@ export const usePermissions = () => {
   }
 
   const canAccessAdmin = (): boolean => {
+    // Check is_admin flag first (from DB or ADMIN_EMAILS env var)
+    if (user?.is_admin) {
+      return true
+    }
+    // Then check role name
     const roleName = user?.role?.name || 'visitor'
     return roleName === 'admin' || roleName === 'moderator'
   }
