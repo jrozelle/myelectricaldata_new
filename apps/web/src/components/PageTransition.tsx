@@ -24,16 +24,30 @@ export function PageTransition({ children }: PageTransitionProps) {
     return () => cancelAnimationFrame(timer)
   }, [])
 
+  // After animation completes, remove transform entirely to avoid breaking position:fixed children
+  // CSS transform creates a new containing block, which breaks fixed positioning
+  const [animationComplete, setAnimationComplete] = useState(false)
+
+  useEffect(() => {
+    if (isVisible) {
+      // Wait for the 300ms transition to complete, then remove transform
+      const timer = setTimeout(() => setAnimationComplete(true), 350)
+      return () => clearTimeout(timer)
+    }
+  }, [isVisible])
+
   return (
     <div
       className={`transition-all duration-300 ease-out ${
-        isVisible
-          ? 'opacity-100 translate-y-0 scale-100'
-          : 'opacity-0 translate-y-3 scale-[0.98]'
+        animationComplete
+          ? 'opacity-100' // No transform after animation - fixes position:fixed for children
+          : isVisible
+            ? 'opacity-100 translate-y-0 scale-100'
+            : 'opacity-0 translate-y-3 scale-[0.98]'
       }`}
       style={{
         transformOrigin: 'top center',
-        willChange: isVisible ? 'auto' : 'opacity, transform'
+        willChange: animationComplete ? 'auto' : (isVisible ? 'auto' : 'opacity, transform')
       }}
     >
       {children}
