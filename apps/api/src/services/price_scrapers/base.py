@@ -3,15 +3,21 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Callable, TypeVar
 from datetime import datetime, UTC
 from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
+# IMPORTANT: Use "spawn" instead of "fork" to avoid deadlocks with asyncio/uvicorn
+# Fork copies the entire process state including event loops, causing issues
+# Spawn creates a fresh Python interpreter, which is safer with async code
+_mp_context = multiprocessing.get_context("spawn")
+
 # Shared process pool for CPU-intensive PDF parsing
 # ProcessPoolExecutor bypasses Python's GIL, allowing true parallel CPU usage
 # This enables pdfminer to use multiple cores for faster parsing
-pdf_executor = ProcessPoolExecutor(max_workers=4)
+pdf_executor = ProcessPoolExecutor(max_workers=4, mp_context=_mp_context)
 
 T = TypeVar('T')
 
