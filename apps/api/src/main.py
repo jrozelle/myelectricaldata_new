@@ -70,15 +70,20 @@ async def lifespan(app: FastAPI):
 
 def get_servers():
     """Build servers list for OpenAPI based on configuration."""
-    servers = [
-        {"url": "/api", "description": "API via proxy (relative)"},
-    ]
-    # Add production server if FRONTEND_URL is configured
-    if settings.FRONTEND_URL and settings.FRONTEND_URL != "http://localhost:3000":
-        servers.insert(0, {"url": f"{settings.FRONTEND_URL}/api", "description": "Production API"})
-    # Add local dev server
-    servers.append({"url": "http://localhost:8000", "description": "Backend direct (dev)"})
-    return servers
+    is_production = settings.FRONTEND_URL and settings.FRONTEND_URL != "http://localhost:3000"
+
+    if is_production:
+        # Production: only show production URL and relative path
+        return [
+            {"url": f"{settings.FRONTEND_URL}/api", "description": "Production API"},
+            {"url": "/api", "description": "API via proxy (relative)"},
+        ]
+    else:
+        # Development: show relative path and localhost
+        return [
+            {"url": "/api", "description": "API via proxy (relative)"},
+            {"url": "http://localhost:8000", "description": "Backend direct (dev)"},
+        ]
 
 
 app = FastAPI(
