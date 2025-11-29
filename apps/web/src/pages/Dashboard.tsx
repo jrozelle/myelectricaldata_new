@@ -141,7 +141,10 @@ export default function Dashboard() {
         message
       })
       // Force immediate refresh of PDL list BEFORE clearing params
-      // (refetchQueries ignores staleTime)
+      // Remove cache completely to avoid stale data from IndexedDB persistence
+      queryClient.removeQueries({ queryKey: ['pdls'] })
+      queryClient.invalidateQueries({ queryKey: ['pdls'] })
+      // Then refetch fresh data from server
       queryClient.refetchQueries({ queryKey: ['pdls'] }).then(() => {
         // Clear params only after refetch completes
         setSearchParams({})
@@ -237,8 +240,11 @@ export default function Dashboard() {
       logger.log('[Dashboard] No PDLs received or error')
       return []
     },
-    // Keep data fresh for 5 minutes to prevent automatic refetches from overwriting optimistic updates
-    staleTime: 5 * 60 * 1000,
+    // Keep data fresh for 30 seconds only - PDLs change often (consent, sync, etc.)
+    // Override the global 24h staleTime for this critical query
+    staleTime: 30 * 1000,
+    // Don't persist to IndexedDB - always fetch fresh (configured in main.tsx)
+    gcTime: 5 * 60 * 1000, // 5 minutes in memory only
     // Don't refetch on window focus to preserve drag & drop changes
     refetchOnWindowFocus: false,
   })

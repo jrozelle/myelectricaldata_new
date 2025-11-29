@@ -50,6 +50,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               return false
             }
 
+            // Don't persist PDL list - it changes frequently (consent, add, delete)
+            // and must always be fresh from the server
+            if (queryKey === 'pdls') {
+              return false
+            }
+
             // Always persist detail queries if they have data
             // Using IndexedDB persister to handle large data (~3MB per query)
             if (queryKey === 'consumptionDetail' || queryKey === 'productionDetail') {
