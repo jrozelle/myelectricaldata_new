@@ -840,14 +840,15 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                         updatePricingOptionMutation.mutate(value === '' ? null : value as PricingOption)
                       }}
                       disabled={updatePricingOptionMutation.isPending}
-                      className="w-40 px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-700 rounded-lg text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 cursor-pointer transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-44 px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-700 rounded-lg text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 cursor-pointer transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <option value="">Sélectionner</option>
                       <option value="BASE">Base</option>
                       <option value="HC_HP">Heures Creuses</option>
                       <option value="TEMPO">Tempo</option>
-                      <option value="EJP">EJP</option>
-                      <option value="HC_WEEKEND">HC Nuit & Week-end</option>
+                      <option value="WEEKEND">Nuit & Week-end</option>
+                      <option value="SEASONAL">Saisonnier</option>
+                      <option value="EJP">EJP (ancien)</option>
                     </select>
                   </div>
 

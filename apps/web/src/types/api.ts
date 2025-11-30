@@ -64,7 +64,7 @@ export interface TokenResponse {
 }
 
 // Pricing option types for electricity tariffs
-export type PricingOption = 'BASE' | 'HC_HP' | 'TEMPO' | 'EJP' | 'HC_WEEKEND'
+export type PricingOption = 'BASE' | 'HC_HP' | 'TEMPO' | 'EJP' | 'WEEKEND' | 'SEASONAL'
 
 export interface PDL {
   id: string
