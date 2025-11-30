@@ -229,9 +229,15 @@ function scrollToNextSection() {
 }
 
 export default function Landing() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
   const { isDark, toggleTheme } = useThemeStore()
   const [showHeader, setShowHeader] = useState(false)
+  const [isReady, setIsReady] = useState(false)
+
+  // Attendre que le composant soit monté pour éviter le clignotement
+  useEffect(() => {
+    setIsReady(true)
+  }, [])
 
   // Animation du texte hero
   const [heroText, setHeroText] = useState('')
@@ -323,13 +329,13 @@ export default function Landing() {
               >
                 {isDark ? <Sun size={18} /> : <Moon size={18} />}
               </button>
-              {!isAuthenticated && (
+              {isReady && !isLoading && !isAuthenticated && (
                 <Link to="/login" className="btn btn-secondary text-sm sm:text-base px-3 sm:px-4 hover:scale-105 transition-transform duration-300">
                   <span className="hidden sm:inline">Se connecter</span>
                   <span className="sm:hidden">Connexion</span>
                 </Link>
               )}
-              {isAuthenticated && (
+              {isReady && !isLoading && isAuthenticated && (
                 <Link to="/dashboard" className="btn btn-primary text-sm sm:text-base px-3 sm:px-4 hover:scale-105 transition-transform duration-300">
                   Dashboard
                 </Link>
@@ -349,7 +355,7 @@ export default function Landing() {
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-300/10 dark:bg-blue-600/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
 
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <div className="animate-fade-in-up">
+          <div>
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 mb-6 animate-bounce-subtle">
               <Sparkles size={16} />
               <span className="text-sm font-medium">100% Gratuit & Open Source</span>
@@ -360,12 +366,12 @@ export default function Landing() {
               <span className="animate-blink">|</span>
             </h1>
 
-            <p className="text-lg sm:text-xl lg:text-2xl text-gray-600 dark:text-gray-300 mb-8 max-w-3xl mx-auto leading-relaxed animate-fade-in" style={{ animationDelay: '0.5s' }}>
+            <p className="text-lg sm:text-xl lg:text-2xl text-gray-600 dark:text-gray-300 mb-8 max-w-3xl mx-auto leading-relaxed">
               <span className="bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500 bg-clip-text text-transparent font-bold">MyElectricalData</span> est une <span className="text-primary-600 dark:text-primary-400 font-semibold">passerelle intelligente</span> qui permet à n'importe quel particulier d'accéder à ses données de consommation/production d'électricité disponibles chez Enedis.
             </p>
 
-            {isAuthenticated ? (
-              <div className="flex justify-center animate-fade-in" style={{ animationDelay: '1s' }}>
+            {isReady && !isLoading && isAuthenticated ? (
+              <div className="flex justify-center">
                 <Link
                   to="/dashboard"
                   className="group btn btn-primary text-lg px-8 py-4 inline-flex items-center gap-2 hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl"
@@ -374,8 +380,8 @@ export default function Landing() {
                   <ArrowRight className="group-hover:translate-x-1 transition-transform duration-300" size={20} />
                 </Link>
               </div>
-            ) : (
-              <div className="flex flex-col sm:flex-row justify-center gap-4 animate-fade-in" style={{ animationDelay: '1s' }}>
+            ) : isReady && !isLoading ? (
+              <div className="flex flex-col sm:flex-row justify-center gap-4">
                 <Link
                   to="/signup"
                   className="group btn btn-primary text-lg px-8 py-4 inline-flex items-center justify-center gap-2 hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl"
@@ -390,7 +396,7 @@ export default function Landing() {
                   Se connecter
                 </Link>
               </div>
-            )}
+            ) : null}
           </div>
 
         </div>
@@ -939,7 +945,7 @@ export default function Landing() {
           <p className="text-xl lg:text-2xl text-white/90 mb-10 leading-relaxed">
             Créez votre compte gratuitement et obtenez vos identifiants API en quelques minutes.
           </p>
-          {isAuthenticated ? (
+          {isReady && !isLoading && isAuthenticated ? (
             <Link
               to="/dashboard"
               className="group inline-flex items-center gap-3 px-10 py-5 bg-white text-primary-600 rounded-xl font-bold text-xl hover:bg-gray-50 transition-all duration-300 shadow-2xl hover:shadow-3xl hover:scale-105"
@@ -947,7 +953,7 @@ export default function Landing() {
               Accéder au dashboard
               <ArrowRight className="group-hover:translate-x-2 transition-transform duration-300" size={24} />
             </Link>
-          ) : (
+          ) : isReady && !isLoading ? (
             <Link
               to="/signup"
               className="group inline-flex items-center gap-3 px-10 py-5 bg-white text-primary-600 rounded-xl font-bold text-xl hover:bg-gray-50 transition-all duration-300 shadow-2xl hover:shadow-3xl hover:scale-105"
@@ -955,7 +961,7 @@ export default function Landing() {
               Créer mon compte gratuitement
               <ArrowRight className="group-hover:translate-x-2 transition-transform duration-300" size={24} />
             </Link>
-          )}
+          ) : null}
         </div>
       </section>
 
