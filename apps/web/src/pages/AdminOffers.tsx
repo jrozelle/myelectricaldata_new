@@ -1,7 +1,7 @@
 import { useState, useEffect as React_useEffect } from 'react'
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Zap, Edit2, Trash2, Search, Filter, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, X, Eye, RefreshCw, Loader2 } from 'lucide-react'
+import { Zap, Edit2, Trash2, Search, Filter, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, X, Eye, RefreshCw, Loader2, AlertTriangle } from 'lucide-react'
 import { energyApi, type EnergyProvider, type EnergyOffer, type RefreshPreview, type SyncStatus } from '@/api/energy'
 import { usePermissions } from '@/hooks/usePermissions'
 import toast from 'react-hot-toast'
@@ -148,7 +148,9 @@ export default function AdminOffers() {
             updated_offers: preview.offers_to_update || [],
             deactivated_offers: preview.offers_to_deactivate || [],
             total_changes: (preview.offers_to_create?.length || 0) + (preview.offers_to_update?.length || 0) + (preview.offers_to_deactivate?.length || 0),
-            last_update: (response.data as any).timestamp
+            last_update: (response.data as any).timestamp,
+            used_fallback: preview.used_fallback || false,
+            fallback_reason: preview.fallback_reason
           }
           setPreviewData(mappedData)
           setPreviewModalOpen(true)
@@ -1872,6 +1874,29 @@ export default function AdminOffers() {
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   Dernière mise à jour : {new Date(previewData.last_update).toLocaleString('fr-FR')}
                 </p>
+              )}
+
+              {/* Fallback Warning */}
+              {previewData.used_fallback && (
+                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={24} />
+                    <div>
+                      <h4 className="font-semibold text-amber-800 dark:text-amber-200">
+                        ⚠️ Données de secours utilisées
+                      </h4>
+                      <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                        Le téléchargement des tarifs a échoué. Les données affichées proviennent d'une sauvegarde manuelle
+                        et peuvent être obsolètes.
+                      </p>
+                      {previewData.fallback_reason && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 font-mono bg-amber-100 dark:bg-amber-900/50 p-2 rounded">
+                          Raison : {previewData.fallback_reason}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* Tabs */}

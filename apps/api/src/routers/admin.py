@@ -1015,6 +1015,8 @@ async def preview_offers_update(
                                 "offers_to_create": preview_result["offers_to_create"],
                                 "offers_to_update": preview_result["offers_to_update"],
                                 "offers_to_deactivate": preview_result["offers_to_deactivate"],
+                                "used_fallback": preview_result.get("used_fallback", False),
+                                "fallback_reason": preview_result.get("fallback_reason"),
                                 "summary": {
                                     "total_offers": preview_result["summary"]["total_scraped"],
                                     "new": preview_result["summary"]["new"],
@@ -1439,11 +1441,12 @@ async def list_providers(
         existing_result = await db.execute(select(EnergyProvider.name))
         existing_names = {row[0] for row in existing_result.fetchall()}
 
-        # Create missing providers with defaults
+        # Create missing providers and update existing ones with defaults
         for scraper_name in PriceUpdateService.SCRAPERS.keys():
             if scraper_name not in existing_names:
                 logger.info(f"Auto-creating missing provider: {scraper_name}")
-                await service._get_or_create_provider(scraper_name)
+            # Call for ALL scrapers to also update existing providers with missing URLs
+            await service._get_or_create_provider(scraper_name)
 
         await db.commit()
 

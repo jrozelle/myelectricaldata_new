@@ -159,6 +159,9 @@ class BasePriceScraper(ABC):
     def __init__(self, provider_name: str):
         self.provider_name = provider_name
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        # Flag to indicate if fallback data was used (scraping failed)
+        self.used_fallback = False
+        self.fallback_reason: str | None = None
 
     @abstractmethod
     async def fetch_offers(self) -> List[OfferData]:

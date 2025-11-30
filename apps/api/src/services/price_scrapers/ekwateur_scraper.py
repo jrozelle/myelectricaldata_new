@@ -99,6 +99,8 @@ class EkwateurScraper(BasePriceScraper):
         self.logger.info(f"Using fallback data for Ekwateur due to errors: {' | '.join(errors)}")
         fallback_offers = self._get_fallback_offers()
         if fallback_offers:
+            self.used_fallback = True
+            self.fallback_reason = ' | '.join(errors)
             self.logger.info(f"Successfully loaded {len(fallback_offers)} Ekwateur offers from fallback data")
             return fallback_offers
         else:

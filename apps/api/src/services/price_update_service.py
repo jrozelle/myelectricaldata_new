@@ -434,6 +434,8 @@ class PriceUpdateService:
                 "offers_to_update": offers_to_update,
                 "offers_to_deactivate": offers_to_deactivate,
                 "scraped_offers": all_scraped_offers,  # All scraped offers for caching
+                "used_fallback": scraper.used_fallback,
+                "fallback_reason": scraper.fallback_reason,
                 "summary": {
                     "total_current": len(current_offers),
                     "total_scraped": len(scraped_offers),

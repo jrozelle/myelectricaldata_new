@@ -122,6 +122,8 @@ export interface RefreshPreview {
   deactivated_offers: OfferChange[]
   total_changes: number
   last_update?: string
+  used_fallback?: boolean
+  fallback_reason?: string
 }
 
 export interface SyncStatus {
