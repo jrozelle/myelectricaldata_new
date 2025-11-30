@@ -71,3 +71,7 @@ caddy_config/
 .env.web
 
 tmp/
+
+# Git worktrees (Crystal)
+/worktrees/
+/worktree-*/
