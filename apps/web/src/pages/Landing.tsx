@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowRight, Shield, Zap, Key, Moon, Sun, Heart, Lock, Database, BarChart3, RefreshCw, ChevronDown, Sparkles, TrendingUp, Github, Server, Home, Radio, LineChart, Container } from 'lucide-react'
+import { ArrowRight, Shield, Zap, Key, Moon, Sun, Heart, Lock, Database, BarChart3, RefreshCw, ChevronDown, Sparkles, TrendingUp, Github, Server, Home, Radio, LineChart, Container, AlertCircle, UserPlus, ExternalLink } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useThemeStore } from '@/stores/themeStore'
 import { useState, useEffect, useRef } from 'react'
@@ -229,9 +229,15 @@ function scrollToNextSection() {
 }
 
 export default function Landing() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
   const { isDark, toggleTheme } = useThemeStore()
   const [showHeader, setShowHeader] = useState(false)
+  const [isReady, setIsReady] = useState(false)
+
+  // Attendre que le composant soit monté pour éviter le clignotement
+  useEffect(() => {
+    setIsReady(true)
+  }, [])
 
   // Animation du texte hero
   const [heroText, setHeroText] = useState('')
@@ -323,13 +329,13 @@ export default function Landing() {
               >
                 {isDark ? <Sun size={18} /> : <Moon size={18} />}
               </button>
-              {!isAuthenticated && (
+              {isReady && !isLoading && !isAuthenticated && (
                 <Link to="/login" className="btn btn-secondary text-sm sm:text-base px-3 sm:px-4 hover:scale-105 transition-transform duration-300">
                   <span className="hidden sm:inline">Se connecter</span>
                   <span className="sm:hidden">Connexion</span>
                 </Link>
               )}
-              {isAuthenticated && (
+              {isReady && !isLoading && isAuthenticated && (
                 <Link to="/dashboard" className="btn btn-primary text-sm sm:text-base px-3 sm:px-4 hover:scale-105 transition-transform duration-300">
                   Dashboard
                 </Link>
@@ -349,7 +355,7 @@ export default function Landing() {
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-300/10 dark:bg-blue-600/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
 
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <div className="animate-fade-in-up">
+          <div>
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 mb-6 animate-bounce-subtle">
               <Sparkles size={16} />
               <span className="text-sm font-medium">100% Gratuit & Open Source</span>
@@ -360,12 +366,12 @@ export default function Landing() {
               <span className="animate-blink">|</span>
             </h1>
 
-            <p className="text-lg sm:text-xl lg:text-2xl text-gray-600 dark:text-gray-300 mb-8 max-w-3xl mx-auto leading-relaxed animate-fade-in" style={{ animationDelay: '0.5s' }}>
+            <p className="text-lg sm:text-xl lg:text-2xl text-gray-600 dark:text-gray-300 mb-8 max-w-3xl mx-auto leading-relaxed">
               <span className="bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500 bg-clip-text text-transparent font-bold">MyElectricalData</span> est une <span className="text-primary-600 dark:text-primary-400 font-semibold">passerelle intelligente</span> qui permet à n'importe quel particulier d'accéder à ses données de consommation/production d'électricité disponibles chez Enedis.
             </p>
 
-            {isAuthenticated ? (
-              <div className="flex justify-center animate-fade-in" style={{ animationDelay: '1s' }}>
+            {isReady && !isLoading && isAuthenticated ? (
+              <div className="flex justify-center">
                 <Link
                   to="/dashboard"
                   className="group btn btn-primary text-lg px-8 py-4 inline-flex items-center gap-2 hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl"
@@ -374,8 +380,8 @@ export default function Landing() {
                   <ArrowRight className="group-hover:translate-x-1 transition-transform duration-300" size={20} />
                 </Link>
               </div>
-            ) : (
-              <div className="flex flex-col sm:flex-row justify-center gap-4 animate-fade-in" style={{ animationDelay: '1s' }}>
+            ) : isReady && !isLoading ? (
+              <div className="flex flex-col sm:flex-row justify-center gap-4">
                 <Link
                   to="/signup"
                   className="group btn btn-primary text-lg px-8 py-4 inline-flex items-center justify-center gap-2 hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl"
@@ -390,7 +396,7 @@ export default function Landing() {
                   Se connecter
                 </Link>
               </div>
-            )}
+            ) : null}
           </div>
 
         </div>
@@ -470,9 +476,51 @@ export default function Landing() {
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl sm:text-4xl font-bold text-center mb-16 text-gray-900 dark:text-white">
+          <h2 className="text-3xl sm:text-4xl font-bold text-center mb-8 text-gray-900 dark:text-white">
             Comment ça marche ?
           </h2>
+
+          {/* Alerte importante : deux comptes distincts */}
+          <div className="max-w-4xl mx-auto mb-12 p-6 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-2xl border-2 border-amber-300 dark:border-amber-700 shadow-lg">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <AlertCircle className="text-amber-600 dark:text-amber-400" size={32} />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold mb-3 text-gray-900 dark:text-white flex items-center gap-2">
+                  <span>Deux comptes distincts</span>
+                </h3>
+                <div className="space-y-4 text-gray-700 dark:text-gray-300">
+                  <p className="text-lg leading-relaxed">
+                    Votre compte <strong className="text-primary-600 dark:text-primary-400">MyElectricalData</strong> est <strong className="text-amber-700 dark:text-amber-400">totalement indépendant</strong> de votre compte Enedis. Ce sont deux comptes séparés avec des identifiants différents.
+                  </p>
+                  <div className="grid md:grid-cols-2 gap-4 mt-4">
+                    <div className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-primary-200 dark:border-primary-700">
+                      <div className="flex items-center gap-2 mb-2">
+                        <UserPlus className="text-primary-600 dark:text-primary-400" size={20} />
+                        <span className="font-semibold text-primary-700 dark:text-primary-400">Compte MyElectricalData</span>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Créé sur cette plateforme avec votre email. Vous obtenez des identifiants API (client_id / client_secret) pour accéder à vos données.
+                      </p>
+                    </div>
+                    <div className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-green-200 dark:border-green-700">
+                      <div className="flex items-center gap-2 mb-2">
+                        <ExternalLink className="text-green-600 dark:text-green-400" size={20} />
+                        <span className="font-semibold text-green-700 dark:text-green-400">Compte Enedis</span>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Votre compte personnel sur le site Enedis. Utilisé lors du consentement pour autoriser l'accès à vos données Linky.
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-base mt-4 p-3 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+                    <strong className="text-amber-700 dark:text-amber-400">📋 Processus :</strong> Créez d'abord votre compte MyElectricalData, puis lors du consentement vous serez redirigé vers le site officiel d'Enedis où vous vous connecterez avec <em>vos identifiants Enedis</em> pour autoriser l'accès.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div className="relative">
             {/* Timeline line */}
@@ -489,10 +537,13 @@ export default function Landing() {
                   <div className="inline-block p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 border border-gray-200 dark:border-gray-700">
                     <h3 className="text-2xl font-bold mb-3 text-gray-900 dark:text-white flex items-center justify-center md:justify-end gap-2">
                       <Key className="text-primary-600 dark:text-primary-400" size={28} />
-                      Création de compte
+                      Création de compte MyElectricalData
                     </h3>
                     <p className="text-gray-600 dark:text-gray-400 text-lg">
-                      Créez votre compte et obtenez vos identifiants API (client_id et client_secret).
+                      Créez votre compte <strong>sur notre plateforme</strong> et obtenez vos identifiants API (client_id et client_secret).
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-500 mt-2 italic">
+                      Ce compte est distinct de votre compte Enedis.
                     </p>
                   </div>
                 </div>
@@ -522,7 +573,11 @@ export default function Landing() {
                       Consentement Enedis
                     </h3>
                     <p className="text-gray-600 dark:text-gray-400 text-lg">
-                      Autorisez la passerelle à accéder à vos données via le portail officiel Enedis.
+                      Vous êtes redirigé vers le <strong>site officiel Enedis</strong> où vous vous connectez avec <strong>votre compte Enedis personnel</strong> pour autoriser l'accès à vos données.
+                    </p>
+                    <p className="text-sm text-green-600 dark:text-green-400 mt-2 flex items-center justify-center md:justify-start gap-1">
+                      <ExternalLink size={14} />
+                      Connexion sécurisée sur enedis.fr
                     </p>
                   </div>
                 </div>
@@ -939,7 +994,7 @@ export default function Landing() {
           <p className="text-xl lg:text-2xl text-white/90 mb-10 leading-relaxed">
             Créez votre compte gratuitement et obtenez vos identifiants API en quelques minutes.
           </p>
-          {isAuthenticated ? (
+          {isReady && !isLoading && isAuthenticated ? (
             <Link
               to="/dashboard"
               className="group inline-flex items-center gap-3 px-10 py-5 bg-white text-primary-600 rounded-xl font-bold text-xl hover:bg-gray-50 transition-all duration-300 shadow-2xl hover:shadow-3xl hover:scale-105"
@@ -947,7 +1002,7 @@ export default function Landing() {
               Accéder au dashboard
               <ArrowRight className="group-hover:translate-x-2 transition-transform duration-300" size={24} />
             </Link>
-          ) : (
+          ) : isReady && !isLoading ? (
             <Link
               to="/signup"
               className="group inline-flex items-center gap-3 px-10 py-5 bg-white text-primary-600 rounded-xl font-bold text-xl hover:bg-gray-50 transition-all duration-300 shadow-2xl hover:shadow-3xl hover:scale-105"
@@ -955,7 +1010,7 @@ export default function Landing() {
               Créer mon compte gratuitement
               <ArrowRight className="group-hover:translate-x-2 transition-transform duration-300" size={24} />
             </Link>
-          )}
+          ) : null}
         </div>
       </section>
 
