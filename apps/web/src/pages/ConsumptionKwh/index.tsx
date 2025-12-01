@@ -472,7 +472,7 @@ export default function ConsumptionKwh() {
 
       {/* Empty State - No data loaded */}
       {!hasDataInCache && !allLoadingComplete && (
-        <div className="mt-2 rounded-xl shadow-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 transition-colors duration-200">
+        <div className="rounded-xl shadow-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 transition-colors duration-200">
           <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
             <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center mb-6">
               <Database className="w-10 h-10 text-primary-600 dark:text-primary-400" />
@@ -499,7 +499,7 @@ export default function ConsumptionKwh() {
 
       {/* Statistics Section - Collapsible (only show if data is available) */}
       <AnimatedSection isVisible={hasDataInCache || allLoadingComplete} delay={0}>
-        <div className="mt-2 rounded-xl shadow-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 transition-colors duration-200">
+        <div className="rounded-xl shadow-md border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 transition-colors duration-200">
           <div
             className={`flex items-center justify-between p-6 ${
               allLoadingComplete ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
