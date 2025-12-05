@@ -267,25 +267,59 @@ export default function AdminContributions() {
       {/* Reject Modal */}
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full p-6">
             <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
               <XCircle className="text-red-600 dark:text-red-400" size={24} />
               Rejeter la contribution
             </h3>
             <p className="text-gray-600 dark:text-gray-400 mb-4">
-              Êtes-vous sûr de vouloir rejeter cette contribution ?
+              Êtes-vous sûr de vouloir rejeter cette contribution ? Un email sera envoyé au contributeur.
             </p>
+
+            {/* Quick rejection reasons */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">
+                Raisons rapides
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: 'Offre non valide', text: 'L\'offre soumise ne correspond pas à une offre valide du fournisseur.' },
+                  { label: 'Lien invalide', text: 'Le lien vers la fiche des prix fourni est invalide ou ne fonctionne plus. Merci de fournir un lien direct vers la fiche tarifaire officielle.' },
+                  { label: 'Offre introuvable', text: 'Je ne retrouve pas l\'offre mentionnée sur le site du fournisseur. Merci de fournir un lien précis vers la fiche tarifaire.' },
+                  { label: 'Offre expirée', text: 'Cette offre semble avoir expiré ou n\'est plus commercialisée par le fournisseur.' },
+                  { label: 'Doublon', text: 'Cette offre existe déjà dans notre base de données.' },
+                  { label: 'Données incomplètes', text: 'Les données tarifaires fournies sont incomplètes. Merci de renseigner tous les prix requis pour ce type d\'offre.' },
+                ].map((reason) => (
+                  <button
+                    key={reason.label}
+                    type="button"
+                    onClick={() => setRejectReason(reason.text)}
+                    className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                      rejectReason === reason.text
+                        ? 'bg-red-100 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
+                        : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {reason.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="mb-6">
               <label className="block text-sm font-medium mb-2">
-                Raison du rejet (optionnel)
+                Raison du rejet
               </label>
               <textarea
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 className="input w-full"
-                rows={3}
+                rows={4}
                 placeholder="Expliquez pourquoi cette contribution est rejetée..."
               />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Ce message sera envoyé par email au contributeur.
+              </p>
             </div>
             <div className="flex gap-3 justify-end">
               <button
@@ -301,7 +335,7 @@ export default function AdminContributions() {
               <button
                 onClick={confirmReject}
                 className="btn bg-red-600 hover:bg-red-700 text-white"
-                disabled={rejectMutation.isPending}
+                disabled={rejectMutation.isPending || !rejectReason.trim()}
               >
                 {rejectMutation.isPending ? 'Rejet...' : 'Confirmer le rejet'}
               </button>

@@ -367,11 +367,12 @@ async def approve_contribution(
 @router.post("/contributions/{contribution_id}/reject", response_model=APIResponse)
 async def reject_contribution(
     contribution_id: str,
-    reason: str | None = None,
+    body: dict = Body(default={}),
     current_user: User = Depends(require_permission('contributions')),
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """Reject a contribution (requires contributions permission)"""
+    reason = body.get("reason")
 
     result = await db.execute(select(OfferContribution).where(OfferContribution.id == contribution_id))
     contribution = result.scalar_one_or_none()
@@ -382,12 +383,24 @@ async def reject_contribution(
     if contribution.status != "pending":
         return APIResponse(success=False, error=ErrorDetail(code="INVALID_STATUS", message="Contribution already reviewed"))
 
+    # Get the contributor to send them an email
+    contributor_result = await db.execute(select(User).where(User.id == contribution.contributor_user_id))
+    contributor = contributor_result.scalar_one_or_none()
+
     contribution.status = "rejected"
     contribution.reviewed_by = current_user.id
     contribution.reviewed_at = datetime.now(UTC)
     contribution.review_comment = reason
 
     await db.commit()
+
+    # Send rejection notification email to contributor
+    if contributor and reason:
+        try:
+            await send_rejection_notification(contribution, contributor, reason)
+        except Exception as e:
+            logger.error(f"[CONTRIBUTION] Failed to send rejection notification: {str(e)}")
+            # Don't fail the rejection if email fails
 
     return APIResponse(success=True, data={"message": "Contribution rejected"})
 
@@ -656,3 +669,90 @@ MyElectricalData
             logger.info(f"[CONTRIBUTION] Notification sent to admin: {admin_email}")
         except Exception as e:
             logger.error(f"[CONTRIBUTION] Failed to send email to {admin_email}: {str(e)}")
+
+
+async def send_rejection_notification(contribution: OfferContribution, contributor: User, reason: str):
+    """Send email notification to contributor about rejection"""
+    contributions_url = f"{settings.FRONTEND_URL}/contribute"
+
+    subject = f"Contribution rejetée - {contribution.offer_name}"
+
+    html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="color: white; margin: 0;">MyElectricalData</h1>
+    </div>
+
+    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
+        <h2 style="color: #333; margin-top: 0;">Votre contribution a été examinée</h2>
+
+        <p>Bonjour,</p>
+
+        <p>Nous avons examiné votre contribution pour l'offre <strong>{contribution.offer_name}</strong> et malheureusement, nous n'avons pas pu l'approuver.</p>
+
+        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 0 5px 5px 0;">
+            <p style="margin: 0; font-weight: bold; color: #856404;">Raison du rejet :</p>
+            <p style="margin: 10px 0 0 0; color: #856404;">{reason}</p>
+        </div>
+
+        <div style="background: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p><strong>Offre concernée :</strong> {contribution.offer_name}</p>
+            <p><strong>Type :</strong> {contribution.offer_type}</p>
+            <p><strong>Date de soumission :</strong> {contribution.created_at.strftime('%d/%m/%Y à %H:%M')}</p>
+        </div>
+
+        <p>Vous pouvez soumettre une nouvelle contribution avec les informations corrigées :</p>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{contributions_url}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
+                Soumettre une nouvelle contribution
+            </a>
+        </div>
+
+        <p style="color: #666; font-size: 14px;">Merci pour votre participation à la communauté MyElectricalData !</p>
+
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+        <p style="color: #999; font-size: 12px; text-align: center;">
+            MyElectricalData - Base de données communautaire des offres d'électricité
+        </p>
+    </div>
+</body>
+</html>
+    """
+
+    text_content = f"""
+Votre contribution a été examinée - MyElectricalData
+
+Bonjour,
+
+Nous avons examiné votre contribution pour l'offre "{contribution.offer_name}" et malheureusement, nous n'avons pas pu l'approuver.
+
+Raison du rejet :
+{reason}
+
+Offre concernée : {contribution.offer_name}
+Type : {contribution.offer_type}
+Date de soumission : {contribution.created_at.strftime('%d/%m/%Y à %H:%M')}
+
+Vous pouvez soumettre une nouvelle contribution avec les informations corrigées :
+{contributions_url}
+
+Merci pour votre participation à la communauté MyElectricalData !
+
+---
+MyElectricalData - Base de données communautaire des offres d'électricité
+    """
+
+    try:
+        await email_service.send_email(contributor.email, subject, html_content, text_content)
+        logger.info(f"[CONTRIBUTION] Rejection notification sent to contributor: {contributor.email}")
+    except Exception as e:
+        logger.error(f"[CONTRIBUTION] Failed to send rejection email to {contributor.email}: {str(e)}")
+        raise
