@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Suspense, lazy } from 'react'
 import { useAuth } from './hooks/useAuth'
 import Layout from './components/Layout'
@@ -50,6 +50,7 @@ function PageLoader() {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
 
   if (isLoading) {
     return (
@@ -59,7 +60,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     )
   }
 
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />
+  if (!isAuthenticated) {
+    // Sauvegarder l'URL courante pour y revenir après connexion
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />
+  }
+
+  return <>{children}</>
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {

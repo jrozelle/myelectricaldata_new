@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { authApi } from '@/api/auth'
 import { useAuth } from '@/hooks/useAuth'
@@ -11,6 +11,7 @@ import { Trash2, TrendingUp, Copy, RefreshCw, Key, Lock, LogOut, Palette, Eye, E
 export default function Settings() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const { mode, setMode } = useThemeStore()
   const isDemo = useIsDemo()
@@ -131,7 +132,7 @@ export default function Settings() {
 
   const handleLogout = () => {
     logout()
-    navigate('/login')
+    navigate('/login', { state: { from: location.pathname } })
   }
 
   const copyNewSecret = () => {

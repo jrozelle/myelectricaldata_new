@@ -1,7 +1,11 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
+
+interface LocationState {
+  from?: string
+}
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -9,11 +13,15 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const { login, loginLoading, loginError } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // Récupérer l'URL de redirection depuis le state ou utiliser /dashboard par défaut
+  const from = (location.state as LocationState)?.from || '/dashboard'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     login({ email, password }, {
-      onSuccess: () => navigate('/dashboard'),
+      onSuccess: () => navigate(from, { replace: true }),
     })
   }
 
