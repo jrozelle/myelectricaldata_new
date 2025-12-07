@@ -12,6 +12,12 @@ Index des guides de résolution de problèmes pour MyElectricalData.
 
 ### Cache & Persistance
 
+#### [Synchronisation Fournisseur PDL - staleTime](./pdl-provider-sync-staletime.md)
+**Problème:** Le fournisseur sélectionné n'apparaît pas sans refresh manuel
+**Concerne:** `/consumption_euro`, `/dashboard`, `/simulator`
+**Solution:** Ajouter `staleTime: 30 * 1000` aux queries `['pdls']`
+**Statut:** ✅ Résolu
+
 #### [React Query Persist avec Queries Read-Only](./react-query-persist-readonly-queries.md)
 **Problème:** Les données ne persistent pas après un refresh de page
 **Concerne:** `consumptionDetail`, `productionDetail`
@@ -47,6 +53,7 @@ Index des guides de résolution de problèmes pour MyElectricalData.
 
 | Symptôme | Guide |
 |----------|-------|
+| Fournisseur n'apparaît pas sans refresh | [Sync Fournisseur staleTime](./pdl-provider-sync-staletime.md) |
 | Données disparaissent au refresh | [React Query Persist](./react-query-persist-readonly-queries.md) |
 | Cache vide malgré fetch réussi | [Debug Cache Vide](./debug-cache-vide.md) |
 | Offres dupliquées | [Simulateur Doublons](./simulator-duplicates-fix.md) |
@@ -56,16 +63,18 @@ Index des guides de résolution de problèmes pour MyElectricalData.
 
 | Page | Problèmes Connus | Guides |
 |------|------------------|--------|
+| `/consumption_euro` | Sync fournisseur, persistance | [Sync staleTime](./pdl-provider-sync-staletime.md), [React Query Persist](./react-query-persist-readonly-queries.md) |
 | `/consumption` | Persistance données | [React Query Persist](./react-query-persist-readonly-queries.md) |
 | `/production` | Persistance données | [React Query Persist](./react-query-persist-readonly-queries.md) |
-| `/simulator` | Doublons, calculs | [Doublons](./simulator-duplicates-fix.md), [Calculs](./simulator-consumption-calculation.md) |
+| `/simulator` | Sync fournisseur, doublons, calculs | [Sync staleTime](./pdl-provider-sync-staletime.md), [Doublons](./simulator-duplicates-fix.md), [Calculs](./simulator-consumption-calculation.md) |
+| `/dashboard` | Sync fournisseur | [Sync staleTime](./pdl-provider-sync-staletime.md) |
 | `/admin/offers` | Détection doublons | [Détection](./comment-detecter-doublons.md) |
 
 ### Par Technologie
 
 | Technologie | Guides |
 |-------------|--------|
-| React Query | [Persist Read-Only](./react-query-persist-readonly-queries.md), [Cache Vide](./debug-cache-vide.md) |
+| React Query | [staleTime Sync](./pdl-provider-sync-staletime.md), [Persist Read-Only](./react-query-persist-readonly-queries.md), [Cache Vide](./debug-cache-vide.md) |
 | Zustand | - |
 | React Query Persist | [Queries Read-Only](./react-query-persist-readonly-queries.md) |
 
