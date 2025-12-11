@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Home, LogOut, Moon, Sun, Heart, Shield, BookOpen, Calculator, Users, Menu, X, Calendar, ChevronLeft, ChevronRight, HelpCircle, UserCircle, Zap, TrendingUp, Trash2, Scale } from 'lucide-react'
+import { Home, LogOut, Moon, Sun, Heart, Shield, BookOpen, Calculator, Users, Menu, X, Calendar, ChevronLeft, ChevronRight, HelpCircle, UserCircle, Zap, TrendingUp, Trash2, Scale, ChevronDown, Euro } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useThemeStore } from '@/stores/themeStore'
@@ -28,6 +28,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return saved ? JSON.parse(saved) : false
   })
   const [isClearingCache, setIsClearingCache] = useState(false)
+  const [consumptionMenuOpen, setConsumptionMenuOpen] = useState(false)
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const queryClient = useQueryClient()
 
   // Persist sidebar state to localStorage
@@ -35,16 +37,43 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     localStorage.setItem('sidebarCollapsed', JSON.stringify(sidebarCollapsed))
   }, [sidebarCollapsed])
 
+  // Auto-open submenus when on relevant pages
+  useEffect(() => {
+    if (location.pathname.startsWith('/consumption')) {
+      setConsumptionMenuOpen(true)
+    }
+    if (location.pathname.startsWith('/admin')) {
+      setAdminMenuOpen(true)
+    }
+  }, [location.pathname])
+
   // Menu items
   const menuItems = [
     { to: '/dashboard', icon: Home, label: 'Tableau de bord' },
-    { to: '/consumption_kwh', icon: TrendingUp, label: 'Consommation' },
     { to: '/production', icon: Sun, label: 'Production' },
     { to: '/balance', icon: Scale, label: 'Bilan' },
     { to: '/simulator', icon: Calculator, label: 'Simulateur' },
     { to: '/contribute', icon: Users, label: 'Contribuer' },
     { to: '/tempo', icon: Calendar, label: 'Tempo' },
     { to: '/ecowatt', icon: Zap, label: 'EcoWatt' },
+  ]
+
+  // Consumption submenu items
+  const consumptionSubItems = [
+    { to: '/consumption_kwh', icon: TrendingUp, label: 'En kWh' },
+    { to: '/consumption_euro', icon: Euro, label: 'En €' },
+  ]
+
+  // Admin submenu items
+  const adminSubItems = [
+    { to: '/admin', label: 'Tableau de bord' },
+    { to: '/admin/users', label: 'Utilisateurs' },
+    { to: '/admin/tempo', label: 'Tempo' },
+    { to: '/admin/ecowatt', label: 'EcoWatt' },
+    { to: '/admin/contributions', label: 'Contributions' },
+    { to: '/admin/offers', label: 'Offres' },
+    { to: '/admin/roles', label: 'Rôles' },
+    { to: '/admin/logs', label: 'Logs' },
   ]
 
   // Check if we're on a consumption page (for active state and tabs)
@@ -165,11 +194,75 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-4">
           <div className="space-y-1 px-2">
-            {menuItems.map((item) => {
-              // Special handling for consumption - active if any consumption page
-              const isActive = item.to === '/consumption_kwh'
-                ? isConsumptionPage
-                : location.pathname === item.to
+            {/* Dashboard */}
+            <Link
+              to="/dashboard"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                location.pathname === '/dashboard'
+                  ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+              title={sidebarCollapsed ? 'Tableau de bord' : ''}
+            >
+              <Home size={20} className="flex-shrink-0" />
+              {!sidebarCollapsed && <span className="font-medium">Tableau de bord</span>}
+            </Link>
+
+            {/* Consumption Menu with Dropdown */}
+            <div className="relative">
+              <div
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                  isConsumptionPage
+                    ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                data-tour="nav-consumption"
+              >
+                <Link
+                  to="/consumption_kwh"
+                  className="flex items-center gap-3 flex-1"
+                  title={sidebarCollapsed ? 'Consommation' : ''}
+                >
+                  <TrendingUp size={20} className="flex-shrink-0" />
+                  {!sidebarCollapsed && <span className="font-medium">Consommation</span>}
+                </Link>
+                {!sidebarCollapsed && (
+                  <button
+                    onClick={() => setConsumptionMenuOpen(!consumptionMenuOpen)}
+                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                    aria-label="Ouvrir le sous-menu"
+                  >
+                    <ChevronDown
+                      size={16}
+                      className={`transition-transform duration-200 ${consumptionMenuOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                )}
+              </div>
+              {/* Submenu */}
+              {(consumptionMenuOpen || sidebarCollapsed) && (
+                <div className={`${sidebarCollapsed ? 'absolute left-full top-0 ml-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg py-1 min-w-[140px]' : 'ml-4 mt-1 space-y-1'}`}>
+                  {consumptionSubItems.map((subItem) => (
+                    <Link
+                      key={subItem.to}
+                      to={subItem.to}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                        location.pathname === subItem.to
+                          ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      <subItem.icon size={16} className="flex-shrink-0" />
+                      <span className="font-medium text-sm">{subItem.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Other menu items */}
+            {menuItems.filter(item => item.to !== '/dashboard').map((item) => {
+              const isActive = location.pathname === item.to
               return (
                 <Link
                   key={item.to}
@@ -180,8 +273,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                   title={sidebarCollapsed ? item.label : ''}
-                  data-tour={item.to === '/consumption_kwh' ? 'nav-consumption' :
-                            item.to === '/simulator' ? 'nav-simulator' :
+                  data-tour={item.to === '/simulator' ? 'nav-simulator' :
                             item.to === '/contribute' ? 'nav-contribute' : undefined}
                 >
                   <item.icon size={20} className="flex-shrink-0" />
@@ -196,24 +288,60 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {canAccessAdmin() && (
               <>
                 <div className="border-t border-gray-300 dark:border-gray-600 my-2" />
-                <Link
-                  to="/admin"
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
-                    location.pathname.startsWith('/admin')
-                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                  title={sidebarCollapsed ? 'Administration' : ''}
-                >
-                  <Shield size={20} className="flex-shrink-0" />
-                  {!sidebarCollapsed && <span className="font-medium">Administration</span>}
-                </Link>
+                <div className="relative">
+                  <div
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                      location.pathname.startsWith('/admin')
+                        ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Link
+                      to="/admin"
+                      className="flex items-center gap-3 flex-1"
+                      title={sidebarCollapsed ? 'Administration' : ''}
+                    >
+                      <Shield size={20} className="flex-shrink-0" />
+                      {!sidebarCollapsed && <span className="font-medium">Administration</span>}
+                    </Link>
+                    {!sidebarCollapsed && (
+                      <button
+                        onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+                        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                        aria-label="Ouvrir le sous-menu"
+                      >
+                        <ChevronDown
+                          size={16}
+                          className={`transition-transform duration-200 ${adminMenuOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+                    )}
+                  </div>
+                  {/* Submenu */}
+                  {(adminMenuOpen || sidebarCollapsed) && (
+                    <div className={`${sidebarCollapsed ? 'absolute left-full top-0 ml-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg py-1 min-w-[160px]' : 'ml-4 mt-1 space-y-1'}`}>
+                      {adminSubItems.map((subItem) => (
+                        <Link
+                          key={subItem.to}
+                          to={subItem.to}
+                          className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                            location.pathname === subItem.to
+                              ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          <span className="font-medium text-sm">{subItem.label}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Clear Cache Button (Admin only) */}
                 <button
                   onClick={handleClearCache}
                   disabled={isClearingCache}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title={sidebarCollapsed ? 'Vider le cache' : ''}
                 >
                   <Trash2 size={20} className="flex-shrink-0" />
@@ -343,11 +471,73 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-4">
           <div className="space-y-1 px-2">
-            {menuItems.map((item) => {
-              // Special handling for consumption - active if any consumption page
-              const isActive = item.to === '/consumption_kwh'
-                ? isConsumptionPage
-                : location.pathname === item.to
+            {/* Dashboard */}
+            <Link
+              to="/dashboard"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                location.pathname === '/dashboard'
+                  ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              <Home size={20} />
+              <span className="font-medium">Tableau de bord</span>
+            </Link>
+
+            {/* Consumption Menu with Dropdown - Mobile */}
+            <div>
+              <div
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                  isConsumptionPage
+                    ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <Link
+                  to="/consumption_kwh"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 flex-1"
+                >
+                  <TrendingUp size={20} />
+                  <span className="font-medium">Consommation</span>
+                </Link>
+                <button
+                  onClick={() => setConsumptionMenuOpen(!consumptionMenuOpen)}
+                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                  aria-label="Ouvrir le sous-menu"
+                >
+                  <ChevronDown
+                    size={16}
+                    className={`transition-transform duration-200 ${consumptionMenuOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+              </div>
+              {/* Submenu */}
+              {consumptionMenuOpen && (
+                <div className="ml-4 mt-1 space-y-1">
+                  {consumptionSubItems.map((subItem) => (
+                    <Link
+                      key={subItem.to}
+                      to={subItem.to}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                        location.pathname === subItem.to
+                          ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      <subItem.icon size={16} />
+                      <span className="font-medium text-sm">{subItem.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Other menu items */}
+            {menuItems.filter(item => item.to !== '/dashboard').map((item) => {
+              const isActive = location.pathname === item.to
               return (
                 <Link
                   key={item.to}
@@ -368,18 +558,53 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {canAccessAdmin() && (
               <>
                 <div className="border-t border-gray-300 dark:border-gray-600 my-2" />
-                <Link
-                  to="/admin"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
-                    location.pathname.startsWith('/admin')
-                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <Shield size={20} />
-                  <span className="font-medium">Administration</span>
-                </Link>
+                <div>
+                  <div
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                      location.pathname.startsWith('/admin')
+                        ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Link
+                      to="/admin"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="flex items-center gap-3 flex-1"
+                    >
+                      <Shield size={20} />
+                      <span className="font-medium">Administration</span>
+                    </Link>
+                    <button
+                      onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+                      className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                      aria-label="Ouvrir le sous-menu"
+                    >
+                      <ChevronDown
+                        size={16}
+                        className={`transition-transform duration-200 ${adminMenuOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                  </div>
+                  {/* Submenu */}
+                  {adminMenuOpen && (
+                    <div className="ml-4 mt-1 space-y-1">
+                      {adminSubItems.map((subItem) => (
+                        <Link
+                          key={subItem.to}
+                          to={subItem.to}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                            location.pathname === subItem.to
+                              ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          <span className="font-medium text-sm">{subItem.label}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Clear Cache Button (Admin only) */}
                 <button
