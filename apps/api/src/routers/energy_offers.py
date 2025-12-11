@@ -101,6 +101,7 @@ async def list_offers(
                 "price_updated_at": o.price_updated_at.isoformat() if o.price_updated_at else None,
                 "valid_from": o.valid_from.isoformat() if o.valid_from else None,
                 "valid_to": o.valid_to.isoformat() if o.valid_to else None,
+                "offer_url": o.offer_url,
                 "is_active": o.is_active,
                 "created_at": o.created_at.isoformat() if o.created_at else None,
             }

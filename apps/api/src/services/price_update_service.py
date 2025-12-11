@@ -198,6 +198,7 @@ class PriceUpdateService:
             power_kva=offer_dict.get("power_kva"),
             valid_from=valid_from,
             valid_to=valid_to,
+            offer_url=offer_dict.get("offer_url"),
         )
 
     async def _get_or_create_provider(self, name: str) -> EnergyProvider:

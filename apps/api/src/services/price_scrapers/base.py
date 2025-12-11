@@ -74,6 +74,7 @@ class OfferData:
         power_kva: int | None = None,
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
+        offer_url: str | None = None,
     ):
         self.name = name
         self.offer_type = offer_type
@@ -102,6 +103,7 @@ class OfferData:
         self.power_kva = power_kva
         self.valid_from = valid_from
         self.valid_to = valid_to
+        self.offer_url = offer_url
 
     def to_dict(self, for_json: bool = False) -> Dict[str, Any]:
         """
@@ -136,6 +138,7 @@ class OfferData:
             "peak_day_price": self.peak_day_price,
             "hc_schedules": self.hc_schedules,
             "power_kva": self.power_kva,
+            "offer_url": self.offer_url,
             "is_active": True,
         }
 

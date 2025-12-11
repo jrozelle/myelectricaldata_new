@@ -99,6 +99,9 @@ class TotalEnergiesPriceScraper(BasePriceScraper):
                             offers = await run_sync_in_thread(self._parse_pdf, response.content, idx)
 
                             if offers:
+                                # Set offer_url for each offer
+                                for offer in offers:
+                                    offer.offer_url = pdf_url
                                 all_offers.extend(offers)
                                 self.logger.info(f"Parsed {len(offers)} offers from PDF #{idx+1}")
                             else:

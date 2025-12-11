@@ -534,7 +534,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
               </button>
             </div>
           )}
-          <div className="flex gap-2 items-center flex-shrink-0">
+          <div className="flex gap-2 items-center flex-shrink-0" data-tour="pdl-header-actions">
             {isSaving && (
               <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                 <RefreshCw size={12} className="animate-spin" />

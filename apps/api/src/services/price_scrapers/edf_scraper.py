@@ -156,6 +156,9 @@ class EDFPriceScraper(BasePriceScraper):
                         self.logger.error(error_msg)
                         errors.append(error_msg)
                     else:
+                        # Set offer_url for each offer
+                        for offer in tarif_bleu_offers:
+                            offer.offer_url = tarif_bleu_url
                         self.logger.info(f"Successfully scraped {len(tarif_bleu_offers)} Tarif Bleu offers from PDF")
                         all_offers.extend(tarif_bleu_offers)
             except Exception as e:
@@ -179,6 +182,9 @@ class EDFPriceScraper(BasePriceScraper):
                         self.logger.warning(error_msg)
                         errors.append(error_msg)
                     else:
+                        # Set offer_url for each offer
+                        for offer in zen_offers:
+                            offer.offer_url = zen_weekend_url
                         self.logger.info(f"Successfully scraped {len(zen_offers)} Zen Week-End offers from PDF")
                         all_offers.extend(zen_offers)
             except Exception as e:
@@ -468,13 +474,15 @@ class EDFPriceScraper(BasePriceScraper):
                     )
                 )
 
-            # Create offers for Option Flex
+            # Create offers for Option Flex (ZEN_FLEX type)
+            # ZEN_FLEX has 345 "Eco" days and 20 "Sobriété" days (coldest weekdays)
+            # Weekends are always Eco days
             for power, prices in flex_prices.items():
                 offers.append(
                     OfferData(
                         name=f"Zen Week-End - Option Flex {power} kVA",
-                        offer_type="SEASONAL",
-                        description=f"EDF Zen Week-End - Tarifs saisonniers avec jours de sobriété - {power} kVA",
+                        offer_type="ZEN_FLEX",
+                        description=f"EDF Zen Week-End - 345 jours Éco + 20 jours Sobriété (les plus froids) - {power} kVA",
                         subscription_price=prices["subscription"],
                         hc_price_winter=prices["hc_eco"],
                         hp_price_winter=prices["hp_eco"],

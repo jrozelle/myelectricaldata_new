@@ -116,6 +116,9 @@ class AlternaScraper(BasePriceScraper):
                         parsed_offers = self._parse_pdf(text, offer_name)
 
                         if parsed_offers:
+                            # Set offer_url for each offer
+                            for offer in parsed_offers:
+                                offer.offer_url = pdf_url
                             offers.extend(parsed_offers)
                 except Exception as e:
                     error_msg = f"Erreur lors du scraping d'un PDF Alterna : {str(e)}"

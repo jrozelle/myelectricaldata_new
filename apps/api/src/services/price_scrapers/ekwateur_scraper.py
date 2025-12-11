@@ -66,6 +66,9 @@ class EkwateurScraper(BasePriceScraper):
                         self.logger.warning(error_msg)
                         errors.append(error_msg)
                     else:
+                        # Set offer_url for each offer
+                        for offer in offers:
+                            offer.offer_url = url
                         self.logger.info(f"Successfully scraped {len(offers)} Ekwateur offers from website")
                         return offers
         except Exception as e:

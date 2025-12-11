@@ -79,6 +79,9 @@ class EnergyOffer(Base):
     valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Date from which this tariff is valid
     valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Date until which this tariff is valid (NULL = current)
 
+    # Link to offer page
+    offer_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)  # URL to the offer page on provider's website
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

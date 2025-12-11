@@ -98,6 +98,9 @@ class EngieScraper(BasePriceScraper):
                         self.logger.warning(error_msg)
                         errors.append(error_msg)
                     else:
+                        # Set offer_url for each offer
+                        for offer in offers:
+                            offer.offer_url = url
                         self.logger.info(f"Successfully scraped {len(offers)} Engie offers from HelloWatt")
                         return offers
         except Exception as e:

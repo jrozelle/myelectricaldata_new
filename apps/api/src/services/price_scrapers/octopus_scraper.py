@@ -121,6 +121,9 @@ class OctopusScraper(BasePriceScraper):
                     offers = self._parse_hellowatt_html(html, offer_prefix)
 
                     if offers:
+                        # Set offer_url for each offer
+                        for offer in offers:
+                            offer.offer_url = url
                         self.logger.info(f"Scraped {len(offers)} offers from {url}")
                         all_offers.extend(offers)
                     else:

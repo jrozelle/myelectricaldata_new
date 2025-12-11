@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Calculator, AlertCircle, Loader2, ChevronDown, ChevronUp, FileDown, ArrowUpDown, ArrowUp, ArrowDown, Filter, Info, ArrowRight } from 'lucide-react'
+import { Calculator, AlertCircle, Loader2, ChevronDown, ChevronUp, FileDown, ArrowUpDown, ArrowUp, ArrowDown, Filter, Info, ArrowRight, ExternalLink } from 'lucide-react'
 import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
 import { LoadingOverlay } from '@/components/LoadingOverlay'
 import { LoadingPlaceholder } from '@/components/LoadingPlaceholder'
@@ -570,6 +570,9 @@ export default function Simulator() {
       let whiteHcKwh = 0, whiteHpKwh = 0
       let redHcKwh = 0, redHpKwh = 0
       let peakDayKwh = 0
+      // ZEN_FLEX breakdown: Eco days (normal) vs Sobriété days (peak pricing)
+      let zenFlexEcoHcKwh = 0, zenFlexEcoHpKwh = 0
+      let zenFlexSobrietyHcKwh = 0, zenFlexSobrietyHpKwh = 0
 
       if ((offer.offer_type === 'BASE' || offer.offer_type === 'BASE_WEEKEND') && offer.base_price) {
         // BASE calculation with weekend pricing support
@@ -834,6 +837,105 @@ export default function Simulator() {
           redHpKwh: redHpKwh.toFixed(2),
           energyCost: energyCost.toFixed(2)
         })
+      } else if (offer.offer_type === 'ZEN_FLEX' && offer.hc_price_winter && offer.hp_price_winter) {
+        // ZEN_FLEX calculation: EDF Zen Week-End - Option Flex
+        // - 345 "Eco" days: normal HC/HP pricing (hc_price_winter/hp_price_winter)
+        // - 20 "Sobriété" days: HP price is much higher (hp_price_summer used for this)
+        // - Weekends are ALWAYS Eco days
+        // - Sobriété days are the 20 coldest weekdays (approximated using TEMPO RED days in January)
+        logger.log(`[SIMULATOR] ZEN_FLEX calculation for ${offer.name}`)
+        logger.log(`[SIMULATOR] ZEN_FLEX prices:`, {
+          hc_price_eco: offer.hc_price_winter,
+          hp_price_eco: offer.hp_price_winter,
+          hc_price_sobriety: offer.hc_price_summer,
+          hp_price_sobriety: offer.hp_price_summer,
+        })
+
+        // Identify the 20 coldest weekdays using TEMPO RED days (mostly in January)
+        // First, collect all unique weekdays in the consumption data
+        const allWeekdays = new Set<string>()
+        allConsumptionFinal.forEach((item) => {
+          if (!isWeekend(item.date)) {
+            allWeekdays.add(item.dateOnly)
+          }
+        })
+
+        // Get RED days that are weekdays, sorted by date (January first = coldest)
+        const redWeekdays: string[] = []
+        allConsumptionFinal.forEach((item) => {
+          const color = tempoColorMap.get(item.dateOnly)
+          if (color === 'RED' && !isWeekend(item.date) && !redWeekdays.includes(item.dateOnly)) {
+            redWeekdays.push(item.dateOnly)
+          }
+        })
+
+        // Sort by date to prioritize January (coldest month)
+        redWeekdays.sort((a, b) => {
+          const dateA = new Date(a)
+          const dateB = new Date(b)
+          // Prioritize by month (January = 0 = coldest)
+          const monthA = dateA.getMonth()
+          const monthB = dateB.getMonth()
+          // Transform months so winter months come first: Jan=0, Feb=1, Dec=2, Nov=3, ...
+          const winterOrder = (m: number) => m <= 2 ? m : (12 - m + 3)
+          return winterOrder(monthA) - winterOrder(monthB)
+        })
+
+        // Select up to 20 Sobriété days
+        const sobrietyDays = new Set(redWeekdays.slice(0, 20))
+
+        logger.log(`[ZEN_FLEX] Found ${redWeekdays.length} RED weekdays, using ${sobrietyDays.size} as Sobriété days`)
+        logger.log(`[ZEN_FLEX] Sobriété days:`, Array.from(sobrietyDays))
+
+        allConsumptionFinal.forEach((item) => {
+          const hour = item.hour || 0
+          const kwh = item.value / 1000
+          const itemIsWeekend = isWeekend(item.date)
+
+          // Determine if HC or HP (22:00-06:00 = HC for Zen Flex)
+          const isHC = hour >= 22 || hour < 6
+
+          // Weekends are always Eco days
+          if (itemIsWeekend) {
+            if (isHC) {
+              zenFlexEcoHcKwh += kwh
+            } else {
+              zenFlexEcoHpKwh += kwh
+            }
+          } else {
+            // Weekday: check if Sobriété day
+            if (sobrietyDays.has(item.dateOnly)) {
+              // Sobriété day: higher prices
+              if (isHC) {
+                zenFlexSobrietyHcKwh += kwh
+              } else {
+                zenFlexSobrietyHpKwh += kwh
+              }
+            } else {
+              // Eco day: normal prices
+              if (isHC) {
+                zenFlexEcoHcKwh += kwh
+              } else {
+                zenFlexEcoHpKwh += kwh
+              }
+            }
+          }
+        })
+
+        // Calculate costs
+        // Eco days use hc_price_winter/hp_price_winter
+        // Sobriété days use hc_price_summer/hp_price_summer (which are the higher "sobriété" prices)
+        const ecoCost = (zenFlexEcoHcKwh * offer.hc_price_winter) + (zenFlexEcoHpKwh * offer.hp_price_winter)
+        const sobrietyCost = (zenFlexSobrietyHcKwh * (offer.hc_price_summer || offer.hc_price_winter)) +
+                            (zenFlexSobrietyHpKwh * (offer.hp_price_summer || offer.hp_price_winter))
+        energyCost = ecoCost + sobrietyCost
+
+        logger.log(`[ZEN_FLEX] Result for ${offer.name}:`, {
+          eco: { hcKwh: zenFlexEcoHcKwh.toFixed(2), hpKwh: zenFlexEcoHpKwh.toFixed(2), cost: ecoCost.toFixed(2) },
+          sobriety: { hcKwh: zenFlexSobrietyHcKwh.toFixed(2), hpKwh: zenFlexSobrietyHpKwh.toFixed(2), cost: sobrietyCost.toFixed(2) },
+          sobrietyDaysCount: sobrietyDays.size,
+          totalEnergyCost: energyCost.toFixed(2)
+        })
       }
 
       const totalCost = subscriptionCostYear + energyCost
@@ -848,11 +950,16 @@ export default function Simulator() {
         breakdown = { blueHcKwh, blueHpKwh, whiteHcKwh, whiteHpKwh, redHcKwh, redHpKwh }
       } else if (offer.offer_type === 'BASE' || offer.offer_type === 'BASE_WEEKEND') {
         breakdown = { baseWeekdayKwh, baseWeekendKwh }
+      } else if (offer.offer_type === 'ZEN_FLEX') {
+        breakdown = { zenFlexEcoHcKwh, zenFlexEcoHpKwh, zenFlexSobrietyHcKwh, zenFlexSobrietyHpKwh }
       }
+
+      // Remove power (kVA) from offer name for cleaner display
+      const offerNameWithoutPower = offer.name.replace(/\s*\d+\s*kVA\s*/i, '').trim()
 
       return {
         offerId: offer.id,
-        offerName: offer.name,
+        offerName: offerNameWithoutPower,
         offerType: offer.offer_type,
         providerName: provider?.name || 'Inconnu',
         subscriptionCost: subscriptionCostYear,
@@ -1022,6 +1129,8 @@ export default function Simulator() {
         return 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300'
       case 'SEASONAL':
         return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+      case 'ZEN_FLEX':
+        return 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300'
       case 'TEMPO':
         return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
       case 'EJP':
@@ -1046,6 +1155,8 @@ export default function Simulator() {
         return 'HC Week-end'
       case 'SEASONAL':
         return 'Saisonnier'
+      case 'ZEN_FLEX':
+        return 'Zen Flex'
       case 'TEMPO':
         return 'Tempo'
       case 'EJP':
@@ -1782,7 +1893,9 @@ export default function Simulator() {
                           className={`border-t border-gray-200 dark:border-gray-700 cursor-pointer transition-all duration-200 ${
                             index === 0
                               ? 'bg-green-50 dark:bg-green-900/20 font-semibold hover:bg-green-100 dark:hover:bg-green-900/30'
-                              : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:shadow-md'
+                              : index % 2 === 1
+                                ? 'bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                                : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700/50'
                           }`}
                         >
                           <td className="p-3">
@@ -1839,29 +1952,21 @@ export default function Simulator() {
                             {index === 0 ? (
                               <span className="text-gray-400 dark:text-gray-500">-</span>
                             ) : (
-                              <div className="flex flex-col items-end gap-1">
-                                <div className="flex flex-col items-end">
-                                  <span className="text-gray-700 dark:text-gray-300 font-medium text-xs">
-                                    vs. meilleure:
-                                  </span>
-                                  <span className="font-medium">
-                                    +{costDifferenceFromFirst.toFixed(2)} € (+{percentDifferenceFromFirst.toFixed(1)}%)
-                                  </span>
-                                </div>
-                                <div className="flex flex-col items-end border-t border-gray-200 dark:border-gray-600 pt-1">
-                                  <span className="text-gray-700 dark:text-gray-300 font-medium text-xs">
-                                    vs. précédente:
-                                  </span>
-                                  <span className="text-sm">
-                                    +{costDifferenceFromPrevious.toFixed(2)} € (+{percentDifferenceFromPrevious.toFixed(1)}%)
-                                  </span>
-                                </div>
+                              <div className="flex flex-col items-end text-sm">
+                                <span className="font-medium">+{costDifferenceFromFirst.toFixed(0)} €</span>
+                                <span className="text-gray-500 dark:text-gray-400 text-xs">+{percentDifferenceFromFirst.toFixed(1)}%</span>
                               </div>
                             )}
                           </td>
                         </tr>
                         {isExpanded && (
-                          <tr key={`${result.offerId}-details`} className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                          <tr key={`${result.offerId}-details`} className={`border-t border-dashed border-gray-300 dark:border-gray-600 ${
+                            index === 0
+                              ? 'bg-green-50/50 dark:bg-green-900/10'
+                              : index % 2 === 1
+                                ? 'bg-gray-100 dark:bg-gray-700/30'
+                                : 'bg-gray-50 dark:bg-gray-800/30'
+                          }`}>
                             <td colSpan={9} className="p-4">
                               {/* Warning message if present */}
                               {result.offer?.description?.startsWith('⚠️') && (
@@ -1913,34 +2018,34 @@ export default function Simulator() {
                                         <>
                                           <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">Semaine</div>
                                           <div className="flex justify-between ml-2">
-                                            <span>HC :</span>
-                                            <span className="font-medium text-xs">{result.breakdown.hcKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price, 5)} € = {calcPrice(result.breakdown.hcKwh, result.offer.hc_price)} €</span>
+                                            <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                            <span className="font-medium text-xs text-sky-700 dark:text-sky-300">{result.breakdown.hcKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price, 5)} € = {calcPrice(result.breakdown.hcKwh, result.offer.hc_price)} €</span>
                                           </div>
                                           <div className="flex justify-between ml-2">
-                                            <span>HP :</span>
-                                            <span className="font-medium text-xs">{result.breakdown.hpKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price, 5)} € = {calcPrice(result.breakdown.hpKwh, result.offer.hp_price)} €</span>
+                                            <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                            <span className="font-medium text-xs text-orange-700 dark:text-orange-300">{result.breakdown.hpKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price, 5)} € = {calcPrice(result.breakdown.hpKwh, result.offer.hp_price)} €</span>
                                           </div>
                                           <div className="font-semibold text-gray-700 dark:text-gray-300 mt-2 mb-1">Week-end (tout HC)</div>
                                           <div className="flex justify-between ml-2">
-                                            <span>Consommation :</span>
-                                            <span className="font-medium text-xs">{result.breakdown.hcWeekendKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price_weekend || result.offer.hc_price, 5)} € = {calcPrice(result.breakdown.hcWeekendKwh, result.offer.hc_price_weekend || result.offer.hc_price)} €</span>
+                                            <span className="text-sky-600 dark:text-sky-400">Consommation :</span>
+                                            <span className="font-medium text-xs text-sky-700 dark:text-sky-300">{result.breakdown.hcWeekendKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price_weekend || result.offer.hc_price, 5)} € = {calcPrice(result.breakdown.hcWeekendKwh, result.offer.hc_price_weekend || result.offer.hc_price)} €</span>
                                           </div>
                                           {result.breakdown.hpWeekendKwh > 0 && (
                                             <div className="flex justify-between ml-2">
-                                              <span>HP :</span>
-                                              <span className="font-medium text-xs">{result.breakdown.hpWeekendKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price_weekend || result.offer.hp_price, 5)} € = {calcPrice(result.breakdown.hpWeekendKwh, result.offer.hp_price_weekend || result.offer.hp_price)} €</span>
+                                              <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                              <span className="font-medium text-xs text-orange-700 dark:text-orange-300">{result.breakdown.hpWeekendKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price_weekend || result.offer.hp_price, 5)} € = {calcPrice(result.breakdown.hpWeekendKwh, result.offer.hp_price_weekend || result.offer.hp_price)} €</span>
                                             </div>
                                           )}
                                         </>
                                       ) : (
                                         <>
                                           <div className="flex justify-between">
-                                            <span>Heures Creuses :</span>
-                                            <span className="font-medium text-xs">{result.breakdown.hcKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price, 5)} € = {calcPrice(result.breakdown.hcKwh, result.offer.hc_price)} €</span>
+                                            <span className="text-sky-600 dark:text-sky-400 font-medium">Heures Creuses :</span>
+                                            <span className="font-medium text-xs text-sky-700 dark:text-sky-300">{result.breakdown.hcKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price, 5)} € = {calcPrice(result.breakdown.hcKwh, result.offer.hc_price)} €</span>
                                           </div>
                                           <div className="flex justify-between">
-                                            <span>Heures Pleines :</span>
-                                            <span className="font-medium text-xs">{result.breakdown.hpKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price, 5)} € = {calcPrice(result.breakdown.hpKwh, result.offer.hp_price)} €</span>
+                                            <span className="text-orange-600 dark:text-orange-400 font-medium">Heures Pleines :</span>
+                                            <span className="font-medium text-xs text-orange-700 dark:text-orange-300">{result.breakdown.hpKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price, 5)} € = {calcPrice(result.breakdown.hpKwh, result.offer.hp_price)} €</span>
                                           </div>
                                         </>
                                       )}
@@ -1957,21 +2062,21 @@ export default function Simulator() {
                                     <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                                       <div className="font-semibold text-blue-700 dark:text-blue-300">❄️ Hiver (nov-mars)</div>
                                       <div className="flex justify-between ml-2">
-                                        <span>HC :</span>
-                                        <span className="font-medium text-xs">{result.breakdown.hcWinterKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price_winter, 5)} € = {calcPrice(result.breakdown.hcWinterKwh, result.offer.hc_price_winter)} €</span>
+                                        <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                        <span className="font-medium text-xs text-sky-700 dark:text-sky-300">{result.breakdown.hcWinterKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price_winter, 5)} € = {calcPrice(result.breakdown.hcWinterKwh, result.offer.hc_price_winter)} €</span>
                                       </div>
                                       <div className="flex justify-between ml-2">
-                                        <span>HP :</span>
-                                        <span className="font-medium text-xs">{result.breakdown.hpWinterKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price_winter, 5)} € = {calcPrice(result.breakdown.hpWinterKwh, result.offer.hp_price_winter)} €</span>
+                                        <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                        <span className="font-medium text-xs text-orange-700 dark:text-orange-300">{result.breakdown.hpWinterKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price_winter, 5)} € = {calcPrice(result.breakdown.hpWinterKwh, result.offer.hp_price_winter)} €</span>
                                       </div>
                                       <div className="font-semibold text-amber-700 dark:text-amber-300 mt-2">☀️ Été (avr-oct)</div>
                                       <div className="flex justify-between ml-2">
-                                        <span>HC :</span>
-                                        <span className="font-medium text-xs">{result.breakdown.hcSummerKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price_summer, 5)} € = {calcPrice(result.breakdown.hcSummerKwh, result.offer.hc_price_summer)} €</span>
+                                        <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                        <span className="font-medium text-xs text-sky-700 dark:text-sky-300">{result.breakdown.hcSummerKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price_summer, 5)} € = {calcPrice(result.breakdown.hcSummerKwh, result.offer.hc_price_summer)} €</span>
                                       </div>
                                       <div className="flex justify-between ml-2">
-                                        <span>HP :</span>
-                                        <span className="font-medium text-xs">{result.breakdown.hpSummerKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price_summer, 5)} € = {calcPrice(result.breakdown.hpSummerKwh, result.offer.hp_price_summer)} €</span>
+                                        <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                        <span className="font-medium text-xs text-orange-700 dark:text-orange-300">{result.breakdown.hpSummerKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price_summer, 5)} € = {calcPrice(result.breakdown.hpSummerKwh, result.offer.hp_price_summer)} €</span>
                                       </div>
                                       {result.breakdown.peakDayKwh > 0 && (
                                         <>
@@ -2044,6 +2149,39 @@ export default function Simulator() {
                                     </div>
                                   </div>
                                 )}
+                                {result.breakdown && result.offerType === 'ZEN_FLEX' && result.offer && (
+                                  <div className="space-y-2">
+                                    <h4 className="font-semibold text-sm text-gray-700 dark:text-gray-300">Détail de consommation (Zen Flex)</h4>
+                                    <div className="text-sm space-y-2">
+                                      <div className="text-green-600 dark:text-green-400">
+                                        <div className="font-semibold">🌿 Jours Éco (345j/an)</div>
+                                        <div className="flex justify-between ml-2">
+                                          <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                          <span className="font-medium text-xs">{result.breakdown.zenFlexEcoHcKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price_winter, 5)} € = {calcPrice(result.breakdown.zenFlexEcoHcKwh, result.offer.hc_price_winter)} €</span>
+                                        </div>
+                                        <div className="flex justify-between ml-2">
+                                          <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                          <span className="font-medium text-xs">{result.breakdown.zenFlexEcoHpKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price_winter, 5)} € = {calcPrice(result.breakdown.zenFlexEcoHpKwh, result.offer.hp_price_winter)} €</span>
+                                        </div>
+                                      </div>
+                                      <div className="text-red-600 dark:text-red-400">
+                                        <div className="font-semibold">⚡ Jours Sobriété (20j/an)</div>
+                                        <div className="flex justify-between ml-2">
+                                          <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                          <span className="font-medium text-xs">{result.breakdown.zenFlexSobrietyHcKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hc_price_summer, 5)} € = {calcPrice(result.breakdown.zenFlexSobrietyHcKwh, result.offer.hc_price_summer)} €</span>
+                                        </div>
+                                        <div className="flex justify-between ml-2">
+                                          <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                          <span className="font-medium text-xs">{result.breakdown.zenFlexSobrietyHpKwh?.toFixed(0)} kWh × {formatPrice(result.offer.hp_price_summer, 5)} € = {calcPrice(result.breakdown.zenFlexSobrietyHpKwh, result.offer.hp_price_summer)} €</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex justify-between border-t border-gray-300 dark:border-gray-600 pt-1 mt-2 font-semibold text-gray-700 dark:text-gray-300">
+                                        <span>Total énergie :</span>
+                                        <span>{result.energyCost.toFixed(2)} €</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Pricing details */}
                                 {result.offer && (
@@ -2051,24 +2189,24 @@ export default function Simulator() {
                                     <h4 className="font-semibold text-sm text-gray-700 dark:text-gray-300">Tarifs de l'offre</h4>
                                     <div className="text-sm text-gray-600 dark:text-gray-400">
                                       <div className="flex justify-between">
-                                        <span>Abonnement :</span>
-                                        <span className="font-medium">{formatPrice(result.offer.subscription_price, 2)} €/mois</span>
+                                        <span className="text-purple-600 dark:text-purple-400 font-medium">Abonnement :</span>
+                                        <span className="font-medium text-purple-700 dark:text-purple-300">{formatPrice(result.offer.subscription_price, 2)} €/mois</span>
                                       </div>
                                       {result.offer.base_price && (
                                       <div className="flex justify-between">
-                                        <span>Prix Base :</span>
-                                        <span className="font-medium">{formatPrice(result.offer.base_price, 5)} €/kWh</span>
+                                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">Prix Base :</span>
+                                        <span className="font-medium text-emerald-700 dark:text-emerald-300">{formatPrice(result.offer.base_price, 5)} €/kWh</span>
                                       </div>
                                     )}
                                     {result.offer.hc_price && result.offer.hp_price && result.offerType === 'HC_HP' && (
                                       <>
                                         <div className="flex justify-between">
-                                          <span>Prix HC :</span>
-                                          <span className="font-medium">{formatPrice(result.offer.hc_price, 5)} €/kWh</span>
+                                          <span className="text-sky-600 dark:text-sky-400 font-medium">Prix HC :</span>
+                                          <span className="font-medium text-sky-700 dark:text-sky-300">{formatPrice(result.offer.hc_price, 5)} €/kWh</span>
                                         </div>
                                         <div className="flex justify-between">
-                                          <span>Prix HP :</span>
-                                          <span className="font-medium">{formatPrice(result.offer.hp_price, 5)} €/kWh</span>
+                                          <span className="text-orange-600 dark:text-orange-400 font-medium">Prix HP :</span>
+                                          <span className="font-medium text-orange-700 dark:text-orange-300">{formatPrice(result.offer.hp_price, 5)} €/kWh</span>
                                         </div>
                                       </>
                                     )}
@@ -2076,21 +2214,21 @@ export default function Simulator() {
                                       <>
                                         <div className="font-semibold text-blue-700 dark:text-blue-300 mt-2">❄️ Hiver</div>
                                         <div className="flex justify-between ml-2">
-                                          <span>HC :</span>
-                                          <span className="font-medium">{formatPrice(result.offer.hc_price_winter, 5)} €/kWh</span>
+                                          <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                          <span className="font-medium text-sky-700 dark:text-sky-300">{formatPrice(result.offer.hc_price_winter, 5)} €/kWh</span>
                                         </div>
                                         <div className="flex justify-between ml-2">
-                                          <span>HP :</span>
-                                          <span className="font-medium">{formatPrice(result.offer.hp_price_winter, 5)} €/kWh</span>
+                                          <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                          <span className="font-medium text-orange-700 dark:text-orange-300">{formatPrice(result.offer.hp_price_winter, 5)} €/kWh</span>
                                         </div>
                                         <div className="font-semibold text-amber-700 dark:text-amber-300 mt-2">☀️ Été</div>
                                         <div className="flex justify-between ml-2">
-                                          <span>HC :</span>
-                                          <span className="font-medium">{formatPrice(result.offer.hc_price_summer, 5)} €/kWh</span>
+                                          <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                          <span className="font-medium text-sky-700 dark:text-sky-300">{formatPrice(result.offer.hc_price_summer, 5)} €/kWh</span>
                                         </div>
                                         <div className="flex justify-between ml-2">
-                                          <span>HP :</span>
-                                          <span className="font-medium">{formatPrice(result.offer.hp_price_summer, 5)} €/kWh</span>
+                                          <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                          <span className="font-medium text-orange-700 dark:text-orange-300">{formatPrice(result.offer.hp_price_summer, 5)} €/kWh</span>
                                         </div>
                                         {result.offer.peak_day_price && (
                                           <>
@@ -2103,10 +2241,47 @@ export default function Simulator() {
                                         )}
                                       </>
                                     )}
+                                    {result.offerType === 'ZEN_FLEX' && (
+                                      <>
+                                        <div className="font-semibold text-green-700 dark:text-green-300 mt-2">🌿 Jours Éco (345j/an)</div>
+                                        <div className="flex justify-between ml-2">
+                                          <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                          <span className="font-medium text-sky-700 dark:text-sky-300">{formatPrice(result.offer.hc_price_winter, 5)} €/kWh</span>
+                                        </div>
+                                        <div className="flex justify-between ml-2">
+                                          <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                          <span className="font-medium text-orange-700 dark:text-orange-300">{formatPrice(result.offer.hp_price_winter, 5)} €/kWh</span>
+                                        </div>
+                                        <div className="font-semibold text-red-700 dark:text-red-300 mt-2">⚡ Jours Sobriété (20j/an)</div>
+                                        <div className="flex justify-between ml-2">
+                                          <span className="text-sky-600 dark:text-sky-400">HC :</span>
+                                          <span className="font-medium text-sky-700 dark:text-sky-300">{formatPrice(result.offer.hc_price_summer, 5)} €/kWh</span>
+                                        </div>
+                                        <div className="flex justify-between ml-2">
+                                          <span className="text-orange-600 dark:text-orange-400">HP :</span>
+                                          <span className="font-medium text-orange-700 dark:text-orange-300">{formatPrice(result.offer.hp_price_summer, 5)} €/kWh</span>
+                                        </div>
+                                      </>
+                                    )}
                                       {result.offer.power_kva && (
                                         <div className="flex justify-between mt-2">
-                                          <span>Puissance :</span>
-                                          <span className="font-medium">{result.offer.power_kva} kVA</span>
+                                          <span className="text-indigo-600 dark:text-indigo-400 font-medium">Puissance :</span>
+                                          <span className="font-medium text-indigo-700 dark:text-indigo-300">{result.offer.power_kva} kVA</span>
+                                        </div>
+                                      )}
+                                      {/* Link to view offer */}
+                                      {result.offer.offer_url && (
+                                        <div className="flex justify-between mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                                          <span className="text-gray-600 dark:text-gray-400">Source :</span>
+                                          <a
+                                            href={result.offer.offer_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 hover:underline"
+                                          >
+                                            <span>Voir l'offre</span>
+                                            <ExternalLink size={14} />
+                                          </a>
                                         </div>
                                       )}
                                     </div>

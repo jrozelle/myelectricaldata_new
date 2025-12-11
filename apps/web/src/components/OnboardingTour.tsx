@@ -51,8 +51,12 @@ export function OnboardingTour({ steps, onComplete, onSkip }: OnboardingTourProp
         return
       }
 
-      // Scroll element into view first, then calculate positions
-      targetElement.scrollIntoView({ behavior: 'auto', block: 'center' })
+      // Only scroll if element is not visible in viewport
+      const rect = targetElement.getBoundingClientRect()
+      const isInViewport = rect.top >= 0 && rect.bottom <= window.innerHeight
+      if (!isInViewport) {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
 
       // Wait for scroll to complete before calculating positions
       setTimeout(() => {

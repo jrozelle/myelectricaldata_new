@@ -50,6 +50,8 @@ export interface EnergyOffer {
   // Validity period for tariff history
   valid_from?: string
   valid_to?: string
+  // Link to offer page
+  offer_url?: string
   created_at?: string
   is_active?: boolean
 }

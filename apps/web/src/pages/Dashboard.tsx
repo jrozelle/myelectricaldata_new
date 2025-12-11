@@ -434,7 +434,7 @@ export default function Dashboard() {
   const activePdlsCount = pdls.filter(pdl => pdl.is_active ?? true).length
   const inactivePdlsCount = pdls.length - activePdlsCount
 
-  // Tour steps - Dynamically adjust based on PDL availability
+  // Tour steps - Complete guided tour
   const getTourSteps = (): TourStep[] => {
     const steps: TourStep[] = [
       {
@@ -453,10 +453,24 @@ export default function Dashboard() {
     if (pdls.length > 0) {
       steps.push(
         {
+          target: '[data-tour="header-fetch-button"]',
+          title: "2️⃣ Récupérer les données",
+          content:
+            "Ce bouton récupère toutes vos données depuis Enedis (consommation, production). Cliquez dessus après le consentement pour importer votre historique complet.",
+          placement: "bottom",
+        },
+        {
+          target: '[data-tour="header-pdl-selector"]',
+          title: "3️⃣ Choisir votre PDL",
+          content:
+            "Si vous avez plusieurs points de livraison, sélectionnez ici celui que vous souhaitez consulter. Ce choix s'applique à toutes les pages (consommation, simulateur, etc.).",
+          placement: "bottom",
+        },
+        {
           target: '[data-tour="pdl-list"]',
           title: "Vos points de livraison",
           content:
-            "Tous vos PDL apparaîtront ici avec leurs informations principales : nom, numéro, statut et dernières données disponibles.",
+            "Tous vos PDL apparaissent ici avec leurs informations principales : nom, numéro, statut et configuration.",
           placement: "top",
         },
         {
@@ -480,6 +494,13 @@ export default function Dashboard() {
           placement: "left",
         },
         {
+          target: '[data-tour="pdl-energy-offer"]',
+          title: "Configuration : Offre tarifaire",
+          content:
+            "Sélectionnez votre fournisseur et votre offre actuelle. Cette information est utilisée pour calculer votre consommation en euros (€) et comparer avec d'autres offres.",
+          placement: "left",
+        },
+        {
           target: '[data-tour="pdl-offpeak"]',
           title: "Configuration : Heures creuses",
           content:
@@ -493,28 +514,6 @@ export default function Dashboard() {
           placement: "left",
         },
         {
-          target: '[data-tour="search-bar"]',
-          title: "Recherche rapide",
-          content:
-            "Utilisez la barre de recherche pour trouver rapidement un PDL par nom ou numéro. Raccourci : Ctrl+K",
-          placement: "bottom",
-        }
-      );
-
-      // Add sort options step only if user has multiple PDLs
-      if (pdls.length > 1) {
-        steps.push({
-          target: '[data-tour="sort-options"]',
-          title: "Tri et filtres",
-          content:
-            "Organisez vos PDL par nom, date ou ordre personnalisé. Vous pouvez aussi masquer les PDL désactivés.",
-          placement: "left",
-        });
-      }
-
-      // Navigation steps - always visible
-      steps.push(
-        {
           target: '[data-tour="nav-consumption"]',
           title: "📊 Page Consommation",
           content:
@@ -527,27 +526,6 @@ export default function Dashboard() {
           content:
             "Comparez automatiquement toutes les offres d'électricité disponibles (EDF, Enercoop, Octopus, etc.) avec vos données réelles de consommation pour trouver l'offre la plus avantageuse.",
           placement: "right",
-        },
-        {
-          target: '[data-tour="nav-contribute"]',
-          title: "🤝 Contribuer",
-          content:
-            "Participez au développement du projet : signalez des bugs, proposez des améliorations ou contribuez au code. MyElectricalData est un projet communautaire !",
-          placement: "right",
-        },
-        {
-          target: '[data-tour="nav-settings"]',
-          title: "⚙️ Mon compte",
-          content:
-            "Gérez vos informations personnelles, consultez vos identifiants API et configurez vos préférences.",
-          placement: "right",
-        },
-        {
-          target: '[data-tour="nav-api-docs"]',
-          title: "📚 Documentation API",
-          content:
-            "Consultez la documentation complète de l'API avec Swagger UI. Testez les endpoints directement depuis votre navigateur.",
-          placement: "right",
         }
       );
     } else {
@@ -555,7 +533,7 @@ export default function Dashboard() {
       steps.push({
         target: '[data-tour="consent-button"]',
         title: 'Prochaines étapes',
-        content: 'Une fois le consentement effectué et vos PDL importés, vous pourrez accéder à toutes les fonctionnalités : recherche, tri, analyse de consommation, et bien plus !',
+        content: 'Une fois le consentement effectué et vos PDL importés, vous pourrez accéder à toutes les fonctionnalités : configuration, analyse de consommation, et comparateur d\'offres !',
         placement: 'bottom',
       })
     }
@@ -953,6 +931,7 @@ export default function Dashboard() {
                 {(tempPdlOrder ? tempPdlOrder.filter(p => p.is_active ?? true) : activePdls).map((pdl, index) => (
                   <div
                     key={pdl.id}
+                    data-tour={index === 0 ? "first-pdl-card" : undefined}
                     draggable={sortOrder === 'custom' && isDraggingEnabled}
                     onDragStart={() => handleDragStart(pdl)}
                     onDragOver={(e) => handleDragOver(e, pdl)}
