@@ -2198,7 +2198,7 @@ export default function Simulator() {
                                         <span className="font-medium text-emerald-700 dark:text-emerald-300">{formatPrice(result.offer.base_price, 5)} €/kWh</span>
                                       </div>
                                     )}
-                                    {result.offer.hc_price && result.offer.hp_price && result.offerType === 'HC_HP' && (
+                                    {result.offer.hc_price && result.offer.hp_price && (result.offerType === 'HC_HP' || result.offerType === 'HC_NUIT_WEEKEND' || result.offerType === 'WEEKEND' || result.offerType === 'HC_WEEKEND') && (
                                       <>
                                         <div className="flex justify-between">
                                           <span className="text-sky-600 dark:text-sky-400 font-medium">Prix HC :</span>
