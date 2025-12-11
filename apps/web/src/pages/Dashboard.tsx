@@ -835,7 +835,7 @@ export default function Dashboard() {
               <div className="relative group" data-tour="consent-button">
                 <button
                   onClick={handleStartConsent}
-                  className="p-0 border-0 bg-transparent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+                  className="px-4 py-0 border-0 bg-[#00a8e0] rounded-2xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
                   disabled={getOAuthUrlMutation.isPending || isDemo}
                   aria-describedby="consent-tooltip"
                 >
