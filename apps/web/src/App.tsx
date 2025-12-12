@@ -155,10 +155,34 @@ function App() {
       />
       <Route
         path="/contribute"
+        element={<Navigate to="/contribute/offers" replace />}
+      />
+      <Route
+        path="/contribute/new"
         element={
           <ProtectedRoute>
             <Layout>
-              <Contribute />
+              <Contribute initialTab="new" />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/contribute/mine"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Contribute initialTab="mine" />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/contribute/offers"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Contribute initialTab="offers" />
             </Layout>
           </ProtectedRoute>
         }

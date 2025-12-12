@@ -8,6 +8,7 @@ import toast, { Toaster } from 'react-hot-toast'
 import AdminTabs from './AdminTabs'
 import ApiDocsTabs from './ApiDocsTabs'
 import ConsumptionTabs from './ConsumptionTabs'
+import ContributeTabs from './ContributeTabs'
 import PageHeader from './PageHeader'
 import { PageTransition } from './PageTransition'
 import { SEO } from './SEO'
@@ -771,6 +772,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {location.pathname.startsWith('/admin') && <AdminTabs />}
           {location.pathname.startsWith('/api-docs') && <ApiDocsTabs />}
           {isConsumptionPage && <ConsumptionTabs />}
+          {location.pathname.startsWith('/contribute') && <ContributeTabs />}
         </div>
 
         {/* Main Content */}

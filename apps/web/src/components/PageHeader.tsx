@@ -13,7 +13,8 @@ import type { PDL } from '@/types/api'
 
 // Pages qui affichent le sélecteur de PDL avec bouton "Récupérer"
 const PDL_SELECTOR_PAGES = [
-  '/consumption_kwh', '/consumption_euro', '/production', '/balance', '/simulator', '/dashboard', '/tempo', '/ecowatt', '/contribute',
+  '/consumption_kwh', '/consumption_euro', '/production', '/balance', '/simulator', '/dashboard', '/tempo', '/ecowatt',
+  '/contribute', '/contribute/new', '/contribute/mine', '/contribute/offers',
   '/faq', '/api-docs', '/api-docs/auth', '/settings',
   '/admin', '/admin/users', '/admin/tempo', '/admin/ecowatt', '/admin/contributions', '/admin/offers', '/admin/roles', '/admin/logs', '/admin/add-pdl'
 ]
@@ -28,7 +29,10 @@ const PAGE_CONFIG: Record<string, { title: string; icon: typeof TrendingUp; subt
   '/simulator': { title: 'Comparateur des abonnements', icon: Calculator, subtitle: 'Comparez automatiquement le coût de toutes les offres disponibles' },
   '/tempo': { title: 'Calendrier Tempo', icon: Calendar, subtitle: 'Historique des jours Tempo bleus, blancs et rouges fourni par RTE' },
   '/ecowatt': { title: 'EcoWatt - Signal RTE', icon: Zap, subtitle: 'Suivez en temps réel l\'état du réseau électrique français' },
-  '/contribute': { title: 'Contribuer à la base de données', icon: Users, subtitle: 'Aidez la communauté en ajoutant des offres tarifaires' },
+  '/contribute': { title: 'Contribuer', icon: Users, subtitle: 'Aidez la communauté en ajoutant des offres tarifaires' },
+  '/contribute/new': { title: 'Contribuer', icon: Users, subtitle: 'Proposer une nouvelle offre ou un nouveau fournisseur' },
+  '/contribute/mine': { title: 'Contribuer', icon: Users, subtitle: 'Suivez l\'état de vos contributions' },
+  '/contribute/offers': { title: 'Contribuer', icon: Users, subtitle: 'Consultez les offres disponibles dans la base de données' },
   '/faq': { title: 'FAQ - Questions fréquentes Enedis', icon: AlertCircle, subtitle: 'Réponses aux questions courantes et solutions aux erreurs de l\'API Enedis' },
   '/api-docs': { title: 'Documentation API', icon: BookOpen, subtitle: 'Explorez et testez les endpoints de l\'API MyElectricalData' },
   '/api-docs/auth': { title: 'Authentification OAuth 2.0', icon: Key, subtitle: 'Guide complet pour intégrer l\'API MyElectricalData dans vos applications' },

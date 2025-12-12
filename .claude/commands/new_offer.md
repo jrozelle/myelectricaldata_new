@@ -4,87 +4,158 @@
 
 Cette commande guide l'ajout d'un nouveau fournisseur d'énergie avec son scraper de prix.
 
-## 📋 Informations requises
+## 📋 Étape 1 : Analyser les PDFs fournis
 
-Avant de commencer, collecte les informations suivantes auprès de l'utilisateur :
+**IMPORTANT** : Avant toute chose, télécharge et analyse les PDFs pour comprendre leur structure.
 
-### 1. Informations du fournisseur
-- **Nom du fournisseur** : Ex: "Vattenfall", "Octopus Energy"
-- **Site web** : URL du site officiel (ex: https://www.vattenfall.fr)
-- **URL(s) source des tarifs** : Page web ou PDF contenant les grilles tarifaires
+```bash
+# Utiliser ce script pour analyser un PDF
+uv run --env-file /dev/null python << 'EOF'
+import asyncio
+import httpx
+import pdfplumber
+import io
 
-### 2. Type de source de données
-- **PDF** : Fichier PDF avec grilles tarifaires (nécessite pdfminer)
-- **HTML** : Page web à scraper (nécessite BeautifulSoup)
-- **API** : API JSON (nécessite httpx)
+async def analyze_pdf(url: str):
+    print(f"Downloading {url}...")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url)
 
-### 3. Types d'offres proposées
-- **BASE** : Tarif unique (prix kWh constant)
-- **HC_HP** : Heures Creuses / Heures Pleines
-- **TEMPO** : Tarif Tempo (bleu, blanc, rouge)
-- **EJP** : Effacement Jours de Pointe
-- **WEEK_END** : Tarif week-end différencié
+    if response.status_code != 200:
+        print(f"ERROR: HTTP {response.status_code}")
+        return
 
-### 4. Puissances disponibles
-- Liste des puissances en kVA : généralement [3, 6, 9, 12, 15, 18, 24, 30, 36]
+    with pdfplumber.open(io.BytesIO(response.content)) as pdf:
+        print(f"Pages: {len(pdf.pages)}")
+        for i, page in enumerate(pdf.pages[:2]):  # First 2 pages
+            text = page.extract_text() or ""
+            print(f"\n=== Page {i+1} ===")
+            for j, line in enumerate(text.split('\n')):
+                print(f"{j:3d}: {repr(line)}")
 
-### 5. Label d'affichage
-- Nom court pour l'interface admin (ex: "Tarifs Vattenfall (PDF officiel)")
+# REMPLACER PAR L'URL DU PDF
+asyncio.run(analyze_pdf("URL_DU_PDF_ICI"))
+EOF
+```
+
+Cette analyse permet de :
+- Voir la structure ligne par ligne du PDF
+- Identifier les patterns de prix (ex: `0,1234` pour les €/kWh)
+- Repérer les formats de tableau (BASE vs HC/HP côte à côte ou séparés)
+- Trouver la date de validité
 
 ---
 
-## 🔧 Fichiers à créer/modifier
+## 📋 Étape 2 : Identifier les informations
+
+Après analyse du PDF, extraire :
+
+### Informations du fournisseur
+- **Nom du fournisseur** : Ex: "Mint Énergie", "Vattenfall"
+- **Site web** : URL du site officiel
+- **URL(s) source des tarifs** : URLs des PDFs
+
+### Structure des données
+- **Format du tableau** : BASE et HC/HP côte à côte ou séparés ?
+- **Prix HTT ou TTC** : Généralement TTC pour les particuliers
+- **Pattern des prix kWh** : Ex: `0,1234` (4 décimales après virgule)
+- **Pattern des abonnements** : Ex: `12,34` (2 décimales)
+
+### Types d'offres
+- **BASE** : Tarif unique (prix kWh constant)
+- **HC_HP** : Heures Creuses / Heures Pleines
+- **TEMPO** : Tarif Tempo (bleu, blanc, rouge)
+- **ZEN_FLEX** : Jours Éco/Sobriété (EDF)
+- **BASE_WEEKEND** / **HC_WEEKEND** : Tarifs week-end
+
+### Puissances disponibles
+- BASE : généralement 3, 6, 9, 12, 15, 18, 24, 30, 36 kVA
+- HC/HP : généralement 6, 9, 12, 15, 18, 24, 30, 36 kVA (pas de 3 kVA)
+
+---
+
+## 🔧 Étape 3 : Fichiers à créer/modifier
 
 ### 1. Créer le scraper
 **Fichier** : `apps/api/src/services/price_scrapers/{provider}_scraper.py`
 
+S'inspirer des scrapers existants :
+- `edf_scraper.py` : PDF avec pdfplumber, offres complexes (BASE, HC/HP, TEMPO, ZEN)
+- `mint_scraper.py` : PDF avec tableaux côte à côte BASE + HC/HP
+- `engie_scraper.py` : HTML avec BeautifulSoup
+
+Structure type :
 ```python
 """
-{Provider} price scraper - Fetches tariffs from {source}
+{Provider} price scraper - Fetches tariffs from official PDFs
 """
 import re
-from typing import List
+from typing import List, Dict
 import httpx
+import pdfplumber
+import io
 from datetime import datetime, UTC
-from bs4 import BeautifulSoup  # Si HTML
 
-from .base import BasePriceScraper, OfferData
+from .base import BasePriceScraper, OfferData, run_sync_in_thread
+
 
 class {Provider}Scraper(BasePriceScraper):
     """Scraper for {Provider} market offers"""
 
-    # URL par défaut
-    DEFAULT_URL = "{url}"
+    # URLs par défaut des PDFs
+    DEFAULT_URL_1 = "https://..."
+    DEFAULT_URL_2 = "https://..."
 
-    # Données de fallback (à remplir avec les vrais prix)
+    # Données de fallback (OBLIGATOIRE - extraites manuellement des PDFs)
     FALLBACK_PRICES = {
-        "BASE": {
-            # power_kva: {"subscription": X.XX, "kwh": X.XXXX}
+        "OFFRE1_BASE": {
+            3: {"subscription": 11.73, "kwh": 0.1777},
+            6: {"subscription": 15.47, "kwh": 0.1777},
+            # ... toutes les puissances
         },
-        "HC_HP": {
-            # power_kva: {"subscription": X.XX, "hp": X.XXXX, "hc": X.XXXX}
+        "OFFRE1_HC_HP": {
+            6: {"subscription": 16.01, "hp": 0.1891, "hc": 0.1495},
+            # ... toutes les puissances (pas de 3 kVA)
         },
     }
 
     def __init__(self, scraper_urls: list[str] | None = None):
         super().__init__("{Provider}")
-        self.scraper_urls = scraper_urls or [self.DEFAULT_URL]
+        self.scraper_urls = scraper_urls or [self.DEFAULT_URL_1, self.DEFAULT_URL_2]
 
     async def fetch_offers(self) -> List[OfferData]:
-        """Fetch tariffs from source"""
-        # Implémenter la logique de scraping
+        """Fetch tariffs from PDFs"""
+        # Télécharger chaque PDF
+        # Parser avec run_sync_in_thread(self._parse_pdf, content, ...)
+        # Retourner fallback si erreur
+        pass
+
+    def _parse_pdf(self, pdf_content: bytes, ...) -> List[OfferData]:
+        """Parse PDF content - SYNC function for thread pool"""
+        # Utiliser pdfplumber
+        # Extraire les prix avec regex adaptés à la structure du PDF
+        pass
+
+    def _extract_base_prices(self, text: str) -> Dict[int, Dict]:
+        """Extract BASE prices from PDF text"""
+        pass
+
+    def _extract_hc_hp_prices(self, text: str) -> Dict[int, Dict]:
+        """Extract HC/HP prices from PDF text"""
+        pass
+
+    def _get_fallback_offers(self) -> List[OfferData]:
+        """Generate offers from fallback data"""
         pass
 
     async def validate_data(self, offers: List[OfferData]) -> bool:
-        """Validate offer data"""
-        # Implémenter la validation
+        """Validate extracted data"""
         pass
 ```
 
 ### 2. Enregistrer le scraper
 **Fichier** : `apps/api/src/services/price_scrapers/__init__.py`
 
-Ajouter :
 ```python
 from .{provider}_scraper import {Provider}Scraper
 
@@ -97,71 +168,126 @@ __all__ = [
 ### 3. Configurer le service
 **Fichier** : `apps/api/src/services/price_update_service.py`
 
-Ajouter dans `SCRAPERS` :
 ```python
-"{Provider}": {Provider}Scraper,
-```
+# Dans les imports
+from .price_scrapers import ..., {Provider}Scraper
 
-Ajouter dans `PROVIDER_DEFAULTS` :
-```python
-"{Provider}": {"website": "{website_url}"},
+# Dans SCRAPERS
+"{Provider}": {Provider}Scraper,
+
+# Dans PROVIDER_DEFAULTS
+"{Provider}": {"website": "https://www.provider.fr"},
 ```
 
 ### 4. Mettre à jour le frontend
 **Fichier** : `apps/web/src/pages/AdminOffers.tsx`
 
-Ajouter le label dans `urlLabels` (2 endroits) :
+Ajouter dans `urlLabels` (2 endroits - lignes ~880 et ~2430) :
 ```typescript
-'{Provider}': ['{Label pour affichage}'],
+'{Provider}': ['Offre 1 (PDF)', 'Offre 2 (PDF)', ...],
 ```
 
-### 5. Mettre à jour la documentation
-**Fichier** : `docs/features-spec/energy-providers-scrapers.md`
-
-Ajouter une section pour le nouveau fournisseur.
-
 ---
 
-## ✅ Checklist de validation
-
-- [ ] Le scraper récupère correctement les offres
-- [ ] Les données de fallback sont à jour
-- [ ] Le service est bien enregistré
-- [ ] Le label frontend est configuré
-- [ ] La documentation est mise à jour
-- [ ] Tester via `/admin/offers` > Prévisualiser
-
----
-
-## 🚀 Commandes utiles
+## ✅ Étape 4 : Tester le scraper
 
 ```bash
-# Tester le scraper en local
-docker compose exec backend python -c "
+# Test du parsing des PDFs
+uv run --env-file /dev/null python << 'EOF'
 import asyncio
-from src.services.price_scrapers import {Provider}Scraper
+import httpx
+import pdfplumber
+import io
+import re
+
+# Copier ici les fonctions d'extraction pour tester
+def extract_base_prices(text):
+    # ...
+    pass
+
+def extract_hchp_prices(text):
+    # ...
+    pass
 
 async def test():
-    scraper = {Provider}Scraper()
-    offers = await scraper.fetch_offers()
-    print(f'Found {len(offers)} offers')
-    for o in offers[:5]:
-        print(f'  - {o.name}: {o.subscription_price}€/mois')
+    urls = [
+        "URL_PDF_1",
+        "URL_PDF_2",
+    ]
+
+    for url in urls:
+        print(f"\n=== {url.split('/')[-1]} ===")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url)
+
+        with pdfplumber.open(io.BytesIO(response.content)) as pdf:
+            text = pdf.pages[0].extract_text() or ""
+
+        base = extract_base_prices(text)
+        hchp = extract_hchp_prices(text)
+
+        print(f"BASE: {len(base)} offres")
+        for p, d in sorted(base.items()):
+            print(f"  {p} kVA: {d}")
+
+        print(f"HC/HP: {len(hchp)} offres")
+        for p, d in sorted(hchp.items()):
+            print(f"  {p} kVA: {d}")
 
 asyncio.run(test())
-"
-
-# Synchroniser vers le projet root
-rsync -av --exclude='.git' --exclude='node_modules' --exclude='__pycache__' \
-  apps/ /chemin/vers/root/apps/
+EOF
 ```
 
 ---
 
-## 📝 Notes importantes
+## 📝 Patterns regex courants
 
-1. **Toujours implémenter un fallback** : Les sites changent, les PDFs évoluent
-2. **Logging** : Utiliser `self.logger` pour tracer les erreurs
-3. **Validation** : Vérifier que les prix sont cohérents (0 < prix < 1€/kWh)
-4. **Puissances** : La plupart des offres existent pour 3-36 kVA
-5. **Date de validité** : Extraire `valid_from` depuis la source si possible
+### Prix kWh (4 décimales)
+```python
+# Format: "0,1234" ou "0.1234"
+re.search(r'0[,.](\d{4})', text)
+```
+
+### Abonnement (2 décimales)
+```python
+# Format: "12,34" ou "12.34"
+re.search(r'(\d+)[,.](\d{2})', text)
+```
+
+### Puissance kVA
+```python
+# Format: "6 kVA" ou "6kVA"
+re.match(r'^\s*(\d+)\s*kVA', line)
+```
+
+### Lignes avec BASE et HC/HP côte à côte
+```python
+# Format: "6 kVA 11,07 15,47 6 kVA 11,30 16,01"
+re.search(r'(\d+)\s*kVA\s+[\d,]+\s+[\d,]+\s+(\d+)\s*kVA\s+([\d,]+)\s+([\d,]+)', line)
+```
+
+### Date de validité
+```python
+# Format: "applicable au 01/08/2025"
+re.search(r'applicable\s+(?:au|du)\s+(\d{2})/(\d{2})/(\d{4})', text)
+```
+
+---
+
+## 📊 Résumé des offres attendues
+
+| Type | Puissances | Champs requis |
+|------|------------|---------------|
+| BASE | 3-36 kVA (9) | subscription, base_price |
+| HC_HP | 6-36 kVA (8) | subscription, hp_price, hc_price |
+| TEMPO | 6-36 kVA (8) | subscription, tempo_blue_hc/hp, tempo_white_hc/hp, tempo_red_hc/hp |
+
+---
+
+## ⚠️ Points d'attention
+
+1. **Toujours implémenter FALLBACK_PRICES** : Les PDFs peuvent changer d'URL ou de format
+2. **Prix TTC** : Les grilles tarifaires particuliers sont généralement en TTC
+3. **run_sync_in_thread** : pdfplumber est synchrone, l'exécuter dans un thread pool
+4. **Validation** : Vérifier 0 < prix < 1€/kWh pour les kWh, 0 < abo < 100€ pour abonnements
+5. **offer_url** : Définir l'URL source pour chaque offre (traçabilité)

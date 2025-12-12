@@ -1,11 +1,19 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle, Clock, XCircle, List, Zap, FileJson, ChevronDown, ChevronRight, MessageCircle, ExternalLink, Copy } from 'lucide-react'
+import { CheckCircle, Clock, XCircle, List, Zap, FileJson, ChevronDown, ChevronRight, MessageCircle, ExternalLink, Copy, Plus, Package } from 'lucide-react'
 import { energyApi, type EnergyProvider, type ContributionData, type EnergyOffer, type Contribution } from '@/api/energy'
 import ChatWhatsApp, { type ChatMessage } from '@/components/ChatWhatsApp'
 
-export default function Contribute() {
+type TabType = 'new' | 'mine' | 'offers'
+
+interface ContributeProps {
+  initialTab?: TabType
+}
+
+export default function Contribute({ initialTab = 'new' }: ContributeProps) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null)
   const [showJsonImport, setShowJsonImport] = useState(false)
   const [jsonImportData, setJsonImportData] = useState('')
@@ -226,6 +234,7 @@ export default function Contribute() {
           <button
             onClick={() => {
               setEditingContributionId(contribution.id)
+              navigate('/contribute/new')
               setContributionType(contribution.contribution_type === 'NEW_PROVIDER' ? 'NEW_PROVIDER' : 'NEW_OFFER')
               if (contribution.provider_name) setProviderName(contribution.provider_name)
               if (contribution.provider_website) setProviderWebsite(contribution.provider_website)
@@ -638,14 +647,10 @@ export default function Contribute() {
         </div>
       )}
 
-      {/* My Contributions - Grouped by status */}
-      {Array.isArray(myContributions) && myContributions.length > 0 && (
+      {/* Tab Content: Mes contributions */}
+      {initialTab === 'mine' && (
         <div className="card">
-          <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-            <List className="text-primary-600 dark:text-primary-400" size={20} />
-            Mes contributions ({myContributions.length})
-          </h2>
-
+          {Array.isArray(myContributions) && myContributions.length > 0 ? (
           <div className="space-y-4">
             {/* En attente - déplié par défaut */}
             {contributionsByStatus.pending.length > 0 && (
@@ -728,14 +733,27 @@ export default function Contribute() {
               </div>
             )}
           </div>
+          ) : (
+            <div className="text-center py-8">
+              <List className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={48} />
+              <p className="text-gray-500 dark:text-gray-400 mb-2">Vous n'avez pas encore de contributions</p>
+              <button
+                onClick={() => navigate('/contribute/new')}
+                className="text-primary-600 dark:text-primary-400 hover:underline font-medium"
+              >
+                Proposer une nouvelle offre
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Contribution Form */}
-      <div id="contribution-form" className="card mt-6">
+      {/* Tab Content: Nouvelle contribution */}
+      {initialTab === 'new' && (
+      <div id="contribution-form" className="card">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Zap className="text-primary-600 dark:text-primary-400" size={20} />
+            <Plus className="text-primary-600 dark:text-primary-400" size={20} />
             {editingContributionId ? 'Modifier la contribution' : 'Nouvelle contribution'}
           </h2>
           <div className="flex items-center gap-4">
@@ -1730,11 +1748,13 @@ RÈGLES IMPORTANTES :
           </form>
         )}
       </div>
+      )}
 
-      {/* Available Offers */}
-      <div className="card mt-6">
+      {/* Tab Content: Offres disponibles */}
+      {initialTab === 'offers' && (
+      <div className="card">
         <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
-          <List className="text-primary-600 dark:text-primary-400" size={20} />
+          <Package className="text-primary-600 dark:text-primary-400" size={20} />
           Offres disponibles
         </h2>
         <p className="text-gray-600 dark:text-gray-400 mb-6">
@@ -1943,6 +1963,7 @@ RÈGLES IMPORTANTES :
           <p className="text-gray-500 text-center py-8">Aucune offre disponible pour le moment.</p>
         )}
       </div>
+      )}
     </div>
   )
 }
