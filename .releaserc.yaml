@@ -1,0 +1,106 @@
+---
+# Semantic Release Configuration for GitHub
+# Workflow: feature/* -> develop (prerelease) -> main (stable)
+
+branches:
+  # Production releases on main
+  - name: main
+    channel: latest
+  # Development prereleases on develop
+  - name: develop
+    channel: dev
+    prerelease: dev
+
+# Tag format without 'v' prefix for Docker compatibility
+tagFormat: ${version}
+
+plugins:
+  # Analyze commits to determine version bump
+  - - '@semantic-release/commit-analyzer'
+    - preset: conventionalcommits
+      releaseRules:
+        - type: feat
+          release: minor
+        - type: fix
+          release: patch
+        - type: perf
+          release: patch
+        - type: refactor
+          release: patch
+        - type: docs
+          release: false
+        - type: style
+          release: false
+        - type: chore
+          release: false
+        - type: test
+          release: false
+        - type: ci
+          release: false
+        - breaking: true
+          release: major
+
+  # Generate release notes
+  - - '@semantic-release/release-notes-generator'
+    - preset: conventionalcommits
+      presetConfig:
+        types:
+          - type: feat
+            section: Features
+          - type: fix
+            section: Bug Fixes
+          - type: perf
+            section: Performance
+          - type: refactor
+            section: Refactoring
+          - type: docs
+            section: Documentation
+            hidden: true
+          - type: chore
+            hidden: true
+          - type: test
+            hidden: true
+          - type: ci
+            hidden: true
+
+  # Generate CHANGELOG.md
+  - - '@semantic-release/changelog'
+    - changelogFile: CHANGELOG.md
+      changelogTitle: '# Changelog'
+
+  # Update version in project files
+  - - semantic-release-replace-plugin
+    - replacements:
+        # Root package.json
+        - files:
+            - package.json
+          from: '"version": ".*"'
+          to: '"version": "${nextRelease.version}"'
+          countMatches: true
+        # Frontend package.json
+        - files:
+            - apps/web/package.json
+          from: '"version": ".*"'
+          to: '"version": "${nextRelease.version}"'
+          countMatches: true
+        # Backend pyproject.toml
+        - files:
+            - apps/api/pyproject.toml
+          from: '^version = ".*"'
+          to: 'version = "${nextRelease.version}"'
+          countMatches: true
+
+  # Commit version changes
+  - - '@semantic-release/git'
+    - assets:
+        - CHANGELOG.md
+        - package.json
+        - apps/web/package.json
+        - apps/api/pyproject.toml
+      message: 'chore(release): ${nextRelease.version} [skip ci]'
+
+  # Create GitHub release
+  - - '@semantic-release/github'
+    - successComment: false
+      failComment: false
+      releasedLabels: false

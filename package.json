@@ -1,0 +1,18 @@
+{
+  "name": "myelectricaldata",
+  "version": "1.5.15",
+  "private": true,
+  "description": "Secure API gateway for Linky electricity data via Enedis APIs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MyElectricalData/myelectricaldata_new.git"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^11.0.1",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
+    "semantic-release": "^24.2.0",
+    "semantic-release-replace-plugin": "^1.2.7"
+  }
+}
