@@ -4,6 +4,7 @@ import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
 import { LoadingOverlay } from '@/components/LoadingOverlay'
 import { LoadingPlaceholder } from '@/components/LoadingPlaceholder'
 import { AnimatedSection } from '@/components/AnimatedSection'
+import { PeriodSelector } from '@/components/PeriodSelector'
 import { pdlApi } from '@/api/pdl'
 import { energyApi, type EnergyProvider, type EnergyOffer } from '@/api/energy'
 import { tempoApi, type TempoDay } from '@/api/tempo'
@@ -260,6 +261,88 @@ export default function Simulator() {
   const [sortBy, setSortBy] = useState<'total' | 'subscription' | 'energy'>('total')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
 
+  // Period selection state
+  type PeriodOption = 'rolling' | '2025' | '2024' | 'custom'
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>('rolling')
+  const [customStartDate, setCustomStartDate] = useState<string>('')
+  const [customEndDate, setCustomEndDate] = useState<string>('')
+
+  // Calculate actual dates based on period selection
+  const { simulationStartDate, simulationEndDate, periodLabel } = useMemo(() => {
+    const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayStr = yesterday.toISOString().split('T')[0]
+
+    let startDate: string
+    let endDate: string
+    let label: string
+
+    // Helper to get year period (Jan 1 to Dec 31 or yesterday if current year)
+    const getYearPeriod = (year: number) => {
+      const yearStart = `${year}-01-01`
+      const yearEnd = year === today.getFullYear() ? yesterdayStr : `${year}-12-31`
+      return { start: yearStart, end: yearEnd }
+    }
+
+    switch (selectedPeriod) {
+      case 'rolling': {
+        // Rolling year: yesterday - 364 days to yesterday
+        const start = new Date(yesterday)
+        start.setDate(start.getDate() - 364)
+        startDate = start.toISOString().split('T')[0]
+        endDate = yesterdayStr
+        label = 'Année glissante'
+        break
+      }
+      case '2025': {
+        const period = getYearPeriod(2025)
+        startDate = period.start
+        endDate = period.end
+        label = 'Année 2025'
+        break
+      }
+      case '2024': {
+        const period = getYearPeriod(2024)
+        startDate = period.start
+        endDate = period.end
+        label = 'Année 2024'
+        break
+      }
+      case 'custom': {
+        if (customStartDate && customEndDate) {
+          startDate = customStartDate
+          const customEnd = new Date(customEndDate)
+          // Ensure custom end date is not in the future
+          if (customEnd > yesterday) {
+            endDate = yesterdayStr
+            label = `Du ${customStartDate} au ${yesterdayStr}`
+          } else {
+            endDate = customEndDate
+            label = `Du ${customStartDate} au ${customEndDate}`
+          }
+          break
+        }
+        // Fallback to rolling year if custom dates not set
+        const start = new Date(yesterday)
+        start.setDate(start.getDate() - 364)
+        startDate = start.toISOString().split('T')[0]
+        endDate = yesterdayStr
+        label = 'Année glissante'
+        break
+      }
+      default: {
+        const start = new Date(yesterday)
+        start.setDate(start.getDate() - 364)
+        startDate = start.toISOString().split('T')[0]
+        endDate = yesterdayStr
+        label = 'Année glissante'
+      }
+    }
+
+    return { simulationStartDate: startDate, simulationEndDate: endDate, periodLabel: label }
+  }, [selectedPeriod, customStartDate, customEndDate])
+
   // Get PDL details for demo auto-fetch
   const allPDLs: PDL[] = Array.isArray(pdlsData) ? pdlsData : []
   const selectedPDLDetails = allPDLs.find(p => p.usage_point_id === selectedPdl)
@@ -279,6 +362,22 @@ export default function Simulator() {
     return cachedData?.data?.meter_reading?.interval_reading?.length > 0
   }, [selectedPdl, queryClient, cachedConsumptionData])
 
+  // Extract available dates from cached data (dates with consumption data)
+  const availableDates = useMemo(() => {
+    const dates = new Set<string>()
+    if (cachedConsumptionData?.data?.meter_reading?.interval_reading) {
+      const readings = cachedConsumptionData.data.meter_reading.interval_reading
+      readings.forEach((point: any) => {
+        if (point.date) {
+          // Extract just the date part (YYYY-MM-DD)
+          const dateStr = point.date.split(' ')[0].split('T')[0]
+          dates.add(dateStr)
+        }
+      })
+    }
+    return dates
+  }, [cachedConsumptionData])
+
   // Set first active PDL as selected by default
   useEffect(() => {
     logger.log('[Simulator] pdlsData in useEffect:', pdlsData, 'isArray:', Array.isArray(pdlsData))
@@ -291,6 +390,9 @@ export default function Simulator() {
     }
   }, [pdlsData, selectedPdl])
 
+  // Track if simulation has been run at least once (to avoid auto-run on mount)
+  const hasSimulationRun = useRef(false)
+
   // Clear simulation result when PDL changes
   useEffect(() => {
     setSimulationResult(null)
@@ -300,7 +402,24 @@ export default function Simulator() {
     setIsLoadingExiting(false)
     setIsInfoSectionExpanded(true)
     setIsInitializing(true)
+    // Reset the simulation run tracker when PDL changes
+    hasSimulationRun.current = false
   }, [selectedPdl])
+
+  // Auto-recalculate simulation when period changes (if simulation was already run)
+  useEffect(() => {
+    if (simulationResult && hasSimulationRun.current && !isSimulating) {
+      logger.log('[Simulator] Period changed, re-running simulation...')
+      handleSimulation()
+    }
+  }, [simulationStartDate, simulationEndDate]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mark simulation as having run when results are set
+  useEffect(() => {
+    if (simulationResult) {
+      hasSimulationRun.current = true
+    }
+  }, [simulationResult])
 
   // End initialization when required data is loaded (offers, providers, and cache hydration)
   // This ensures auto-launch can check cache properly before showing empty state
@@ -360,19 +479,12 @@ export default function Simulator() {
       const pdl = Array.isArray(pdlsData) ? pdlsData.find((p) => p.usage_point_id === selectedPdl) : undefined
       logger.log('Selected PDL:', pdl)
       logger.log('Offpeak hours config:', pdl?.offpeak_hours)
-      // Récupérer les consommations horaires des 12 derniers mois (année glissante)
+      // Récupérer les consommations horaires pour la période sélectionnée
       // La date de fin doit être antérieure à la date actuelle selon Enedis
-      const today = new Date()
-      const yesterday = new Date(today)
-      yesterday.setDate(yesterday.getDate() - 1)
+      const startDate = simulationStartDate
+      const endDate = simulationEndDate
 
-      // Année glissante : de aujourd'hui - 365 jours jusqu'à hier
-      const yearStart = new Date(today)
-      yearStart.setDate(yearStart.getDate() - 365)
-      const startDate = yearStart.toISOString().split('T')[0]
-      const endDate = yesterday.toISOString().split('T')[0]
-
-      setFetchProgress({ current: 0, total: 1, phase: 'Chargement des données depuis le cache (année glissante)...' })
+      setFetchProgress({ current: 0, total: 1, phase: `Chargement des données depuis le cache (${periodLabel})...` })
 
       logger.log(`Loading consumption data from cache: ${startDate} to ${endDate}`)
 
@@ -468,7 +580,7 @@ export default function Simulator() {
     } finally {
       setIsSimulating(false)
     }
-  }, [selectedPdl, pdlsData, offersData, providersData, cachedConsumptionData])
+  }, [selectedPdl, pdlsData, offersData, providersData, cachedConsumptionData, simulationStartDate, simulationEndDate, periodLabel])
 
   const calculateSimulationsForAllOffers = (consumptionData: any[], offers: EnergyOffer[], providers: EnergyProvider[], tempoColors: TempoDay[], pdl?: PDL) => {
     // Create a map of date -> TEMPO color for fast lookup
@@ -754,9 +866,15 @@ export default function Simulator() {
         let weekdayCost = (hcKwh * offer.hc_price) + (hpKwh * offer.hp_price)
         let weekendCost = 0
 
+        // For HC_NUIT_WEEKEND and WEEKEND offers, weekend kWh are stored in hcWeekendKwh
+        // and should be billed at HC price (since all weekend is considered off-peak)
         if (hasWeekendPricing) {
           weekendCost = (hcWeekendKwh * (offer.hc_price_weekend || offer.hc_price)) +
                         (hpWeekendKwh * (offer.hp_price_weekend || offer.hp_price))
+        } else if (isHcNuitWeekend || isHcWeekend) {
+          // For HC_NUIT_WEEKEND/WEEKEND/HC_WEEKEND without specific weekend pricing,
+          // bill weekend HC kWh at the regular HC price
+          weekendCost = hcWeekendKwh * offer.hc_price
         }
 
         energyCost = weekdayCost + weekendCost
@@ -767,7 +885,7 @@ export default function Simulator() {
             hpKwh: hpKwh.toFixed(2),
             cost: weekdayCost.toFixed(2)
           },
-          ...(hasWeekendPricing && {
+          ...((hasWeekendPricing || isHcNuitWeekend || isHcWeekend) && {
             weekend: {
               hcKwh: hcWeekendKwh.toFixed(2),
               hpKwh: hpWeekendKwh.toFixed(2),
@@ -1748,27 +1866,36 @@ export default function Simulator() {
           {simulationResult && Array.isArray(simulationResult) && simulationResult.length > 0 && (
             <>
 
-            {/* Information banner */}
-            <div className="mx-6 mb-4 p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800">
-              <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-800 flex items-center justify-center">
-                  <span className="text-xl">💡</span>
-                </div>
-                <div className="flex-1 text-sm text-blue-800 dark:text-blue-200">
-                  <p className="font-semibold mb-1">À propos de cette simulation</p>
-                  <p className="text-blue-700 dark:text-blue-300 leading-relaxed">
-                    Cette simulation est basée sur <strong>votre consommation réelle de l'année écoulée</strong> (J-1 à J-365).
-                    Certaines offres comme <strong>Tempo</strong> ou <strong>Zen Flex</strong> appliquent des tarifs majorés sur quelques jours spécifiques
-                    (22 jours rouges pour Tempo, 20 jours de sobriété pour Zen Flex).
-                  </p>
-                  <p className="text-blue-600 dark:text-blue-400 mt-2 font-medium">
-                    🎯 En réduisant simplement votre consommation ces quelques jours dans l'année, vous pouvez significativement diminuer votre facture avec ces offres.
-                  </p>
-                  <p className="text-blue-600 dark:text-blue-400 mt-2">
-                    💬 Votre fournisseur n'est pas listé ? <a href="/contribute" className="font-semibold underline hover:text-blue-800 dark:hover:text-blue-200">Contribuez au simulateur</a> en demandant son ajout !
-                  </p>
-                </div>
-              </div>
+            {/* Period Selector */}
+            <div className="mx-6 mb-4">
+              <PeriodSelector
+                startDate={simulationStartDate}
+                endDate={simulationEndDate}
+                onRangeChange={(start, end) => {
+                  setSelectedPeriod('custom')
+                  setCustomStartDate(start)
+                  setCustomEndDate(end)
+                }}
+                minDate={selectedPDLDetails?.oldest_available_data_date || selectedPDLDetails?.activation_date}
+                availableDates={availableDates}
+                shortcuts={[
+                  {
+                    label: 'Année glissante',
+                    onClick: () => setSelectedPeriod('rolling'),
+                    active: selectedPeriod === 'rolling'
+                  },
+                  {
+                    label: '2025',
+                    onClick: () => setSelectedPeriod('2025'),
+                    active: selectedPeriod === '2025'
+                  },
+                  {
+                    label: '2024',
+                    onClick: () => setSelectedPeriod('2024'),
+                    active: selectedPeriod === '2024'
+                  }
+                ]}
+              />
             </div>
 
             {/* Filters */}
@@ -2522,6 +2649,29 @@ export default function Simulator() {
                 </p>
               </div>
             )}
+
+            {/* Information banner - À propos de cette simulation */}
+            <div className="mt-6 p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-800 flex items-center justify-center">
+                  <span className="text-xl">💡</span>
+                </div>
+                <div className="flex-1 text-sm text-blue-800 dark:text-blue-200">
+                  <p className="font-semibold mb-1">À propos de cette simulation</p>
+                  <p className="text-blue-700 dark:text-blue-300 leading-relaxed">
+                    Cette simulation est basée sur <strong>votre consommation réelle sur les {periodLabel}</strong> ({simulationStartDate} → {simulationEndDate}).
+                    Certaines offres comme <strong>Tempo</strong> ou <strong>Zen Flex</strong> appliquent des tarifs majorés sur quelques jours spécifiques
+                    (22 jours rouges pour Tempo, 20 jours de sobriété pour Zen Flex).
+                  </p>
+                  <p className="text-blue-600 dark:text-blue-400 mt-2 font-medium">
+                    🎯 En réduisant simplement votre consommation ces quelques jours dans l'année, vous pouvez significativement diminuer votre facture avec ces offres.
+                  </p>
+                  <p className="text-blue-600 dark:text-blue-400 mt-2">
+                    💬 Votre fournisseur n'est pas listé ? <a href="/contribute" className="font-semibold underline hover:text-blue-800 dark:hover:text-blue-200">Contribuez au simulateur</a> en demandant son ajout !
+                  </p>
+                </div>
+              </div>
+            </div>
             </div>
             </>
           )}
@@ -2610,7 +2760,7 @@ export default function Simulator() {
                   <li>Les tarifs sont issus de la base de données MyElectricalData</li>
                   <li>Les calculs HC/HP sont basés sur vos plages horaires configurées dans votre PDL</li>
                   <li>Pour les offres Enercoop spécifiques (Flexi Watt), les plages HC/HP sont détectées automatiquement</li>
-                  <li>Les économies affichées sont calculées sur la base de votre consommation réelle sur 12 mois</li>
+                  <li>Les économies affichées sont calculées sur la base de votre consommation réelle sur la période sélectionnée ({periodLabel})</li>
                 </ul>
               </div>
             </div>

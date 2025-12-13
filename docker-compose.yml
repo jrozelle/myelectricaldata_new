@@ -93,6 +93,8 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile.dev
     restart: unless-stopped
+    env_file:
+      - ./.env.web
     volumes:
       - ./apps/web/src:/app/src
       - ./apps/web/public:/app/public
