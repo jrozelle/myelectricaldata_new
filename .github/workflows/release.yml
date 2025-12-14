@@ -12,15 +12,81 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/myelectricaldata/myelectricaldata_new
 
 jobs:
+  # ===========================================
+  # STEP 1: Build & Test (must pass before release)
+  # ===========================================
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/web/dist
+          retention-days: 1
+
+  build-backend:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        working-directory: apps/api
+        run: uv sync
+
+      - name: Lint
+        working-directory: apps/api
+        run: uv run ruff check src
+
+      - name: Type check
+        working-directory: apps/api
+        run: uv run mypy src --ignore-missing-imports
+
+  # ===========================================
+  # STEP 2: Semantic Release (only if builds pass)
+  # ===========================================
   release:
     name: Semantic Release
+    needs: [build-frontend, build-backend]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     outputs:
       new_release_published: ${{ steps.semantic.outputs.new_release_published }}
       new_release_version: ${{ steps.semantic.outputs.new_release_version }}
@@ -35,6 +101,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -53,23 +120,119 @@ jobs:
           echo "**Version:** \`${{ steps.semantic.outputs.new_release_version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
 
-  # Trigger Docker build after successful release
-  trigger-docker:
-    name: Trigger Docker Build
+  # ===========================================
+  # STEP 3: Build & Push Docker Images (reuse cache)
+  # ===========================================
+  docker:
+    name: Docker ${{ matrix.image }}
     needs: release
     if: needs.release.outputs.new_release_published == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./apps/api
+          - image: frontend
+            context: ./apps/web
     steps:
-      - name: Trigger Docker workflow
-        uses: actions/github-script@v7
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Download pre-built frontend for faster Docker build
+      - name: Download frontend build
+        if: matrix.image == 'frontend'
+        uses: actions/download-artifact@v4
         with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'docker-release.yml',
-              ref: '${{ github.ref_name }}',
-              inputs: {
-                version: '${{ needs.release.outputs.new_release_version }}'
-              }
-            })
+          name: frontend-dist
+          path: apps/web/dist
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine tags
+        id: tags
+        run: |
+          VERSION="${{ needs.release.outputs.new_release_version }}"
+          IMAGE="${{ env.IMAGE_PREFIX }}/${{ matrix.image }}"
+
+          # Always tag with version
+          TAGS="${IMAGE}:${VERSION}"
+
+          # Check if prerelease (contains -dev.)
+          if [[ "$VERSION" == *"-dev."* ]]; then
+            TAGS="${TAGS},${IMAGE}:dev"
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            TAGS="${TAGS},${IMAGE}:latest"
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "Tags: $TAGS"
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.release.outputs.new_release_version }}
+
+  # ===========================================
+  # Summary
+  # ===========================================
+  summary:
+    name: Summary
+    needs: [release, docker]
+    if: needs.release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create summary
+        run: |
+          VERSION="${{ needs.release.outputs.new_release_version }}"
+
+          if [[ "$VERSION" == *"-dev."* ]]; then
+            RELEASE_TYPE="🧪 Development"
+            EXTRA_TAG="dev"
+          else
+            RELEASE_TYPE="🚀 Production"
+            EXTRA_TAG="latest"
+          fi
+
+          echo "## Docker Images Published 🐳" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release Type:** $RELEASE_TYPE" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Images" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Tags |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`${{ env.IMAGE_PREFIX }}/backend\` | \`$VERSION\`, \`$EXTRA_TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`${{ env.IMAGE_PREFIX }}/frontend\` | \`$VERSION\`, \`$EXTRA_TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_PREFIX }}/backend:$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_PREFIX }}/frontend:$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

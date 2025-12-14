@@ -1,56 +1,22 @@
-name: Build and Push Docker Images
+name: Build Docker Images (Manual)
+
+# This workflow is for manual builds only.
+# Automatic releases are handled by release.yml
 
 on:
-  push:
-    tags:
-      - '*.*.*'           # Stable: 1.2.3
-      - '*.*.*-dev.*'     # Prerelease: 1.2.3-dev.1
   workflow_dispatch:
     inputs:
       version:
         description: 'Version tag (e.g., 1.0.0 or 1.0.0-dev.1)'
         required: true
 
-# Cancel in-progress builds on same ref
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/myelectricaldata/myelectricaldata_new
 
 jobs:
-  # Prepare version info
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
-    steps:
-      - name: Get version
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${{ github.ref_name }}"
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-          # Check if prerelease (contains -dev.)
-          if [[ "$VERSION" == *"-dev."* ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
-          fi
-
-          echo "Version: $VERSION"
-          echo "Is prerelease: $([[ "$VERSION" == *"-dev."* ]] && echo 'true' || echo 'false')"
-
-  # Build images in parallel
   build:
-    needs: prepare
+    name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -63,9 +29,8 @@ jobs:
             context: ./apps/api
           - image: frontend
             context: ./apps/web
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up QEMU
@@ -84,25 +49,18 @@ jobs:
       - name: Determine tags
         id: tags
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          IS_PRERELEASE="${{ needs.prepare.outputs.is_prerelease }}"
+          VERSION="${{ github.event.inputs.version }}"
           IMAGE="${{ env.IMAGE_PREFIX }}/${{ matrix.image }}"
 
-          # Always tag with version
           TAGS="${IMAGE}:${VERSION}"
 
-          # Add 'latest' only for stable releases
-          if [ "$IS_PRERELEASE" = "false" ]; then
+          if [[ "$VERSION" == *"-dev."* ]]; then
+            TAGS="${TAGS},${IMAGE}:dev"
+          else
             TAGS="${TAGS},${IMAGE}:latest"
           fi
 
-          # Add 'dev' tag for prereleases
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            TAGS="${TAGS},${IMAGE}:dev"
-          fi
-
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
-          echo "Tags: $TAGS"
 
       - name: Build and push ${{ matrix.image }}
         uses: docker/build-push-action@v6
@@ -116,44 +74,4 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
-
-  # Summary
-  summary:
-    needs: [prepare, build]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create summary
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          IS_PRERELEASE="${{ needs.prepare.outputs.is_prerelease }}"
-
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            RELEASE_TYPE="🧪 Development"
-          else
-            RELEASE_TYPE="🚀 Production"
-          fi
-
-          echo "## Docker Images Published 🐳" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Release Type:** $RELEASE_TYPE" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Images" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | Tags |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
-
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            echo "| \`${{ env.IMAGE_PREFIX }}/backend\` | \`$VERSION\`, \`dev\` |" >> $GITHUB_STEP_SUMMARY
-            echo "| \`${{ env.IMAGE_PREFIX }}/frontend\` | \`$VERSION\`, \`dev\` |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| \`${{ env.IMAGE_PREFIX }}/backend\` | \`$VERSION\`, \`latest\` |" >> $GITHUB_STEP_SUMMARY
-            echo "| \`${{ env.IMAGE_PREFIX }}/frontend\` | \`$VERSION\`, \`latest\` |" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Pull Commands" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.IMAGE_PREFIX }}/backend:$VERSION" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.IMAGE_PREFIX }}/frontend:$VERSION" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            org.opencontainers.image.version=${{ github.event.inputs.version }}
