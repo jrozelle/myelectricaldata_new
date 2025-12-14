@@ -16,7 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Helper function to add PDL prefix to log messages
-def log_with_pdl(level: str, pdl: str, message: str):
+def log_with_pdl(level: str, pdl: str, message: str) -> None:
     """Add PDL prefix to log message: [XXXXXXXXXXXXXX] message"""
     prefixed_message = f"[{pdl}] {message}"
     if level == "info":
@@ -226,7 +226,7 @@ async def create_pdl(
                                                 parsed_ranges.append(f"{start_h}:{start_m}-{end_h}:{end_m}")
 
                             if parsed_ranges:
-                                pdl.offpeak_hours = parsed_ranges
+                                pdl.offpeak_hours = {"ranges": parsed_ranges}  # type: ignore
                             else:
                                 # Fallback to storing raw data if parsing failed
                                 if isinstance(offpeak, str):
@@ -574,8 +574,8 @@ async def update_pdl_selected_offer(
         )
 
     # Validate the offer exists and is active
-    result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == offer_data.selected_offer_id, EnergyOffer.is_active.is_(True)))
-    offer = result.scalar_one_or_none()
+    offer_result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == offer_data.selected_offer_id, EnergyOffer.is_active.is_(True)))
+    offer = offer_result.scalar_one_or_none()
 
     if not offer:
         return APIResponse(
@@ -585,7 +585,7 @@ async def update_pdl_selected_offer(
 
     # Update PDL with selected offer and sync pricing_option
     pdl.selected_offer_id = offer.id
-    pdl.pricing_option = offer.offer_type
+    pdl.pricing_option = offer.offer_type  # type: ignore[assignment]
 
     await db.commit()
     await db.refresh(pdl)
@@ -737,7 +737,7 @@ async def update_pdl_contract(
         pdl.subscribed_power = contract_data.subscribed_power
 
     if contract_data.offpeak_hours is not None:
-        pdl.offpeak_hours = contract_data.offpeak_hours
+        pdl.offpeak_hours = contract_data.offpeak_hours  # type: ignore
 
     await db.commit()
     await db.refresh(pdl)
@@ -958,7 +958,7 @@ async def fetch_contract_from_enedis(
                                             parsed_ranges.append(f"{start_h}:{start_m}-{end_h}:{end_m}")
 
                         if parsed_ranges:
-                            pdl.offpeak_hours = parsed_ranges
+                            pdl.offpeak_hours = {"ranges": parsed_ranges}  # type: ignore
                         else:
                             # Fallback to storing raw data if parsing failed
                             if isinstance(offpeak, str):

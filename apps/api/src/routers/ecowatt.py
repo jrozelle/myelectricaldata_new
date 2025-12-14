@@ -3,7 +3,7 @@ EcoWatt API endpoints
 """
 
 from datetime import datetime, date, timedelta, UTC
-from typing import List, Optional
+from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -30,14 +30,15 @@ async def get_current_ecowatt(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> Optional[EcoWattResponse]:
     """
     Get current EcoWatt signal for today
 
     Public endpoint - requires authentication only
     """
     # Check rate limit
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, current_count, limit = await rate_limiter.increment_and_check(
         current_user.id, False, current_user.is_admin, endpoint_path
     )
@@ -78,14 +79,15 @@ async def get_ecowatt_forecast(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> APIResponse:
     """
     Get EcoWatt forecast for the next N days (max 7)
 
     Public endpoint - requires authentication only
     """
     # Check rate limit
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, current_count, limit = await rate_limiter.increment_and_check(
         current_user.id, False, current_user.is_admin, endpoint_path
     )
@@ -132,14 +134,15 @@ async def get_ecowatt_history(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> List[EcoWattResponse]:
     """
     Get historical EcoWatt data between two dates
 
     Public endpoint - requires authentication only
     """
     # Check rate limit
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, current_count, limit = await rate_limiter.increment_and_check(
         current_user.id, False, current_user.is_admin, endpoint_path
     )
@@ -181,14 +184,15 @@ async def get_ecowatt_statistics(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> dict[str, Any]:
     """
     Get EcoWatt statistics for a given year
 
     Public endpoint - requires authentication only
     """
     # Check rate limit
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, current_count, limit = await rate_limiter.increment_and_check(
         current_user.id, False, current_user.is_admin, endpoint_path
     )
@@ -244,7 +248,7 @@ async def get_ecowatt_statistics(
 @router.get("/refresh/status")
 async def get_refresh_status(
     current_user: User = Depends(require_action("ecowatt", "refresh")),
-):
+) -> dict[str, Any]:
     """
     Get EcoWatt refresh cooldown status
 
@@ -308,7 +312,7 @@ async def get_refresh_status(
 async def refresh_ecowatt_cache(
     current_user: User = Depends(require_action("ecowatt", "refresh")),
     db: AsyncSession = Depends(get_db),
-):
+) -> APIResponse:
     """
     Manually refresh EcoWatt cache from RTE API
 

@@ -17,7 +17,7 @@ class DemoAdapter:
 
     DEMO_EMAIL = "demo@myelectricaldata.fr"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.cache_service = cache_service
 
     async def is_demo_user(self, user_email: str) -> bool:

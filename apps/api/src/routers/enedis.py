@@ -1,4 +1,5 @@
 from datetime import datetime, UTC, timedelta
+from typing import cast
 from fastapi import APIRouter, Depends, Query, Request, Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Helper function for conditional logging based on user debug mode
-def log_if_debug(user, level: str, message: str, pdl: str = None):
+def log_if_debug(user: User, level: str, message: str, pdl: str | None = None) -> None:
     """Log only if user has debug_mode enabled. Always uses WARNING level for easy filtering."""
     if user and user.debug_mode:
         if pdl:
@@ -24,7 +25,7 @@ def log_if_debug(user, level: str, message: str, pdl: str = None):
             logger.warning(message)
 
 # Helper function to add PDL prefix to log messages
-def log_with_pdl(level: str, pdl: str, message: str):
+def log_with_pdl(level: str, pdl: str, message: str) -> None:
     """Add PDL prefix to log message: [XXXXXXXXXXXXXX] message"""
     prefixed_message = f"[{pdl}] {message}"
     if level == "info":
@@ -45,6 +46,9 @@ async def increment_date_fail_count(usage_point_id: str, date: str) -> int:
     key = f"enedis:fail:{usage_point_id}:{date}"
     redis_client = cache_service.redis_client
 
+    if not redis_client:
+        return 0
+
     # Increment counter
     count = await redis_client.incr(key)
 
@@ -52,7 +56,7 @@ async def increment_date_fail_count(usage_point_id: str, date: str) -> int:
     if count == 1:
         await redis_client.expire(key, 86400)  # 24 hours
 
-    return count
+    return cast(int, count)
 
 async def is_date_blacklisted(usage_point_id: str, date: str) -> bool:
     """
@@ -61,15 +65,21 @@ async def is_date_blacklisted(usage_point_id: str, date: str) -> bool:
     key = f"enedis:blacklist:{usage_point_id}:{date}"
     redis_client = cache_service.redis_client
 
+    if not redis_client:
+        return False
+
     result = await redis_client.get(key)
     return result is not None
 
-async def blacklist_date(usage_point_id: str, date: str):
+async def blacklist_date(usage_point_id: str, date: str) -> None:
     """
     Blacklist a date for 24 hours.
     """
     key = f"enedis:blacklist:{usage_point_id}:{date}"
     redis_client = cache_service.redis_client
+
+    if not redis_client:
+        return
 
     await redis_client.setex(key, 86400, "1")  # 24 hours
     log_with_pdl("warning", usage_point_id, f"[BLACKLIST] Date {date} blacklisted after 5+ failures")
@@ -85,7 +95,7 @@ router = APIRouter(
 )
 
 
-async def get_adapter_for_user(user: User):
+async def get_adapter_for_user(user: User) -> tuple:
     """
     Get the appropriate adapter (demo or enedis) based on user.
     Returns (adapter, is_demo) tuple.
@@ -198,7 +208,7 @@ def validate_date_range(start: str, end: str, max_years: int, endpoint_type: str
         return False, error_response
 
 
-async def check_rate_limit(user_id: str, use_cache: bool, is_admin: bool = False, endpoint: str = None) -> tuple[bool, APIResponse | None]:
+async def check_rate_limit(user_id: str, use_cache: bool, is_admin: bool = False, endpoint: str | None = None) -> tuple[bool, APIResponse | None]:
     """
     Check rate limit for user. Returns (is_allowed, error_response_or_none)
     """
@@ -374,10 +384,10 @@ async def get_consumption_daily(
 
     # Check if date range is within allowed period (3 years for daily endpoint)
     is_valid, error_response = validate_date_range(start, end, max_years=3, endpoint_type="Daily")
-    dates_too_old = not is_valid and error_response.error.code == "DATE_TOO_OLD"
+    dates_too_old = not is_valid and error_response is not None and error_response.error is not None and error_response.error.code == "DATE_TOO_OLD"
 
     # If dates are too old, we can only serve from cache
-    if dates_too_old:
+    if dates_too_old and error_response:
         # Try to serve from cache only
         cache_key = f"consumption:daily:{usage_point_id}:{start}:{end}"
         cached_data = await cache_service.get(cache_key, current_user.client_secret)
@@ -405,9 +415,11 @@ async def get_consumption_daily(
             )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
+        assert error_response is not None
         return error_response
 
     # New granular cache system: check cache day by day
@@ -624,7 +636,7 @@ async def get_consumption_detail(
 
     # Check if date range is within allowed period (2 years for detail endpoint)
     is_valid, error_response = validate_date_range(start, end, max_years=2, endpoint_type="Detail")
-    dates_too_old = not is_valid and error_response.error.code == "DATE_TOO_OLD"
+    dates_too_old = not is_valid and error_response is not None and error_response.error is not None and error_response.error.code == "DATE_TOO_OLD"
 
     # Generate list of all dates in range
     start_date = datetime.strptime(start, "%Y-%m-%d")
@@ -646,7 +658,8 @@ async def get_consumption_detail(
         )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
 
     # NEW: Check cache for each timestamp (ultra-granular cache check)
     cached_readings = []
@@ -694,6 +707,7 @@ async def get_consumption_detail(
             if cached_readings and dates_too_old:
                 log_with_pdl("warning", usage_point_id, "[RATE LIMITED] Returning partial cached data")
                 return APIResponse(success=True, data={"meter_reading": {"interval_reading": cached_readings}})
+            assert error_response is not None
             return error_response
 
         # Group consecutive missing dates into ranges to minimize API calls
@@ -900,6 +914,7 @@ async def get_consumption_detail_batch(
     # Check if date range is within allowed period (2 years for detail endpoint)
     is_valid, error_response = validate_date_range(start, end, max_years=2, endpoint_type="Detail (Batch)")
     if not is_valid:
+        assert error_response is not None
         return error_response
 
     # Get adapter for user (demo or real)
@@ -1018,7 +1033,8 @@ async def get_consumption_detail_batch(
         return APIResponse(success=True, data={"meter_reading": {"interval_reading": cached_readings}})
 
     # Check rate limit only if we need to fetch from Enedis
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         # If rate limited and we have some cached data, return what we have
@@ -1029,6 +1045,7 @@ async def get_consumption_detail_batch(
                 data={"meter_reading": {"interval_reading": cached_readings}},
                 error=ErrorDetail(code="PARTIAL_DATA", message="Rate limit exceeded. Returning cached data only.")
             )
+        assert error_response is not None
         return error_response
 
     # Split missing dates into weekly chunks (max 7 days per Enedis API call)
@@ -1301,9 +1318,11 @@ async def get_max_power(
         )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
+        assert error_response is not None
         return error_response
 
     # Check cache
@@ -1348,9 +1367,11 @@ async def get_production_daily(
         )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
+        assert error_response is not None
         return error_response
 
     # Check cache
@@ -1395,9 +1416,11 @@ async def get_production_detail(
         )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
+        assert error_response is not None
         return error_response
 
     # Check cache
@@ -1518,6 +1541,7 @@ async def get_production_detail_batch(
     # Check if date range is within allowed period (2 years for detail endpoint)
     is_valid, error_response = validate_date_range(start, end, max_years=2, endpoint_type="Production Detail (Batch)")
     if not is_valid:
+        assert error_response is not None
         return error_response
 
     # Get adapter for user (demo or real)
@@ -1632,7 +1656,8 @@ async def get_production_detail_batch(
         return APIResponse(success=True, data={"meter_reading": {"interval_reading": cached_readings}})
 
     # Check rate limit only if we need to fetch from Enedis
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
         # If rate limited and we have some cached data, return what we have
@@ -1643,6 +1668,7 @@ async def get_production_detail_batch(
                 data={"meter_reading": {"interval_reading": cached_readings}},
                 error=ErrorDetail(code="PARTIAL_DATA", message="Rate limit exceeded. Returning cached data only.")
             )
+        assert error_response is not None
         return error_response
 
     # Split missing dates into weekly chunks (max 7 days per Enedis API call)
@@ -1914,9 +1940,11 @@ async def get_contract(
         )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
+        assert error_response is not None
         return error_response
 
     # Check cache
@@ -1966,9 +1994,11 @@ async def get_address(
         )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
+        assert error_response is not None
         return error_response
 
     # Check cache
@@ -2011,9 +2041,11 @@ async def get_customer(
         )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
+        assert error_response is not None
         return error_response
 
     # Check cache
@@ -2056,9 +2088,11 @@ async def get_contact(
         )
 
     # Check rate limit - use route path template instead of actual path
-    endpoint_path = request.scope.get("route").path if request.scope.get("route") else request.url.path
+    route = request.scope.get("route")
+    endpoint_path = route.path if route else request.url.path
     is_allowed, error_response = await check_rate_limit(current_user.id, use_cache, current_user.is_admin, endpoint_path)
     if not is_allowed:
+        assert error_response is not None
         return error_response
 
     # Check cache

@@ -15,5 +15,5 @@ class RefreshTracker(Base):
     last_refresh = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<RefreshTracker(cache_type={self.cache_type}, last_refresh={self.last_refresh})>"

@@ -7,7 +7,6 @@ from .base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from .user import User
-    from .permission import Permission
 
 
 # Association table for many-to-many relationship between roles and permissions
