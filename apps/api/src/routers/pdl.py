@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Path, Body
+from fastapi import APIRouter, Depends, status, Path, Body
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -7,7 +7,7 @@ from ..models.energy_provider import EnergyOffer
 from ..models.database import get_db
 from ..schemas import PDLCreate, PDLResponse, APIResponse, ErrorDetail
 from ..schemas.requests import AdminPDLCreate
-from ..middleware import get_current_user, require_admin, require_permission, require_not_demo
+from ..middleware import get_current_user, require_permission, require_not_demo
 from ..routers.enedis import get_valid_token
 from ..adapters import enedis_adapter
 import logging
@@ -284,16 +284,16 @@ async def create_pdl(
             pdl.has_production = has_production
 
             if has_consumption and has_production:
-                logger.info(f"[CREATE PDL] Set PDL type: BOTH consumption and production")
+                logger.info("[CREATE PDL] Set PDL type: BOTH consumption and production")
             elif has_production:
-                logger.info(f"[CREATE PDL] Set PDL type: PRODUCTION only")
+                logger.info("[CREATE PDL] Set PDL type: PRODUCTION only")
             elif has_consumption:
-                logger.info(f"[CREATE PDL] Set PDL type: CONSUMPTION only")
+                logger.info("[CREATE PDL] Set PDL type: CONSUMPTION only")
             else:
                 # Default to consumption if neither worked (consent might be missing)
                 pdl.has_consumption = True
                 pdl.has_production = False
-                logger.warning(f"[CREATE PDL] Could not detect PDL type, defaulting to CONSUMPTION")
+                logger.warning("[CREATE PDL] Could not detect PDL type, defaulting to CONSUMPTION")
 
             await db.commit()
             await db.refresh(pdl)
@@ -574,7 +574,7 @@ async def update_pdl_selected_offer(
         )
 
     # Validate the offer exists and is active
-    result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == offer_data.selected_offer_id, EnergyOffer.is_active == True))
+    result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == offer_data.selected_offer_id, EnergyOffer.is_active.is_(True)))
     offer = result.scalar_one_or_none()
 
     if not offer:
@@ -1019,16 +1019,16 @@ async def fetch_contract_from_enedis(
         pdl.has_production = has_production
 
         if has_consumption and has_production:
-            logger.info(f"[FETCH CONTRACT] Set PDL type: BOTH consumption and production")
+            logger.info("[FETCH CONTRACT] Set PDL type: BOTH consumption and production")
         elif has_production:
-            logger.info(f"[FETCH CONTRACT] Set PDL type: PRODUCTION only")
+            logger.info("[FETCH CONTRACT] Set PDL type: PRODUCTION only")
         elif has_consumption:
-            logger.info(f"[FETCH CONTRACT] Set PDL type: CONSUMPTION only")
+            logger.info("[FETCH CONTRACT] Set PDL type: CONSUMPTION only")
         else:
             # Default to consumption if neither worked (consent might be missing)
             pdl.has_consumption = True
             pdl.has_production = False
-            logger.warning(f"[FETCH CONTRACT] Could not detect PDL type, defaulting to CONSUMPTION")
+            logger.warning("[FETCH CONTRACT] Could not detect PDL type, defaulting to CONSUMPTION")
 
         await db.commit()
         await db.refresh(pdl)

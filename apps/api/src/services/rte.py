@@ -169,7 +169,6 @@ class RTEService:
                 # RTE API: start_date represents the day the color applies to
                 # Example: start_date=2025-11-19 00:00 + end_date=2025-11-20 00:00 means color for Nov 19
                 day_start = datetime.fromisoformat(value["start_date"])
-                day_end = datetime.fromisoformat(value["end_date"])
                 color_str = value["value"]
                 updated_date_str = value.get("updated_date")
 

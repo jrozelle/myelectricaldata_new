@@ -20,7 +20,7 @@ router = APIRouter(prefix="/energy", tags=["Energy Offers"])
 @router.get("/providers", response_model=APIResponse)
 async def list_providers(db: AsyncSession = Depends(get_db)) -> APIResponse:
     """List all active energy providers"""
-    result = await db.execute(select(EnergyProvider).where(EnergyProvider.is_active == True))
+    result = await db.execute(select(EnergyProvider).where(EnergyProvider.is_active.is_(True)))
     providers = result.scalars().all()
 
     return APIResponse(
@@ -49,13 +49,13 @@ async def list_offers(
     By default, returns only offers valid for the current period (valid_to IS NULL or valid_to >= NOW)
     Set include_history=true to get all offers including historical ones
     """
-    query = select(EnergyOffer).where(EnergyOffer.is_active == True)
+    query = select(EnergyOffer).where(EnergyOffer.is_active.is_(True))
 
     # Filter by current period only (unless include_history is True)
     if not include_history:
         now = datetime.now(UTC)
         query = query.where(
-            (EnergyOffer.valid_to == None) | (EnergyOffer.valid_to >= now)
+            (EnergyOffer.valid_to.is_(None)) | (EnergyOffer.valid_to >= now)
         )
 
     if provider_id:

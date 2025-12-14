@@ -6,14 +6,13 @@ from datetime import datetime, date, timedelta, UTC
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, and_
 import logging
 
 from ..models.database import get_db
-from ..middleware import get_current_user, require_admin, require_permission, require_action
+from ..middleware import get_current_user, require_action
 from ..models import User
-from ..models.ecowatt import EcoWatt, EcoWattResponse, EcoWattBase
+from ..models.ecowatt import EcoWatt, EcoWattResponse
 from ..schemas import APIResponse
 from ..services import rate_limiter, cache_service
 from ..services.rte import rte_service

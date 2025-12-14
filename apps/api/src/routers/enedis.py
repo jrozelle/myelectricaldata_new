@@ -1,5 +1,5 @@
 from datetime import datetime, UTC, timedelta
-from fastapi import APIRouter, Depends, Query, HTTPException, status, Request, Path
+from fastapi import APIRouter, Depends, Query, Request, Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import User, Token, PDL
@@ -9,7 +9,6 @@ from ..middleware import get_current_user
 from ..adapters import enedis_adapter
 from ..adapters.demo_adapter import demo_adapter
 from ..services import cache_service, rate_limiter
-from ..config import settings
 import logging
 
 
@@ -232,7 +231,7 @@ async def get_valid_token(usage_point_id: str, user: User, db: AsyncSession) -> 
 
     # Get global client credentials token (stored with user_id=None, usage_point_id='__global__')
     result = await db.execute(
-        select(Token).where(Token.user_id == None, Token.usage_point_id == "__global__").limit(1)
+        select(Token).where(Token.user_id.is_(None), Token.usage_point_id == "__global__").limit(1)
     )
     token = result.scalar_one_or_none()
 
@@ -286,11 +285,11 @@ async def get_valid_token(usage_point_id: str, user: User, db: AsyncSession) -> 
                     await db.rollback()
                     # Re-fetch the token that was just created by the other request
                     result = await db.execute(
-                        select(Token).where(Token.user_id == None, Token.usage_point_id == "__global__").limit(1)
+                        select(Token).where(Token.user_id.is_(None), Token.usage_point_id == "__global__").limit(1)
                     )
                     token = result.scalar_one_or_none()
                     if not token:
-                        logger.error(f"[TOKEN ERROR] Failed to fetch token after race condition")
+                        logger.error("[TOKEN ERROR] Failed to fetch token after race condition")
                         return None
         except Exception as e:
             logger.error(f"[TOKEN ERROR] Failed to get client credentials token: {str(e)}")
@@ -1015,7 +1014,7 @@ async def get_consumption_detail_batch(
 
     # If we have all data from cache, return it immediately
     if not missing_dates:
-        log_if_debug(current_user, "info", f"[BATCH] All data served from cache", pdl=usage_point_id)
+        log_if_debug(current_user, "info", "[BATCH] All data served from cache", pdl=usage_point_id)
         return APIResponse(success=True, data={"meter_reading": {"interval_reading": cached_readings}})
 
     # Check rate limit only if we need to fetch from Enedis
@@ -1024,7 +1023,7 @@ async def get_consumption_detail_batch(
     if not is_allowed:
         # If rate limited and we have some cached data, return what we have
         if cached_readings:
-            log_with_pdl("warning", usage_point_id, f"[BATCH RATE LIMITED] Returning partial cached data")
+            log_with_pdl("warning", usage_point_id, "[BATCH RATE LIMITED] Returning partial cached data")
             return APIResponse(
                 success=True,
                 data={"meter_reading": {"interval_reading": cached_readings}},
@@ -1059,7 +1058,6 @@ async def get_consumption_detail_batch(
         i = j  # Move to next non-consecutive date
 
     total_chunks = len(week_chunks)
-    last_chunk_size = len(week_chunks[-1][0].split('-')) if week_chunks else 0
     log_if_debug(current_user, "info", f"[BATCH] Split into {total_chunks} chunks from {len(missing_dates)} missing dates", pdl=usage_point_id)
 
     # Fetch each chunk from Enedis with retry logic for ADAM-ERR0123
@@ -1630,7 +1628,7 @@ async def get_production_detail_batch(
 
     # If we have all data from cache, return it immediately
     if not missing_dates:
-        log_if_debug(current_user, "info", f"[BATCH PRODUCTION] All data served from cache", pdl=usage_point_id)
+        log_if_debug(current_user, "info", "[BATCH PRODUCTION] All data served from cache", pdl=usage_point_id)
         return APIResponse(success=True, data={"meter_reading": {"interval_reading": cached_readings}})
 
     # Check rate limit only if we need to fetch from Enedis
@@ -1639,7 +1637,7 @@ async def get_production_detail_batch(
     if not is_allowed:
         # If rate limited and we have some cached data, return what we have
         if cached_readings:
-            log_with_pdl("warning", usage_point_id, f"[BATCH PRODUCTION RATE LIMITED] Returning partial cached data")
+            log_with_pdl("warning", usage_point_id, "[BATCH PRODUCTION RATE LIMITED] Returning partial cached data")
             return APIResponse(
                 success=True,
                 data={"meter_reading": {"interval_reading": cached_readings}},

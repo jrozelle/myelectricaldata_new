@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from ..config import settings
 from ..middleware import get_current_user, require_not_demo
-from ..models import User, PDL, Token, EmailVerificationToken, PasswordResetToken, Role
+from ..models import User, PDL, EmailVerificationToken, PasswordResetToken, Role
 from ..models.database import get_db
 from ..schemas import (
     UserCreate,
@@ -548,7 +548,7 @@ async def reset_password(request: Request, db: AsyncSession = Depends(get_db)) -
     reset_token = result.scalar_one_or_none()
 
     if not reset_token:
-        logger.info(f"[RESET_PASSWORD] Invalid token")
+        logger.info("[RESET_PASSWORD] Invalid token")
         return APIResponse(
             success=False,
             error=ErrorDetail(code="INVALID_TOKEN", message="Invalid or expired reset token")
@@ -556,7 +556,7 @@ async def reset_password(request: Request, db: AsyncSession = Depends(get_db)) -
 
     # Check if token expired
     if datetime.now(UTC) > reset_token.expires_at:
-        logger.info(f"[RESET_PASSWORD] Token expired")
+        logger.info("[RESET_PASSWORD] Token expired")
         await db.delete(reset_token)
         await db.commit()
         return APIResponse(

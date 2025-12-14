@@ -280,7 +280,7 @@ async def clear_all_consumption_cache(
     return APIResponse(
         success=True,
         data={
-            "message": f"All consumption cache cleared",
+            "message": "All consumption cache cleared",
             "total_pdls": len(pdls),
             "deleted_keys": deleted_count
         }
@@ -315,7 +315,7 @@ async def clear_all_production_cache(
     return APIResponse(
         success=True,
         data={
-            "message": f"All production cache cleared",
+            "message": "All production cache cleared",
             "total_pdls": len(pdls),
             "deleted_keys": deleted_count
         }
@@ -353,7 +353,7 @@ async def clear_all_cache(
     return APIResponse(
         success=True,
         data={
-            "message": f"All cache cleared (consumption + production)",
+            "message": "All cache cleared (consumption + production)",
             "total_pdls": len(pdls),
             "deleted_keys": deleted_count
         }
@@ -373,13 +373,13 @@ async def get_user_stats(
 
     # Active users
     active_result = await db.execute(
-        select(func.count()).select_from(User).where(User.is_active == True)
+        select(func.count()).select_from(User).where(User.is_active.is_(True))
     )
     active_users = active_result.scalar()
 
     # Verified users
     verified_result = await db.execute(
-        select(func.count()).select_from(User).where(User.email_verified == True)
+        select(func.count()).select_from(User).where(User.email_verified.is_(True))
     )
     verified_users = verified_result.scalar()
 
@@ -590,7 +590,7 @@ async def get_global_stats(
 
     # Active users (email verified)
     active_users_result = await db.execute(
-        select(func.count()).select_from(User).where(User.email_verified == True)
+        select(func.count()).select_from(User).where(User.email_verified.is_(True))
     )
     active_users = active_users_result.scalar()
 
@@ -1343,7 +1343,7 @@ async def list_offers(
             query = query.where(EnergyOffer.provider_id == provider_obj.id)
 
         if active_only:
-            query = query.where(EnergyOffer.is_active == True)  # noqa: E712
+            query = query.where(EnergyOffer.is_active.is_(True))
 
         query = query.order_by(EnergyOffer.name)
 

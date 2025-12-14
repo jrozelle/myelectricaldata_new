@@ -59,7 +59,7 @@ async def refresh_tempo_cache_task():
                     # Update last refresh time
                     await update_refresh_time(db, 'tempo')
                 else:
-                    logger.warning(f"[SCHEDULER] Skipping TEMPO refresh - last refresh too recent")
+                    logger.warning("[SCHEDULER] Skipping TEMPO refresh - last refresh too recent")
 
         except Exception as e:
             logger.error(f"[SCHEDULER ERROR] Failed to refresh TEMPO cache: {e}")
@@ -85,7 +85,7 @@ async def refresh_ecowatt_cache_task():
                     # Update last refresh time
                     await update_refresh_time(db, 'ecowatt')
                 else:
-                    logger.warning(f"[SCHEDULER] Skipping EcoWatt refresh - last refresh too recent")
+                    logger.warning("[SCHEDULER] Skipping EcoWatt refresh - last refresh too recent")
 
         except Exception as e:
             logger.error(f"[SCHEDULER ERROR] Failed to refresh EcoWatt cache: {e}")
