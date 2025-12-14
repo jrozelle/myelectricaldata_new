@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0-dev.2](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.1.0-dev.1...1.1.0-dev.2) (2025-12-14)
+
+### Bug Fixes
+
+* **ci:** add extra_plugins for semantic-release action ([5a1561f](https://github.com/MyElectricalData/myelectricaldata_new/commit/5a1561f2e7fc4e2b1e576fd3163a44cccb716ba4))
+* **ci:** use semantic-release action for proper GitHub outputs ([4c5ead6](https://github.com/MyElectricalData/myelectricaldata_new/commit/4c5ead6f34f38f9ade6530a6e6d05e420c31b70d))
+
 ## [1.1.0-dev.1](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.0.0...1.1.0-dev.1) (2025-12-14)
 
 ### Features
