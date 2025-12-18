@@ -71,6 +71,15 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Use Helm release config
+        run: |
+          # Backup original releaserc if exists
+          if [ -f .releaserc.yaml ]; then
+            mv .releaserc.yaml .releaserc.yaml.bak
+          fi
+          # Use helm-specific config
+          cp .releaserc-helm.yaml .releaserc.yaml
+
       - name: Semantic Release
         id: semantic
         uses: cycjimmy/semantic-release-action@v4
@@ -80,9 +89,18 @@ jobs:
             @semantic-release/git@10.0.1
             semantic-release-replace-plugin@1.2.7
             conventional-changelog-conventionalcommits@8.0.0
-          extends: .releaserc-helm.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore original config
+        if: always()
+        run: |
+          # Restore original releaserc
+          if [ -f .releaserc.yaml.bak ]; then
+            mv .releaserc.yaml.bak .releaserc.yaml
+          else
+            rm -f .releaserc.yaml
+          fi
 
       - name: Release info
         if: steps.semantic.outputs.new_release_published == 'true'
