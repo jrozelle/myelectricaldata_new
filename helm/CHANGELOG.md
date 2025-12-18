@@ -1,5 +1,11 @@
 # Helm Chart Changelog
 
+## [1.0.0-dev.2](https://github.com/MyElectricalData/myelectricaldata_new/compare/helm/v1.0.0-dev.1...helm/v1.0.0-dev.2) (2025-12-18)
+
+### Bug Fixes
+
+* **valkey:** update existingSecretKey to existingSecretPasswordKey in values.yaml and helpers.tpl ([9597eb4](https://github.com/MyElectricalData/myelectricaldata_new/commit/9597eb4e65947f6a18e6bdeb95f85b78126204cd))
+
 ## 1.0.0-dev.1 (2025-12-18)
 
 ### Features
