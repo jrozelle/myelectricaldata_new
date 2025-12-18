@@ -5,6 +5,9 @@ on:
     branches:
       - main
       - develop
+    paths-ignore:
+      - 'helm/**'
+      - '.releaserc-helm.yaml'
   workflow_dispatch:
 
 # Prevent concurrent releases
