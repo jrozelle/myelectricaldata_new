@@ -277,7 +277,7 @@ valkey:
     # Option 2: Use an existing secret with a generated password
     # The secret must contain the key specified in existingSecretKey
     existingSecret: ""           # e.g., "valkey-credentials"
-    existingSecretKey: "valkey-password"  # Key containing the password in the secret
+    existingSecretKey: "password"  # Key containing the password in the secret
 
   # Valkey configuration
   config:

@@ -209,13 +209,14 @@ Valkey secret name - Supports external secrets or subchart-generated secrets
 
 {{/*
 Valkey secret key - Returns the key name for the password in the secret
+CloudPirates Valkey chart uses 'password' as the default key
 */}}
 {{- define "myelectricaldata.valkey.secretKey" -}}
 {{- if .Values.valkey.enabled }}
   {{- if .Values.valkey.auth.existingSecret }}
-    {{- .Values.valkey.auth.existingSecretKey | default "valkey-password" }}
+    {{- .Values.valkey.auth.existingSecretKey | default "password" }}
   {{- else }}
-    {{- "valkey-password" }}
+    {{- "password" }}
   {{- end }}
 {{- else }}
   {{- "password" }}
