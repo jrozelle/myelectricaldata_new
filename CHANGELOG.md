@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.0.0...1.1.0) (2025-12-18)
+
+### Features
+
+* **ci:** add build validation before semantic-release ([f261fe7](https://github.com/MyElectricalData/myelectricaldata_new/commit/f261fe7faee82629eeb519ea6314fdab8fe322df))
+
 ## [1.1.0-dev.5](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.1.0-dev.4...1.1.0-dev.5) (2025-12-18)
 
 ### Features
