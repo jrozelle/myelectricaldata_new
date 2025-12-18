@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.0-dev.5](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.1.0-dev.4...1.1.0-dev.5) (2025-12-18)
+
+### Features
+
+* **ci:** separate CI/CD pipelines for apps and Helm chart ([6480760](https://github.com/MyElectricalData/myelectricaldata_new/commit/64807609ad5f7dc2c8c14701e569d67e6fe6573d))
+
 ## [1.1.0-dev.4](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.1.0-dev.3...1.1.0-dev.4) (2025-12-18)
 
 ### Features
