@@ -11,8 +11,8 @@ branches:
     channel: dev
     prerelease: dev
 
-# Tag format: helm/vX.X.X (no GitHub release, just tags)
-tagFormat: helm/v${version}
+# Tag format: helm/X.X.X (no GitHub release, just tags)
+tagFormat: helm/${version}
 
 plugins:
   # Analyze commits to determine version bump
