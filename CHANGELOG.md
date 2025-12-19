@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.0-dev.2](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.2.0-dev.1...1.2.0-dev.2) (2025-12-19)
+
+### Features
+
+* **web:** mask client_secret and update warning message ([8824238](https://github.com/MyElectricalData/myelectricaldata_new/commit/8824238120167c9fd5ec17cc9a423e70f3e8f652))
+
 ## [1.2.0-dev.1](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.1.0...1.2.0-dev.1) (2025-12-19)
 
 ### Features
