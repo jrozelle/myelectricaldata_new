@@ -230,7 +230,7 @@ export default function Signup() {
             </div>
 
             <div className="mt-8">
-              <Link to="/login" className="btn btn-primary w-full">
+              <Link to="/login" className="btn btn-primary w-full block text-center">
                 Continuer vers la connexion
               </Link>
             </div>
