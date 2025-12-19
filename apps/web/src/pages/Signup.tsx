@@ -52,6 +52,7 @@ export default function Signup() {
   const [turnstileError, setTurnstileError] = useState(false)
   const [credentials, setCredentials] = useState<{ client_id: string; client_secret: string } | null>(null)
   const [copied, setCopied] = useState<'id' | 'secret' | null>(null)
+  const [showSecret, setShowSecret] = useState(false)
   const { signup, signupLoading, signupError } = useAuth()
 
   const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
@@ -178,7 +179,7 @@ export default function Signup() {
             <div className="space-y-4">
               <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                 <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium">
-                  ⚠️ Important : Sauvegardez ces identifiants maintenant. Ils ne seront plus affichés.
+                  ⚠️ Important : Sauvegardez ces identifiants maintenant. Le Client Secret ne sera plus affichable, mais vous pourrez en générer un nouveau depuis votre compte.
                 </p>
               </div>
 
@@ -205,11 +206,18 @@ export default function Signup() {
                 <label className="block text-sm font-medium mb-2 text-gray-900 dark:text-white">Client Secret</label>
                 <div className="flex gap-2">
                   <input
-                    type="text"
+                    type={showSecret ? 'text' : 'password'}
                     value={credentials.client_secret}
                     readOnly
                     className="input flex-1"
                   />
+                  <button
+                    onClick={() => setShowSecret(!showSecret)}
+                    className="btn btn-secondary"
+                    title={showSecret ? 'Masquer' : 'Afficher'}
+                  >
+                    {showSecret ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
                   <button
                     onClick={() => copyToClipboard(credentials.client_secret, 'secret')}
                     className="btn btn-secondary"
