@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0-dev.4](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.2.0-dev.3...1.2.0-dev.4) (2025-12-20)
+
+### Features
+
+* **api:** add Slack notifications for new contributions ([4a87243](https://github.com/MyElectricalData/myelectricaldata_new/commit/4a872435d5c019122ed32d9df031583af17d7300))
+* **workflow:** update sync process to trigger on successful Release workflow ([a2d039b](https://github.com/MyElectricalData/myelectricaldata_new/commit/a2d039b3d552655959c0b7a0ff68a4ad92779b26))
+
+### Bug Fixes
+
+* **api:** fix type annotations in SlackService ([bb055e9](https://github.com/MyElectricalData/myelectricaldata_new/commit/bb055e9296a3426c68a0bbd2dbff0e4383209141))
+
 ## [1.2.0-dev.3](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.2.0-dev.2...1.2.0-dev.3) (2025-12-20)
 
 ### Bug Fixes
