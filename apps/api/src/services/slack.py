@@ -1,4 +1,5 @@
 import httpx
+from typing import Any
 from ..config import settings
 from ..models import OfferContribution, User
 import logging
@@ -14,7 +15,9 @@ class SlackService:
         self.webhook_url = settings.SLACK_WEBHOOK_URL
         self.enabled = settings.SLACK_NOTIFICATIONS_ENABLED
 
-    async def send_notification(self, message: str, blocks: list[dict] | None = None) -> bool:
+    async def send_notification(
+        self, message: str, blocks: list[dict[str, Any]] | None = None
+    ) -> bool:
         """Send a notification to Slack
 
         Args:
@@ -33,7 +36,7 @@ class SlackService:
             return False
 
         try:
-            payload = {"text": message}
+            payload: dict[str, Any] = {"text": message}
             if blocks:
                 payload["blocks"] = blocks
 
@@ -127,7 +130,7 @@ class SlackService:
         power_display = f"{contribution.power_kva} kVA" if contribution.power_kva else "Non spécifié"
 
         # Build Slack blocks for rich formatting
-        blocks = [
+        blocks: list[dict[str, Any]] = [
             {
                 "type": "header",
                 "text": {
