@@ -1,18 +1,26 @@
 name: Sync develop with main
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
     branches:
       - main
 
 jobs:
   sync:
+    # Only run if Release workflow succeeded and was on main branch
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure Git
@@ -22,6 +30,9 @@ jobs:
 
       - name: Sync develop with main
         run: |
+          # Fetch latest changes (including semantic-release commits)
+          git fetch origin main develop
+
           git checkout develop
           git merge origin/main -m "chore: sync develop with main [skip ci]"
           git push origin develop
