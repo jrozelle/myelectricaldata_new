@@ -16,6 +16,10 @@ jobs:
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     steps:
+      # Wait for semantic-release commit to be pushed and available
+      - name: Wait for release commit propagation
+        run: sleep 15
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -33,6 +37,14 @@ jobs:
           # Fetch latest changes (including semantic-release commits)
           git fetch origin main develop
 
+          # Log current state for debugging
+          echo "=== Main branch HEAD ==="
+          git log -1 --oneline origin/main
+
+          echo "=== Develop branch HEAD ==="
+          git log -1 --oneline origin/develop
+
+          # Perform merge
           git checkout develop
-          git merge origin/main -m "chore: sync develop with main [skip ci]"
+          git merge origin/main -m "chore: sync develop with main after release [skip ci]"
           git push origin develop
