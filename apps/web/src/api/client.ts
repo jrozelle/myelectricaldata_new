@@ -63,9 +63,16 @@ class APIClient {
       (response) => response,
       async (error: AxiosError<APIResponse>) => {
         if (error.response?.status === 401) {
-          // Cookie expired/invalid, redirect to login
-          // The httpOnly cookie will be cleared by the server on next request
-          window.location.href = '/login'
+          // Don't redirect if:
+          // 1. Already on login page (would cause loop)
+          // 2. Checking auth status (normal to get 401 if not logged in)
+          const isLoginPage = window.location.pathname === '/login'
+          const isAuthCheck = error.config?.url?.includes('accounts/me')
+
+          if (!isLoginPage && !isAuthCheck) {
+            // Session expired during normal use, redirect to login
+            window.location.href = '/login'
+          }
         }
         return Promise.reject(error)
       }
