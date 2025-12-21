@@ -18,7 +18,9 @@ declare global {
 export default function ApiDocs() {
   const { isDark } = useThemeStore()
   // Use runtime config first, then build-time env, then default
-  const apiBaseUrl = window.__ENV__?.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api'
+  // Remove trailing slash to avoid double slashes in URLs
+  const rawApiBaseUrl = window.__ENV__?.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api'
+  const apiBaseUrl = rawApiBaseUrl.replace(/\/+$/, '')
 
   useEffect(() => {
     // Hide the "Explore" link and customize Swagger UI colors

@@ -12,7 +12,9 @@ declare global {
 }
 
 // Use runtime config first, then build-time env, then default
-const API_BASE_URL = window.__ENV__?.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api'
+// Remove trailing slash to avoid double slashes in URLs
+const rawApiBaseUrl = window.__ENV__?.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api'
+const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, '')
 
 export default function ConsentRedirect() {
   const [searchParams] = useSearchParams()

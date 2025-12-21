@@ -1,13 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
+// Runtime environment from env.js (generated at container startup)
+declare global {
+  interface Window {
+    __ENV__?: {
+      VITE_API_BASE_URL?: string
+      VITE_BACKEND_URL?: string
+    }
+  }
+}
+
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [message, setMessage] = useState('')
 
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  // Use runtime config first, then build-time env, then default
+  // Remove trailing slash to avoid double slashes in URLs
+  const rawApiBaseUrl = window.__ENV__?.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api'
+  const apiBaseUrl = rawApiBaseUrl.replace(/\/+$/, '')
 
   useEffect(() => {
     const token = searchParams.get('token')
