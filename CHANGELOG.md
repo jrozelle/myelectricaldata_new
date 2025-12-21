@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.4.0...1.4.1) (2025-12-21)
+
+### Bug Fixes
+
+* address Copilot code review feedback ([57f4da5](https://github.com/MyElectricalData/myelectricaldata_new/commit/57f4da598a23030b236fe9b0e18fcfd57031c183))
+* **auth:** resolve login bootloop after httpOnly cookie migration ([eb6eff7](https://github.com/MyElectricalData/myelectricaldata_new/commit/eb6eff72c431bea97fcca0fa6a443023b1de44b5))
+* normalize API base URL to prevent double slashes ([1edeb1d](https://github.com/MyElectricalData/myelectricaldata_new/commit/1edeb1d0ddac287242348d542c16dc7c50f7e954))
+
 ## [1.4.1-dev.3](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.4.1-dev.2...1.4.1-dev.3) (2025-12-21)
 
 ### Bug Fixes
