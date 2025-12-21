@@ -96,6 +96,10 @@ app = FastAPI(
         "clientId": "",
         "usePkceWithAuthorizationCodeGrant": False,
     },
+    # Disable automatic redirect from /path to /path/ to avoid 307 redirects
+    # that break proxy routing (Vite proxy rewrites /api/path -> /path,
+    # but redirect response /path/ doesn't get rewritten back to /api/path/)
+    redirect_slashes=False,
 )
 
 # Mount static files for custom Swagger CSS

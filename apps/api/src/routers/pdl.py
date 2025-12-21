@@ -70,7 +70,7 @@ class PDLUpdateOrder(BaseModel):
     pdl_orders: list[PDLOrderItem]
 
 
-@router.get("/", response_model=APIResponse)
+@router.get("", response_model=APIResponse)
 async def list_pdls(
     current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> APIResponse:
@@ -112,7 +112,7 @@ async def list_pdls(
     return APIResponse(success=True, data=[pdl.model_dump() for pdl in pdl_responses])
 
 
-@router.post("/", response_model=APIResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=APIResponse, status_code=status.HTTP_201_CREATED)
 async def create_pdl(
     pdl_data: PDLCreate = Body(
         ...,
