@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin/roles", tags=["Roles"])
 
 
-@router.get("/", response_model=APIResponse)
+@router.get("", response_model=APIResponse)
 async def list_roles(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
