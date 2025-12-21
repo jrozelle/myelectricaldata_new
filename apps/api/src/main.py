@@ -113,10 +113,15 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
 # CORS middleware - explicit origins required for credentials (httpOnly cookies)
 def get_cors_origins() -> list[str]:
     """Build CORS origins from settings"""
-    origins = [settings.FRONTEND_URL]
+    origins: list[str] = []
+    # Add frontend URL if configured
+    frontend_url = (settings.FRONTEND_URL or "").strip()
+    if frontend_url:
+        origins.append(frontend_url)
     # Add backend URL for Swagger UI
-    if settings.BACKEND_URL and settings.BACKEND_URL != settings.FRONTEND_URL:
-        origins.append(settings.BACKEND_URL)
+    backend_url = (settings.BACKEND_URL or "").strip()
+    if backend_url and backend_url != frontend_url:
+        origins.append(backend_url)
     # Add common development origins
     if settings.DEBUG:
         origins.extend([

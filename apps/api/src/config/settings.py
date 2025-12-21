@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # Cookie settings
     COOKIE_SECURE: bool = False  # Set True in production (HTTPS only)
     COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
-    COOKIE_DOMAIN: str = ""  # Empty = current domain only
+    COOKIE_DOMAIN: str = ""  # Empty = browser uses current host. If set (e.g. ".example.com"), must match frontend domain
 
     # Mailgun Email
     MAILGUN_API_KEY: str = ""

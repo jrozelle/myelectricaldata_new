@@ -177,7 +177,7 @@ config:
 
   # Cookie settings for httpOnly JWT authentication
   cookie:
-    secure: true            # Set to true for HTTPS (recommended for production)
+    secure: true            # true for HTTPS (production), false for HTTP (local dev)
     sameSite: "lax"         # "lax", "strict", or "none" (lax recommended)
     domain: ""              # Cookie domain (empty = current domain only)
 

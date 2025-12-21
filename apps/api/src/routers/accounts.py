@@ -155,7 +155,7 @@ def _set_auth_cookie(response: Response, token: str) -> None:
         httponly=True,  # Prevents JavaScript access (XSS protection)
         secure=settings.COOKIE_SECURE,  # HTTPS only in production
         samesite=settings.COOKIE_SAMESITE,  # CSRF protection
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # Convert to seconds
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # 43200 min = 30 days in seconds
         path="/",  # Available for all paths
         domain=settings.COOKIE_DOMAIN or None,  # None = current domain
     )
@@ -167,6 +167,8 @@ def _clear_auth_cookie(response: Response) -> None:
         key="access_token",
         path="/",
         domain=settings.COOKIE_DOMAIN or None,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
     )
 
 

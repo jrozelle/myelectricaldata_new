@@ -890,8 +890,8 @@ export default function ApiDocs() {
             displayRequestDuration={true}
             deepLinking={false}
             requestInterceptor={(req) => {
-              // Credentials (httpOnly cookie) will be sent automatically
-              // when withCredentials is enabled on fetch requests
+              // Swagger UI v5+ uses Fetch API, so req.credentials = 'include' is correct
+              // This enables httpOnly cookie to be sent with requests
               req.credentials = 'include'
               return req
             }}

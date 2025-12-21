@@ -2,6 +2,10 @@
 
 ## [1.0.0-dev.3](https://github.com/MyElectricalData/myelectricaldata_new/compare/helm/1.0.0-dev.2...helm/1.0.0-dev.3) (2025-12-21)
 
+### Security
+
+* **auth:** migrate JWT storage from localStorage to httpOnly cookies (XSS protection)
+
 ### Features
 
 * add admin data sharing for PDL debugging ([cfb32b8](https://github.com/MyElectricalData/myelectricaldata_new/commit/cfb32b83ddb435c9c792aec031ead2ad2ae054ab))
