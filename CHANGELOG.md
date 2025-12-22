@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.0-dev.2](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.6.0-dev.1...1.6.0-dev.2) (2025-12-22)
+
+### Features
+
+* **ui:** display frontend and backend versions in admin menu ([350971d](https://github.com/MyElectricalData/myelectricaldata_new/commit/350971d06ecff945a281ad1c53078ae25357ff6b))
+
+### Bug Fixes
+
+* **api:** add type annotation to fix mypy error in version.py ([c09d769](https://github.com/MyElectricalData/myelectricaldata_new/commit/c09d7699e34d8a391d09e6ae222d5f1dbb15b01e))
+
 ## [1.6.0-dev.1](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.5.0...1.6.0-dev.1) (2025-12-21)
 
 ### Features
