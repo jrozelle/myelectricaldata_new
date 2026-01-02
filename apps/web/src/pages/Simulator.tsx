@@ -1190,6 +1190,18 @@ export default function Simulator() {
     return filtered
   }, [simulationResult, filterType, filterProvider, showOnlyRecent, sortBy, sortOrder])
 
+  // Find the current offer (the one selected by the user for this PDL)
+  const currentOfferResult = useMemo(() => {
+    if (!filteredAndSortedResults.length) return null
+
+    // Get the current PDL to find its selected offer
+    const currentPdl = Array.isArray(pdlsData) ? pdlsData.find((p) => p.usage_point_id === selectedPdl) : undefined
+    if (!currentPdl?.selected_offer_id) return null
+
+    // Find the result matching the selected offer ID
+    return filteredAndSortedResults.find((r) => r.offerId === currentPdl.selected_offer_id) || null
+  }, [filteredAndSortedResults, pdlsData, selectedPdl])
+
   // Get unique providers and types for filter options
   // IMPORTANT: These hooks must be before any early returns to respect React's rules of hooks
   const availableProviders = useMemo(() => {
@@ -2454,26 +2466,37 @@ export default function Simulator() {
                         {getSortIcon('total')}
                       </div>
                     </th>
-                    <th className="p-3 text-right font-semibold">Écart</th>
+                    <th className="p-3 text-right font-semibold" title={currentOfferResult ? "Écart par rapport à votre offre actuelle" : "Écart par rapport à la meilleure offre"}>
+                      <div className="flex items-center justify-end gap-1">
+                        <span>Écart</span>
+                        {currentOfferResult && (
+                          <span className="text-xs font-normal text-primary-600 dark:text-primary-400">(vs actuelle)</span>
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredAndSortedResults.map((result, index) => {
                     const isExpanded = expandedRows.has(result.offerId)
-                    // Calculate difference from first offer (best offer)
-                    const firstResult = filteredAndSortedResults[0]
-                    const costDifferenceFromFirst = index > 0 ? result.totalCost - firstResult.totalCost : 0
+                    // Check if this is the user's current offer
+                    const isCurrentOffer = currentOfferResult?.offerId === result.offerId
+                    // Calculate difference from current offer (if exists) or best offer
+                    const referenceResult = currentOfferResult || filteredAndSortedResults[0]
+                    const costDifferenceFromReference = result.totalCost - referenceResult.totalCost
 
                     return (
                       <React.Fragment key={result.offerId}>
                         <tr
                           onClick={() => toggleRowExpansion(result.offerId)}
                           className={`border-t border-gray-200 dark:border-gray-700 cursor-pointer transition-all duration-200 group ${
-                            index === 0
-                              ? 'bg-gradient-to-r from-green-50 to-emerald-50/50 dark:from-green-900/20 dark:to-emerald-900/10 hover:from-green-100 hover:to-emerald-100/50 dark:hover:from-green-900/30 dark:hover:to-emerald-900/20'
-                              : index % 2 === 1
-                                ? 'bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50'
-                                : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                            isCurrentOffer
+                              ? 'bg-gradient-to-r from-primary-50 to-blue-50/50 dark:from-primary-900/20 dark:to-blue-900/10 hover:from-primary-100 hover:to-blue-100/50 dark:hover:from-primary-900/30 dark:hover:to-blue-900/20 ring-2 ring-primary-400 dark:ring-primary-500 ring-inset'
+                              : index === 0
+                                ? 'bg-gradient-to-r from-green-50 to-emerald-50/50 dark:from-green-900/20 dark:to-emerald-900/10 hover:from-green-100 hover:to-emerald-100/50 dark:hover:from-green-900/30 dark:hover:to-emerald-900/20'
+                                : index % 2 === 1
+                                  ? 'bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                                  : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50'
                           }`}
                         >
                           <td className="p-2 w-8">
@@ -2528,23 +2551,33 @@ export default function Simulator() {
                               {result.totalCost.toFixed(0)} €
                             </span>
                           </td>
-                          <td className="p-2 text-right w-24">
-                            {index === 0 ? (
+                          <td className="p-2 text-right w-28">
+                            {isCurrentOffer ? (
+                              <span className="px-2 py-0.5 text-xs bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full font-medium">
+                                Offre actuelle
+                              </span>
+                            ) : costDifferenceFromReference === 0 ? (
                               <span className="text-xs text-green-600 dark:text-green-400 font-medium">Meilleur</span>
+                            ) : costDifferenceFromReference < 0 ? (
+                              <span className="text-sm text-green-600 dark:text-green-400 font-medium">
+                                {costDifferenceFromReference.toFixed(0)} €
+                              </span>
                             ) : (
                               <span className="text-sm text-red-500 dark:text-red-400 font-medium">
-                                +{costDifferenceFromFirst.toFixed(0)} €
+                                +{costDifferenceFromReference.toFixed(0)} €
                               </span>
                             )}
                           </td>
                         </tr>
                         {isExpanded && (
                           <tr key={`${result.offerId}-details`} className={`border-t border-dashed border-gray-300 dark:border-gray-600 ${
-                            index === 0
-                              ? 'bg-green-50/50 dark:bg-green-900/10'
-                              : index % 2 === 1
-                                ? 'bg-gray-100 dark:bg-gray-700/30'
-                                : 'bg-gray-50 dark:bg-gray-800/30'
+                            isCurrentOffer
+                              ? 'bg-primary-50/50 dark:bg-primary-900/10'
+                              : index === 0
+                                ? 'bg-green-50/50 dark:bg-green-900/10'
+                                : index % 2 === 1
+                                  ? 'bg-gray-100 dark:bg-gray-700/30'
+                                  : 'bg-gray-50 dark:bg-gray-800/30'
                           }`}>
                             <td colSpan={9} className="p-4 bg-gradient-to-b from-gray-50 to-white dark:from-gray-800/50 dark:to-gray-900/50">
                               {/* Warning message if present */}
