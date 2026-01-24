@@ -3,6 +3,7 @@ import { ArrowRight, Shield, Zap, Key, Moon, Sun, Heart, Lock, Database, BarChar
 import { useAuth } from '@/hooks/useAuth'
 import { useThemeStore } from '@/stores/themeStore'
 import { useState, useEffect, useRef } from 'react'
+import DonationModal from '@/components/DonationModal'
 
 // Hook pour détecter si un élément est visible
 function useInView(options = {}) {
@@ -233,6 +234,7 @@ export default function Landing() {
   const { isDark, toggleTheme } = useThemeStore()
   const [showHeader, setShowHeader] = useState(false)
   const [isReady, setIsReady] = useState(false)
+  const [showDonationModal, setShowDonationModal] = useState(false)
 
   // Attendre que le composant soit monté pour éviter le clignotement
   useEffect(() => {
@@ -312,16 +314,14 @@ export default function Landing() {
                 <Github size={18} />
                 <span className="hidden lg:inline">GitHub</span>
               </a>
-              <a
-                href="https://www.paypal.com/donate/?business=FY25JLXDYLXAJ&no_recurring=0&currency_code=EUR"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => setShowDonationModal(true)}
                 className="flex items-center space-x-1 px-2 sm:px-3 py-2 rounded-md bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-900/30 transition-all duration-300 hover:scale-105"
                 title="Faire un don"
               >
                 <Heart size={18} className="animate-pulse" />
                 <span className="hidden lg:inline">Donation</span>
-              </a>
+              </button>
               <button
                 onClick={toggleTheme}
                 className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-300 hover:rotate-180"
@@ -435,10 +435,13 @@ export default function Landing() {
               <AnimatedCounter end={100} suffix="%" />
               <p className="text-gray-600 dark:text-gray-400 mt-2">Sécurisé</p>
             </div>
-            <div className="p-6 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-300 transform hover:scale-105">
+            <div className="p-6 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-300 transform hover:scale-105 group">
               <Zap className="w-12 h-12 mx-auto mb-4 text-primary-600 dark:text-primary-400" />
-              <AnimatedCounter end={5} suffix="/s" />
-              <p className="text-gray-600 dark:text-gray-400 mt-2">Requêtes max</p>
+              <AnimatedCounter end={500} suffix="/j" />
+              <p className="text-gray-600 dark:text-gray-400 mt-2">Requêtes avec cache</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                Enedis limite à 5/s, notre cache vous libère !
+              </p>
             </div>
           </div>
         </div>
@@ -997,37 +1000,16 @@ export default function Landing() {
               </p>
             </div>
 
-            <div className="flex flex-col md:flex-row items-center justify-center gap-8">
-              {/* Bouton de donation */}
-              <div className="text-center">
-                <a
-                  href="https://www.paypal.com/donate/?business=FY25JLXDYLXAJ&no_recurring=0&currency_code=EUR"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white rounded-xl font-bold text-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:scale-105"
-                >
-                  <Heart size={24} className="animate-pulse" />
-                  Faire une donation
-                  <Heart size={24} className="animate-pulse" />
-                </a>
-                <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-                  Paiement sécurisé via PayPal
-                </p>
-              </div>
-
-              {/* QR Code */}
-              <div className="text-center">
-                <div className="bg-white p-4 rounded-xl shadow-lg inline-block">
-                  <img
-                    src="/paypal.png"
-                    alt="QR Code PayPal Donation"
-                    className="w-32 h-32"
-                  />
-                </div>
-                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                  Scannez pour donner
-                </p>
-              </div>
+            {/* Bouton de donation */}
+            <div className="text-center">
+              <button
+                onClick={() => setShowDonationModal(true)}
+                className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white rounded-xl font-bold text-xl transition-all duration-300 shadow-lg hover:shadow-2xl hover:scale-105"
+              >
+                <Heart size={24} className="animate-pulse" />
+                Faire une donation
+                <Heart size={24} className="animate-pulse" />
+              </button>
             </div>
           </div>
         </div>
@@ -1081,6 +1063,9 @@ export default function Landing() {
           </p>
         </div>
       </footer>
+
+      {/* Modal de donation */}
+      <DonationModal isOpen={showDonationModal} onClose={() => setShowDonationModal(false)} />
 
       {/* CSS pour les animations personnalisées */}
       <style>{`

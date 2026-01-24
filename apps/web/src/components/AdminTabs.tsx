@@ -12,11 +12,13 @@ interface Tab {
 const tabs: Tab[] = [
   { name: 'Tableau de bord', path: '/admin' },
   { name: 'Gestion des utilisateurs', path: '/admin/users', permission: 'users' },
+  { name: 'API RTE', path: '/admin/rte', permission: 'admin_dashboard' },
   { name: 'Gestion Tempo', path: '/admin/tempo' },
   { name: 'Gestion EcoWatt', path: '/admin/ecowatt' },
   { name: 'Gestion des contributions', path: '/admin/contributions', permission: 'contributions' },
   { name: 'Gestion des offres', path: '/admin/offers', permission: 'offers' },
   { name: 'Gestion des rôles', path: '/admin/roles', permission: 'roles' },
+  { name: 'Ajouter PDL', path: '/admin/add-pdl', permission: 'users' },
   { name: 'Logs', path: '/admin/logs', permission: 'admin_dashboard' },
 ]
 

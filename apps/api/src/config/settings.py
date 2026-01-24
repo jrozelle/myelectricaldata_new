@@ -34,6 +34,26 @@ class Settings(BaseSettings):
     RTE_CLIENT_SECRET: str = ""
     RTE_BASE_URL: str = "https://digital.iservices.rte-france.com"
 
+    # ===========================================
+    # CLIENT MODE CONFIGURATION
+    # ===========================================
+    # When CLIENT_MODE=True, the app connects to MyElectricalData API
+    # instead of Enedis directly, stores data permanently in PostgreSQL,
+    # and enables export features (Home Assistant, MQTT, etc.)
+    #
+    # Sync runs every 30 minutes, fetching max available data:
+    # - 2 years for detailed data (30min intervals)
+    # - 3 years for daily data
+    #
+    # Export configurations are stored in PostgreSQL, not env variables.
+
+    CLIENT_MODE: bool = False
+
+    # MyElectricalData API credentials (required when CLIENT_MODE=True)
+    MED_API_URL: str = "https://www.v2.myelectricaldata.fr/api"
+    MED_CLIENT_ID: str = ""      # Your client_id from MyElectricalData
+    MED_CLIENT_SECRET: str = ""  # Your client_secret from MyElectricalData
+
     # API Security
     # SECRET_KEY is required in production (no default value for security)
     # In DEBUG mode, a random key is generated if not provided
@@ -104,16 +124,19 @@ class Settings(BaseSettings):
 
         - Production (DEBUG=False): SECRET_KEY is required and must be secure
         - Development (DEBUG=True): Generate a random key if not provided (with warning)
+        - Client Mode (CLIENT_MODE=True): Generate a random key if not provided (local installation)
         """
         insecure_patterns = ["dev-", "changeme", "secret", "password", "test", "example"]
 
         if not self.SECRET_KEY:
-            if self.DEBUG:
-                # Generate random key for development (will change on restart)
+            if self.DEBUG or self.CLIENT_MODE:
+                # Generate random key for development or client mode (will change on restart)
                 object.__setattr__(self, "SECRET_KEY", secrets.token_urlsafe(32))
                 import warnings
+                mode_desc = "client mode" if self.CLIENT_MODE else "development"
                 warnings.warn(
-                    "SECRET_KEY not configured - using random key (sessions will be invalidated on restart). "
+                    f"SECRET_KEY not configured - using random key for {mode_desc} "
+                    "(sessions will be invalidated on restart). "
                     "Set SECRET_KEY environment variable for persistent sessions.",
                     UserWarning,
                     stacklevel=2,

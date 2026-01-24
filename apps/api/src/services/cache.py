@@ -1,8 +1,11 @@
 import json
+import logging
 import redis.asyncio as redis
 from typing import Any, Optional, cast
 from cryptography.fernet import Fernet
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class CacheService:
@@ -11,8 +14,21 @@ class CacheService:
         self.ttl = settings.CACHE_TTL_SECONDS
 
     async def connect(self) -> None:
-        """Connect to Redis"""
-        self.redis_client = await redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=False)
+        """Connect to Redis (graceful failure in client mode without Redis)"""
+        try:
+            self.redis_client = await redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=False)
+            # Test connection
+            await self.redis_client.ping()
+            logger.info("[CACHE] Connected to Redis/Valkey")
+        except Exception as e:
+            if settings.CLIENT_MODE:
+                # In client mode, Redis is optional - we use PostgreSQL for storage
+                logger.info("[CACHE] Redis not available in client mode - using PostgreSQL only")
+                self.redis_client = None
+            else:
+                # In server mode, Redis is required for caching
+                logger.error(f"[CACHE] Failed to connect to Redis: {e}")
+                raise
 
     async def disconnect(self) -> None:
         """Disconnect from Redis"""

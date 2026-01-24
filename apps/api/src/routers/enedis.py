@@ -108,9 +108,13 @@ async def get_adapter_for_user(user: User) -> tuple:
 
 
 async def verify_pdl_ownership(usage_point_id: str, user: User, db: AsyncSession) -> bool:
-    """Verify that the PDL belongs to the current user"""
+    """Verify that the PDL belongs to the current user and is active"""
     result = await db.execute(
-        select(PDL).where(PDL.user_id == user.id, PDL.usage_point_id == usage_point_id)
+        select(PDL).where(
+            PDL.user_id == user.id,
+            PDL.usage_point_id == usage_point_id,
+            PDL.is_active == True  # noqa: E712
+        )
     )
     pdl = result.scalar_one_or_none()
     return pdl is not None

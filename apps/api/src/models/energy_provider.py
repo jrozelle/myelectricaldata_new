@@ -111,17 +111,27 @@ class OfferContribution(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Pricing data (JSON to store all price fields)
-    pricing_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # Legacy format: single dict with all prices
+    # New format: use power_variants instead
+    pricing_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Power variants - New format supporting multiple power levels in one contribution
+    # Format: [{"power_kva": 6, "subscription_price": 12.34}, {"power_kva": 9, "subscription_price": 15.56}, ...]
+    power_variants: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     # HC/HP schedules
     hc_schedules: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    # Power (kVA) - Required as subscription price varies by power
+    # Power (kVA) - Legacy field, kept for backward compatibility
+    # Use power_variants for new contributions
     power_kva: Mapped[int | None] = mapped_column(nullable=True)  # 3, 6, 9, 12, 15, 18, 24, 30, 36 kVA
 
     # Documentation (REQUIRED)
     price_sheet_url: Mapped[str] = mapped_column(String(1024), nullable=False)  # Lien vers la fiche des prix
     screenshot_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)  # Screenshot de la fiche des prix (optionnel)
+
+    # Offer validity date (date de mise en service de l'offre)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Date from which this tariff is valid
 
     # Admin review
     reviewed_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

@@ -1,241 +1,352 @@
----
-sidebar_position: 4
-title: Interface Web
----
-
-# Interface Web
-
-Le client local embarque une interface web complète, reprenant toutes les fonctionnalités de la passerelle MyElectricalData. Accessible depuis votre réseau local, elle vous permet de consulter vos données sans dépendre d'un service cloud.
-
-## Accès
-
-Par défaut, l'interface est accessible sur :
-
-```
-http://localhost:8080
-```
-
-Ou via l'IP de votre machine/container :
-
-```
-http://192.168.1.x:8080
-```
-
-## Pages disponibles
-
-### Dashboard (`/`)
-
-Page d'accueil listant tous vos points de livraison (PDL) récupérés via l'API de la passerelle.
-
-**Fonctionnalités :**
-- Liste des PDL avec leur statut
-- Résumé de consommation/production par PDL
-- Accès rapide aux détails de chaque PDL
-- Indicateur de dernière synchronisation
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Dashboard                                                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  PDL 12345678901234                              [>]    │   │
-│  │  Adresse: 123 Rue Example, 75001 Paris                  │   │
-│  │  Puissance: 6 kVA | Tarif: HC/HP                        │   │
-│  │                                                          │   │
-│  │  Hier: 12.5 kWh        Ce mois: 245 kWh                 │   │
-│  │  Dernière sync: il y a 2h                               │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  PDL 98765432109876                              [>]    │   │
-│  │  Adresse: 456 Avenue Test, 69001 Lyon                   │   │
-│  │  Puissance: 9 kVA | Tarif: TEMPO                        │   │
-│  │  Production solaire: ✓                                   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Consommation kWh (`/consumption_kwh`)
-
-Visualisation détaillée de la consommation en kilowattheures.
-
-**Fonctionnalités :**
-- Graphique journalier/hebdomadaire/mensuel/annuel
-- Détail par tranche horaire (30 min)
-- Répartition HC/HP (si applicable)
-- Export des données (CSV, JSON)
-- Comparaison avec les périodes précédentes
-
-**Filtres disponibles :**
-- Sélection du PDL
-- Période (date de début/fin)
-- Granularité (jour, semaine, mois, année)
-
-### Consommation Euro (`/consumption_euro`)
-
-Consommation convertie en euros selon votre tarif actuel.
-
-**Fonctionnalités :**
-- Coût journalier/hebdomadaire/mensuel/annuel
-- Détail par tranche tarifaire (HC/HP, Tempo bleu/blanc/rouge)
-- Estimation du prochain relevé
-- Comparaison avec les mois précédents
-
-**Tarifs supportés :**
-- Base
-- Heures Creuses / Heures Pleines
-- Tempo (bleu, blanc, rouge × HC/HP)
-- EJP
-
-### Production (`/production`)
-
-Suivi de la production pour les installations avec panneaux solaires.
-
-**Fonctionnalités :**
-- Production journalière/mensuelle/annuelle
-- Graphique de production par tranche horaire
-- Autoconsommation vs injection réseau
-- Rendement par rapport à la capacité installée
-
-:::note
-Cette page n'est visible que si votre PDL dispose de données de production.
-:::
-
-### Bilan (`/bilan`)
-
-Synthèse énergétique complète avec comparatifs.
-
-**Fonctionnalités :**
-- Résumé consommation + production
-- Bilan financier (coût vs revenus injection)
-- Comparaison N / N-1
-- Tendances et prévisions
-- Impact environnemental (équivalent CO2)
-
-### Ecowatt (`/ecowatt`)
-
-Alertes et prévisions du réseau électrique français (données RTE).
-
-**Fonctionnalités :**
-- Signal Ecowatt du jour (vert, orange, rouge)
-- Prévisions sur 4 jours
-- Historique des alertes
-- Conseils d'éco-gestes
-
-### Tempo (`/tempo`)
-
-Couleurs des jours Tempo et historique.
-
-**Fonctionnalités :**
-- Couleur du jour actuel et du lendemain
-- Calendrier avec historique des couleurs
-- Compteur de jours restants par couleur
-- Prix par couleur
-
-### Simulation (`/simulation`)
-
-Simulateur de tarifs et comparaison d'offres.
-
-**Fonctionnalités :**
-- Simulation BASE vs HC/HP vs TEMPO
-- Comparaison de 130+ offres de fournisseurs
-- Calcul basé sur votre consommation réelle
-- Économies potentielles par offre
-- Recommandation personnalisée
-
-### Exporteurs (`/exporters`)
-
-**Nouvelle page** spécifique au client local pour configurer les exports domotiques.
-
-➡️ Voir [Documentation Exporteurs](./exporters)
+# Interface Mode Client
 
 ## Navigation
 
-### Menu principal
+Le mode client propose une navigation simplifiée par rapport au mode serveur.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ [Logo] MyElectricalData Local                                   │
-├─────────────────────────────────────────────────────────────────┤
-│ Dashboard | Consommation ▼ | Production | Bilan | Tempo |       │
-│           | • kWh          |            |       | Ecowatt |     │
-│           | • Euro         |            |       | Simulation |  │
-│                                                  | Exporteurs | │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           NAVIGATION MODE CLIENT                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  🏠 Tableau de bord                                                │     │
+│  │  📊 Consommation                                                   │     │
+│  │     ├─ kWh                                                         │     │
+│  │     └─ Euro                                                        │     │
+│  │  ⚡ Production                                                     │     │
+│  │  📈 Bilan                                                          │     │
+│  │  🎁 Contribuer                                                     │     │
+│  │  🔴 Tempo                                                          │     │
+│  │  🟢 EcoWatt                                                        │     │
+│  │  ───────────────────                                               │     │
+│  │  📤 Exporter                   ← NOUVEAU                           │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│  Pages SUPPRIMÉES (vs mode serveur) :                                       │
+│  ✗ Page d'accueil (landing)                                                 │
+│  ✗ Inscription / Connexion                                                  │
+│  ✗ Administration                                                           │
+│  ✗ Simulateur                                                               │
+│  ✗ FAQ                                                                      │
+│  ✗ Paramètres avancés                                                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Sélecteur de PDL
+---
 
-Présent sur toutes les pages de données, il permet de basculer entre vos différents points de livraison :
+## Différences par page
+
+### Tableau de bord
+
+| Aspect | Mode Serveur | Mode Client |
+|--------|--------------|-------------|
+| Source PDL | Base locale + Enedis | API MyElectricalData |
+| Bouton sync | Actualiser cache | Synchroniser depuis API |
+| Statut consent | Affiché | Masqué (géré côté serveur) |
+| Actions PDL | CRUD complet | Lecture seule |
+
+**Mode client** : Affiche uniquement les PDL autorisés sur le compte MyElectricalData distant.
+
+```tsx
+// Dashboard mode client
+<Dashboard>
+  <Header>
+    <h1>Tableau de bord</h1>
+    <SyncButton onClick={syncFromApi}>
+      🔄 Synchroniser
+    </SyncButton>
+  </Header>
+
+  <LastSyncInfo>
+    Dernière synchronisation : {lastSync}
+  </LastSyncInfo>
+
+  <PDLGrid>
+    {pdls.map(pdl => (
+      <PDLCard key={pdl.id} pdl={pdl} readOnly />
+    ))}
+  </PDLGrid>
+</Dashboard>
+```
+
+### Consommation (kWh)
+
+| Aspect | Mode Serveur | Mode Client |
+|--------|--------------|-------------|
+| Source données | Cache Valkey (24h) | PostgreSQL local (indéfini) |
+| Historique | Limité par cache | Complet depuis 1ère sync |
+| Performance | Requête Enedis si miss | Toujours local |
+
+**Mode client** : Les données sont persistées indéfiniment. Pas de rechargement depuis Enedis.
+
+### Consommation (Euro)
+
+| Aspect | Mode Serveur | Mode Client |
+|--------|--------------|-------------|
+| Calcul prix | Temps réel | Temps réel |
+| Offres | Scraping + admin | Configuration locale |
+| Historique | Selon cache | Complet |
+
+**Mode client** : Les offres tarifaires sont configurées localement ou récupérées depuis l'API.
+
+### Production
+
+Comportement identique à la consommation, avec stockage local indéfini.
+
+### Bilan
+
+Synthèse calculée à partir des données locales PostgreSQL.
+
+### Contribuer
+
+| Aspect | Mode Serveur | Mode Client |
+|--------|--------------|-------------|
+| Destination | Base locale | API MyElectricalData distante |
+| Validation | Immédiate | Après envoi à l'API |
+
+**Mode client** : Les contributions sont envoyées vers l'API centrale pour bénéficier à la communauté.
+
+### Tempo
+
+| Aspect | Mode Serveur | Mode Client |
+|--------|--------------|-------------|
+| Source | API RTE directe | API MyElectricalData |
+| Stockage | Cache Valkey | PostgreSQL local |
+| Historique | J-1 à J+1 | Complet (années précédentes) |
+
+### EcoWatt
+
+| Aspect | Mode Serveur | Mode Client |
+|--------|--------------|-------------|
+| Source | API RTE directe | API MyElectricalData |
+| Stockage | Cache Valkey | PostgreSQL local |
+| Alertes | Temps réel | Selon sync |
+
+### Exporter (NOUVEAU)
+
+Page exclusive au mode client pour configurer les destinations d'export.
+
+Voir [documentation détaillée](./exporters.md).
+
+---
+
+## Composants modifiés
+
+### Header
+
+```tsx
+// Mode serveur
+<Header>
+  <Logo />
+  <Navigation />
+  <UserMenu>
+    <Avatar />
+    <Dropdown>
+      <MenuItem>Profil</MenuItem>
+      <MenuItem>Paramètres</MenuItem>
+      <MenuItem>Déconnexion</MenuItem>
+    </Dropdown>
+  </UserMenu>
+</Header>
+
+// Mode client (simplifié)
+<Header>
+  <Logo />
+  <Navigation />
+  <SyncStatus>
+    Dernière sync: {lastSync}
+  </SyncStatus>
+</Header>
+```
+
+### Sidebar
+
+```tsx
+// Mode client - menu réduit
+const clientMenuItems = [
+  { path: '/dashboard', icon: Home, label: 'Tableau de bord' },
+  { path: '/consumption', icon: Zap, label: 'Consommation', submenu: [
+    { path: '/consumption', label: 'kWh' },
+    { path: '/consumption/euro', label: 'Euro' },
+  ]},
+  { path: '/production', icon: Sun, label: 'Production' },
+  { path: '/bilan', icon: BarChart, label: 'Bilan' },
+  { path: '/contribute', icon: Gift, label: 'Contribuer' },
+  { path: '/tempo', icon: Palette, label: 'Tempo' },
+  { path: '/ecowatt', icon: Leaf, label: 'EcoWatt' },
+  { type: 'separator' },
+  { path: '/export', icon: Upload, label: 'Exporter' },  // NOUVEAU
+];
+```
+
+### PDLCard
+
+```tsx
+// Mode client - lecture seule
+<PDLCard readOnly>
+  <PDLHeader>
+    <PDLName>{pdl.name}</PDLName>
+    <PDLId>{pdl.usage_point_id}</PDLId>
+  </PDLHeader>
+
+  <PDLStats>
+    <Stat label="Consommation" value={consumption} />
+    <Stat label="Production" value={production} />
+  </PDLStats>
+
+  {/* Pas de boutons d'édition/suppression */}
+</PDLCard>
+```
+
+---
+
+## Routes
+
+### Définition
+
+```typescript
+// apps/web/src/routes/client.tsx
+
+import { createBrowserRouter, Navigate } from 'react-router-dom';
+
+export const clientRouter = createBrowserRouter([
+  {
+    path: '/',
+    element: <ClientLayout />,
+    children: [
+      // Redirection racine → dashboard
+      { index: true, element: <Navigate to="/dashboard" replace /> },
+
+      // Pages principales
+      { path: 'dashboard', element: <Dashboard /> },
+      { path: 'consumption', element: <ConsumptionKwh /> },
+      { path: 'consumption/euro', element: <ConsumptionEuro /> },
+      { path: 'production', element: <Production /> },
+      { path: 'bilan', element: <Bilan /> },
+      { path: 'contribute', element: <Contribute /> },
+      { path: 'tempo', element: <Tempo /> },
+      { path: 'ecowatt', element: <Ecowatt /> },
+      { path: 'export', element: <Export /> },
+
+      // Catch-all → dashboard
+      { path: '*', element: <Navigate to="/dashboard" replace /> },
+    ],
+  },
+]);
+```
+
+### Comparaison
 
 ```
-┌─────────────────────────────────┐
-│ PDL: [12345678901234      ▼]   │
-│      ┌─────────────────────┐   │
-│      │ 12345678901234      │   │
-│      │ 98765432109876      │   │
-│      └─────────────────────┘   │
-└─────────────────────────────────┘
+MODE SERVEUR                    MODE CLIENT
+────────────────────────        ────────────────────────
+/                               / → /dashboard (redirect)
+/signup                         ✗
+/login                          ✗
+/oauth/callback                 ✗
+/dashboard                      /dashboard
+/consumption                    /consumption
+/consumption/euro               /consumption/euro
+/production                     /production
+/bilan                          /bilan
+/contribute                     /contribute
+/tempo                          /tempo
+/ecowatt                        /ecowatt
+/simulator                      ✗
+/faq                            ✗
+/settings                       ✗
+/admin/*                        ✗
+                                /export ← NOUVEAU
 ```
 
-### Sélecteur de période
+---
 
-Disponible sur les pages de consommation/production :
+## État global (Zustand)
 
+### Mode serveur
+
+```typescript
+// authStore - authentification complète
+interface AuthState {
+  user: User | null;
+  token: string | null;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+  refreshToken: () => Promise<void>;
+}
 ```
-┌───────────────────────────────────────────────────────────┐
-│ Période: [Jour] [Semaine] [Mois] [Année] [Personnalisé]  │
-│                                                           │
-│ Du: [15/01/2024]  Au: [15/01/2024]                       │
-└───────────────────────────────────────────────────────────┘
+
+### Mode client
+
+```typescript
+// syncStore - état de synchronisation
+interface SyncState {
+  lastSync: Date | null;
+  isSyncing: boolean;
+  syncProgress: number;
+  syncError: string | null;
+  sync: () => Promise<void>;
+}
+
+// exportStore - configuration exports
+interface ExportState {
+  configs: ExportConfig[];
+  logs: ExportLog[];
+  loadConfigs: () => Promise<void>;
+  saveConfig: (config: ExportConfig) => Promise<void>;
+  testConnection: (type: string) => Promise<boolean>;
+  runExport: (type: string) => Promise<void>;
+}
 ```
 
-## Thème sombre
-
-L'interface supporte le mode sombre, activable via l'icône en haut à droite ou automatiquement selon les préférences système.
+---
 
 ## Responsive
 
-L'interface est entièrement responsive et s'adapte aux écrans mobiles, tablettes et desktop.
+Le mode client conserve le même comportement responsive que le mode serveur :
 
-## Configuration
+| Breakpoint | Sidebar | Layout |
+|------------|---------|--------|
+| < 768px | Masquée (hamburger) | Mobile |
+| 768px - 1024px | Icônes seules | Tablet |
+| > 1024px | Complète | Desktop |
 
-### Port personnalisé
+---
 
-```yaml
-server:
-  port: 8080  # Port par défaut
-  host: "0.0.0.0"  # Écoute sur toutes les interfaces
+## Theme
+
+Le mode client supporte le dark mode avec les mêmes variables CSS.
+
+```css
+/* Identique au mode serveur */
+:root {
+  --primary-600: #0284c7;
+  --gray-800: #1f2937;
+  /* ... */
+}
+
+.dark {
+  --primary-600: #38bdf8;
+  --gray-800: #f3f4f6;
+  /* ... */
+}
 ```
 
-### Authentification (optionnelle)
+---
 
-```yaml
-server:
-  auth:
-    enabled: true
-    username: "admin"
-    password: "secret"
+## Build conditionnel
+
+Le frontend peut être buildé en mode client ou serveur :
+
+```bash
+# Build mode serveur (défaut)
+npm run build
+
+# Build mode client
+CLIENT_MODE=true npm run build
 ```
 
-### HTTPS
-
-```yaml
-server:
-  https:
-    enabled: true
-    cert: "/config/certs/cert.pem"
-    key: "/config/certs/key.pem"
-```
-
-## Différences avec la passerelle
-
-| Fonctionnalité | Passerelle | Client Local |
-|----------------|------------|--------------|
-| Gestion des comptes | ✓ | ✗ (utilise les identifiants API) |
-| Consentement Enedis | ✓ | ✗ (déjà fait via la passerelle) |
-| Page Exporteurs | ✗ | ✓ |
-| Accès multi-utilisateurs | ✓ | Optionnel (auth locale) |
-| Stockage données | Cloud | Local |
+Le tree-shaking supprime automatiquement les composants non utilisés (admin, auth, etc.).

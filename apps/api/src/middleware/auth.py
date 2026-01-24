@@ -50,6 +50,13 @@ async def get_current_user(
     # Priority order: httpOnly cookie > Bearer header > OAuth2 token
     token = None
 
+    # CLIENT MODE: Auto-authenticate as local user (no token required)
+    if settings.CLIENT_MODE:
+        from ..services.client_auth import get_or_create_local_user
+        local_user = await get_or_create_local_user(db)
+        logger.debug(f"[AUTH] Client mode: auto-authenticated as {local_user.email}")
+        return local_user
+
     # 1. Try httpOnly cookie first (most secure for browser clients)
     cookie_token = request.cookies.get("access_token")
     if cookie_token:

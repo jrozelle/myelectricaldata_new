@@ -30,7 +30,7 @@ Toutes les fonctionnalites specifiees sont implementees et operationnelles.
 
 ## Structure du dossier
 
-```
+```text
 apps/web/src/pages/ConsumptionKwh/
 ├── index.tsx                           # Page principale
 ├── components/

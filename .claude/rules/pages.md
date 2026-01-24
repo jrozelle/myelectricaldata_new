@@ -17,8 +17,8 @@ Chaque page dans `apps/web/src/pages/` doit avoir une documentation correspondan
 
 ## Structure
 
-| Page | Documentation |
-|------|---------------|
-| `apps/web/src/pages/Dashboard.tsx` | `docs/pages/dashboard.md` |
-| `apps/web/src/pages/Consumption/` | `docs/pages/consumption.md` |
+| Page                                 | Documentation               |
+| ------------------------------------ | --------------------------- |
+| `apps/web/src/pages/Dashboard.tsx`   | `docs/pages/dashboard.md`   |
+| `apps/web/src/pages/Consumption/`    | `docs/pages/consumption.md` |
 | `apps/web/src/pages/Admin/Users.tsx` | `docs/pages/admin-users.md` |

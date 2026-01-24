@@ -15,18 +15,31 @@ from .models.database import init_db
 from .routers import (
     accounts_router,
     admin_router,
+    consumption_france_router,
     ecowatt_router,
     enedis_router,
     energy_offers_router,
+    generation_forecast_router,
     logs_router,
     oauth_router,
     pdl_router,
     roles_router,
     tempo_router,
 )
+from .routers.admin_rte import router as admin_rte_router
 from .schemas import APIResponse, ErrorDetail, HealthCheckResponse
 from .services import cache_service
 from .services.scheduler import start_background_tasks
+
+# Client mode imports (only when CLIENT_MODE is enabled)
+if settings.CLIENT_MODE:
+    from .routers.sync import router as sync_router
+    from .routers.export import router as export_router
+    from .routers.accounts_client import router as accounts_client_router
+    from .routers.enedis_client import router as enedis_client_router
+    from .scheduler import scheduler as sync_scheduler
+    from .services.client_auth import get_or_create_local_user
+    from .models.database import async_session_maker
 
 logger = logging.getLogger(__name__)
 
@@ -41,18 +54,43 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Setup logging with Redis support (after cache_service is connected)
     setup_logging(debug_sql=settings.DEBUG_SQL, cache_service=cache_service, redis_url=settings.REDIS_URL)
 
-    # Start background tasks (TEMPO cache refresh, etc.)
-    start_background_tasks()
+    # Start background tasks (TEMPO cache refresh, etc.) - SERVER MODE ONLY
+    # In client mode, sync_scheduler handles this via SyncService (gateway-based)
+    if not settings.CLIENT_MODE:
+        start_background_tasks()
+
+    # Start sync scheduler in client mode
+    if settings.CLIENT_MODE:
+        # Initialize local user for client mode
+        async with async_session_maker() as db:
+            local_user = await get_or_create_local_user(db)
+            logger.info(f"👤 Client Mode: Local user ready ({local_user.email})")
+
+            # Sync PDL list from remote API at startup
+            try:
+                from .services.sync import SyncService
+                sync_service = SyncService(db)
+                synced_pdls = await sync_service.sync_pdl_list(local_user.id)
+                logger.info(f"📥 Client Mode: Synced {len(synced_pdls)} PDLs from remote API")
+            except Exception as e:
+                logger.warning(f"⚠️ Client Mode: Failed to sync PDL list at startup: {e}")
+
+        sync_scheduler.start()
+        logger.info("🔄 Client Mode: Sync scheduler started (every 30 minutes)")
 
     # Print configuration in debug mode
     if settings.DEBUG:
         logger.info("=" * 60)
         logger.info("🔧 API Configuration (DEBUG MODE)")
         logger.info("=" * 60)
+        logger.info(f"Mode: {'CLIENT' if settings.CLIENT_MODE else 'SERVER'}")
         logger.info(f"Frontend URL: {settings.FRONTEND_URL}")
         logger.info(f"Backend URL: {settings.BACKEND_URL}")
-        logger.info(f"Enedis Environment: {settings.ENEDIS_ENVIRONMENT}")
-        logger.info(f"Enedis Redirect URI: {settings.ENEDIS_REDIRECT_URI}")
+        if not settings.CLIENT_MODE:
+            logger.info(f"Enedis Environment: {settings.ENEDIS_ENVIRONMENT}")
+            logger.info(f"Enedis Redirect URI: {settings.ENEDIS_REDIRECT_URI}")
+        else:
+            logger.info(f"MyElectricalData API: {settings.MED_API_URL}")
         logger.info(f"Email Verification: {settings.REQUIRE_EMAIL_VERIFICATION}")
         logger.info(f"Captcha Required: {settings.REQUIRE_CAPTCHA}")
         logger.info(f"API Host: {settings.API_HOST}:{settings.API_PORT}")
@@ -61,6 +99,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
+    if settings.CLIENT_MODE:
+        sync_scheduler.stop()
     await cache_service.disconnect()
     await enedis_adapter.close()
 
@@ -112,6 +152,8 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
     "localhost",
     "127.0.0.1",
     "backend",
+    "backend-client",  # Client mode Docker service name
+    "host.docker.internal",  # Allow client mode to connect to server mode locally
 ])
 
 # CORS middleware - explicit origins required for credentials (httpOnly cookies)
@@ -132,9 +174,13 @@ def get_cors_origins() -> list[str]:
             "http://localhost:3000",
             "http://localhost:8000",
             "http://localhost:8081",
+            "http://localhost:8100",  # Client mode frontend
+            "http://localhost:8181",  # Client mode backend
             "http://127.0.0.1:3000",
             "http://127.0.0.1:8000",
             "http://127.0.0.1:8081",
+            "http://127.0.0.1:8100",
+            "http://127.0.0.1:8181",
         ])
     # Remove duplicates while preserving order
     return list(dict.fromkeys(origins))
@@ -240,17 +286,34 @@ async def health_check() -> HealthCheckResponse:
     return HealthCheckResponse()
 
 
-# Include routers
-app.include_router(accounts_router)
-app.include_router(pdl_router)
-app.include_router(oauth_router)
-app.include_router(enedis_router)
-app.include_router(admin_router)
-app.include_router(energy_offers_router)
-app.include_router(tempo_router)
-app.include_router(ecowatt_router)
-app.include_router(roles_router)
-app.include_router(logs_router)
+# Include routers based on mode
+if settings.CLIENT_MODE:
+    # Client mode: sync, export, accounts, enedis proxy, and shared routers
+    app.include_router(accounts_client_router)
+    app.include_router(sync_router)
+    app.include_router(export_router)
+    app.include_router(enedis_client_router)  # Proxy to MyElectricalData gateway
+    app.include_router(pdl_router)
+    app.include_router(tempo_router)
+    app.include_router(ecowatt_router)
+    app.include_router(energy_offers_router)
+    app.include_router(consumption_france_router)  # France national data via gateway
+    app.include_router(generation_forecast_router)  # Renewable generation via gateway
+else:
+    # Server mode: all routers
+    app.include_router(accounts_router)
+    app.include_router(pdl_router)
+    app.include_router(oauth_router)
+    app.include_router(enedis_router)
+    app.include_router(admin_router)
+    app.include_router(energy_offers_router)
+    app.include_router(tempo_router)
+    app.include_router(ecowatt_router)
+    app.include_router(consumption_france_router)
+    app.include_router(generation_forecast_router)
+    app.include_router(roles_router)
+    app.include_router(logs_router)
+    app.include_router(admin_rte_router)
 
 
 # Root endpoint

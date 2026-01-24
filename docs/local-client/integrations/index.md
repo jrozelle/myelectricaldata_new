@@ -1,130 +1,82 @@
----
-sidebar_position: 1
-title: Intégrations
----
+# Intégrations
 
-# Intégrations domotiques
+Le mode client de MyElectricalData supporte l'export vers plusieurs plateformes domotiques et de monitoring.
 
-Le client local MyElectricalData peut s'intégrer avec de nombreuses solutions domotiques pour exposer vos données de consommation et production électrique.
+## Destinations disponibles
 
-## Intégrations natives
+| Destination | Type | Description |
+|-------------|------|-------------|
+| [Home Assistant](./home-assistant.md) | Domotique | Plateforme domotique open-source |
+| [MQTT](./mqtt.md) | Protocole | Broker de messages IoT |
+| [VictoriaMetrics](./victoriametrics.md) | Time-series DB | Base de données métriques |
+| [Jeedom](./jeedom.md) | Domotique | Solution domotique française |
 
-| Solution | Méthode | Documentation |
-|----------|---------|---------------|
-| **Home Assistant** | MQTT Discovery | [Guide complet](./home-assistant) |
-| **MQTT** | Broker MQTT | [Configuration](./mqtt) |
-| **VictoriaMetrics / Prometheus** | Métriques | [Export métriques](./victoriametrics) |
-| **Jeedom** | API / Plugin Virtuel | [Intégration](./jeedom) |
+## Architecture commune
 
-## Intégrations via MQTT
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        FLUX D'EXPORT                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────┐               │
+│  │ PostgreSQL  │────▶│ Exporter    │────▶│ Destination     │               │
+│  │ (données)   │     │ Service     │     │ (HA/MQTT/VM/JD) │               │
+│  └─────────────┘     └─────────────┘     └─────────────────┘               │
+│                            │                                                │
+│                            ▼                                                │
+│                      ┌─────────────┐                                        │
+│                      │ Export Logs │                                        │
+│                      └─────────────┘                                        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-Toute solution supportant MQTT peut recevoir les données :
+## Données exportables
 
-| Solution | Plugin/Méthode |
-|----------|----------------|
-| Domoticz | MQTT Client Gateway |
-| OpenHAB | MQTT Binding |
-| Gladys | Service MQTT natif |
-| Node-RED | node-red-contrib-mqtt |
-| Homey | MQTT Hub |
+| Donnée | Format | Fréquence |
+|--------|--------|-----------|
+| Consommation journalière | Wh / kWh | Quotidien |
+| Consommation mensuelle | Wh / kWh | Quotidien |
+| Production journalière | Wh / kWh | Quotidien |
+| Tempo couleur | BLEU/BLANC/ROUGE | Quotidien |
+| Tempo J+1 | BLEU/BLANC/ROUGE | Quotidien (après 11h) |
+| EcoWatt niveau | 1/2/3 | Horaire |
 
-➡️ [Voir les autres intégrations](./autres)
+## Configuration commune
 
-## Intégrations via API REST
-
-Le client expose une API REST locale sur le port 8080 :
+Toutes les intégrations partagent les paramètres suivants :
 
 ```bash
-# Consommation du jour
-curl http://localhost:8080/api/consumption/daily
+# Activer/désactiver l'export automatique
+{DESTINATION}_ENABLED=true
 
-# Production du jour
-curl http://localhost:8080/api/production/daily
+# Intervalle d'export en minutes (défaut: 60)
+{DESTINATION}_INTERVAL=60
 
-# Statut
-curl http://localhost:8080/api/status
+# Données à exporter (liste séparée par virgules)
+{DESTINATION}_EXPORT_DATA=consumption_daily,production_daily,tempo,ecowatt
 ```
 
-Compatible avec :
-- Scripts personnalisés (Python, JavaScript, etc.)
-- Node-RED
-- n8n / Zapier / Make
-- Tout système supportant les requêtes HTTP
+## Test de connexion
 
-## Intégrations via métriques Prometheus
+Chaque intégration peut être testée avant activation :
 
-Pour les systèmes de monitoring :
+```bash
+# Via API
+curl -X POST http://localhost:8181/api/export/configs/{destination}/test
 
-| Système | Compatibilité |
-|---------|---------------|
-| VictoriaMetrics | Scraping + Push |
-| Prometheus | Scraping |
-| Grafana | Via datasource |
-| InfluxDB | Via Telegraf |
-
-➡️ [Configuration VictoriaMetrics](./victoriametrics)
-
-## Choix de l'intégration
-
-```mermaid
-graph TD
-    A[Client Local] --> B{Quelle solution?}
-
-    B -->|Home Assistant| C[MQTT Discovery]
-    B -->|Jeedom| D[API ou MQTT]
-    B -->|Monitoring| E[Prometheus/VictoriaMetrics]
-    B -->|Autre domotique| F[MQTT ou REST API]
-
-    C --> G[Entités automatiques]
-    D --> H[Plugin Virtuel]
-    E --> I[Grafana Dashboards]
-    F --> J[Configuration manuelle]
+# Via CLI
+docker compose -f docker-compose.client.yml exec backend-client \
+  python -m scripts.test_export --destination home_assistant
 ```
 
-### Home Assistant
+## Logs et debugging
 
-**Recommandé** si vous utilisez Home Assistant. L'intégration via MQTT Discovery crée automatiquement :
-- Entités sensor pour consommation/production
-- Compatibilité Energy Dashboard
-- Long-term statistics
+```bash
+# Voir les logs d'export
+docker compose -f docker-compose.client.yml logs backend-client | grep export
 
-### Jeedom
-
-Plusieurs options disponibles :
-- Plugin Virtuel avec commandes info
-- API JSON RPC directe
-- MQTT via jMQTT
-
-### Monitoring (Grafana)
-
-Pour des dashboards avancés et une historisation longue durée :
-- VictoriaMetrics ou Prometheus pour le stockage
-- Grafana pour la visualisation
-- Alerting intégré
-
-### Autres solutions
-
-Via MQTT ou API REST :
-- Domoticz, OpenHAB, Gladys
-- Node-RED pour des flux personnalisés
-- Scripts et automatisations custom
-
-## Combinaison d'intégrations
-
-Vous pouvez activer plusieurs intégrations simultanément :
-
-```yaml
-home_assistant:
-  enabled: true
-
-mqtt:
-  enabled: true
-
-metrics:
-  enabled: true
-
-jeedom:
-  enabled: false
+# Historique des exports en base
+docker compose -f docker-compose.client.yml exec postgres-client \
+  psql -U client -c "SELECT * FROM export_logs ORDER BY started_at DESC LIMIT 10;"
 ```
-
-Exemple : Envoyer les données à Home Assistant ET à VictoriaMetrics pour avoir à la fois l'interface domotique et des dashboards Grafana avancés.

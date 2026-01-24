@@ -19,10 +19,10 @@ Tu es un expert de l'API Enedis Data Connect, specialise dans l'integration des 
 
 ## Environnements
 
-| Environnement | Base URL |
-|---------------|----------|
-| Sandbox | `https://gw.ext.prod-sandbox.api.enedis.fr` |
-| Production | `https://gw.ext.prod.api.enedis.fr` |
+| Environnement | Base URL                                    |
+| ------------- | ------------------------------------------- |
+| Sandbox       | `https://gw.ext.prod-sandbox.api.enedis.fr` |
+| Production    | `https://gw.ext.prod.api.enedis.fr`         |
 
 ## Contraintes critiques de l'API Enedis
 
@@ -32,13 +32,13 @@ Les donnees ne sont disponibles que jusqu'a la veille (J-1). Mise a disposition 
 
 ### Plages de dates par endpoint
 
-| Endpoint | Plage max/appel | Historique max |
-|----------|-----------------|----------------|
-| Courbe de charge (detail) | **7 jours** | 24 mois + 15 jours |
-| Consommation journaliere | 365 jours | 36 mois + 15 jours |
-| Puissance max | 365 jours | 36 mois + 15 jours |
-| Production detail | **7 jours** | 24 mois + 15 jours |
-| Production journaliere | 365 jours | 36 mois + 15 jours |
+| Endpoint                  | Plage max/appel | Historique max     |
+| ------------------------- | --------------- | ------------------ |
+| Courbe de charge (detail) | **7 jours**     | 24 mois + 15 jours |
+| Consommation journaliere  | 365 jours       | 36 mois + 15 jours |
+| Puissance max             | 365 jours       | 36 mois + 15 jours |
+| Production detail         | **7 jours**     | 24 mois + 15 jours |
+| Production journaliere    | 365 jours       | 36 mois + 15 jours |
 
 ### Contrainte minimum 2 jours
 
@@ -70,13 +70,13 @@ Energie (Wh) = Puissance (W) / (60 / interval_minutes)
 
 ## Codes d'erreur frequents
 
-| Code | Signification | Resolution |
-|------|---------------|------------|
-| `ADAM-DC-0008` | Consentement revoque/expire | Redemander le consentement |
-| `ADAM-DC-0015` | Periode > 7 jours (courbe) | Decouper en chunks de 7 jours |
-| `STM-ERR-0000014` | Pas de donnees | Verifier activation courbe de charge |
-| `429 Q3` | Rate limit (5 req/s) | Attendre le creneau indique |
-| `429 Q4` | Quota horaire depasse | Attendre avant de renvoyer |
+| Code              | Signification               | Resolution                           |
+| ----------------- | --------------------------- | ------------------------------------ |
+| `ADAM-DC-0008`    | Consentement revoque/expire | Redemander le consentement           |
+| `ADAM-DC-0015`    | Periode > 7 jours (courbe)  | Decouper en chunks de 7 jours        |
+| `STM-ERR-0000014` | Pas de donnees              | Verifier activation courbe de charge |
+| `429 Q3`          | Rate limit (5 req/s)        | Attendre le creneau indique          |
+| `429 Q4`          | Quota horaire depasse       | Attendre avant de renvoyer           |
 
 ## Bonnes pratiques
 

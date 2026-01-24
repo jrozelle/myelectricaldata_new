@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Home, LogOut, Moon, Sun, Heart, Shield, BookOpen, Calculator, Users, Menu, X, Calendar, ChevronLeft, ChevronRight, HelpCircle, UserCircle, Zap, TrendingUp, Trash2, Scale, ChevronDown, Euro, MessageCircle } from 'lucide-react'
+import { Home, LogOut, Moon, Sun, Heart, Shield, BookOpen, Calculator, Users, Menu, X, Calendar, ChevronLeft, ChevronRight, HelpCircle, UserCircle, Zap, TrendingUp, Trash2, Scale, ChevronDown, Euro, Activity, Database, Radio } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
+import { useAppMode } from '@/hooks/useAppMode'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useThemeStore } from '@/stores/themeStore'
 import { useState, useEffect } from 'react'
@@ -9,6 +10,7 @@ import AdminTabs from './AdminTabs'
 import ApiDocsTabs from './ApiDocsTabs'
 import ConsumptionTabs from './ConsumptionTabs'
 import ContributeTabs from './ContributeTabs'
+import DonationModal from './DonationModal'
 import PageHeader from './PageHeader'
 import { PageTransition } from './PageTransition'
 import { SEO } from './SEO'
@@ -21,6 +23,7 @@ import { infoApi } from '@/api/info'
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth()
   const { canAccessAdmin } = usePermissions()
+  const { isClientMode, isServerMode } = useAppMode()
   const { isDark, toggleTheme } = useThemeStore()
   const location = useLocation()
   const seoProps = useSEO()
@@ -33,37 +36,38 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [isClearingCache, setIsClearingCache] = useState(false)
   const [consumptionMenuOpen, setConsumptionMenuOpen] = useState(false)
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
+  const [showDonationModal, setShowDonationModal] = useState(false)
   const queryClient = useQueryClient()
 
-  // Fetch unread contributions count for regular users
+  // Fetch unread contributions count for regular users (server mode only)
   const { data: unreadContributionsData } = useQuery({
     queryKey: ['unread-contributions-count'],
     queryFn: async () => {
       const response = await energyApi.getUnreadContributionsCount()
       return response.data as { unread_count: number }
     },
-    enabled: !!user,
+    enabled: isServerMode && !!user,
     refetchInterval: 30000, // Refresh every 30 seconds
     staleTime: 0,
   })
 
-  // Fetch pending contributions count for admins
+  // Fetch pending contributions count for admins (server mode only)
   const { data: adminStatsData } = useQuery({
     queryKey: ['admin-contribution-stats'],
     queryFn: async () => {
       const response = await energyApi.getContributionStats()
       return response.data as { pending_count: number, approved_this_month: number, rejected_count: number, approved_count: number }
     },
-    enabled: !!user && canAccessAdmin(),
+    enabled: isServerMode && !!user && canAccessAdmin(),
     refetchInterval: 30000,
     staleTime: 0,
   })
 
-  // Fetch backend version (only for admins)
+  // Fetch backend version (only for admins in server mode)
   const { data: backendInfo } = useQuery({
     queryKey: ['backend-info'],
     queryFn: () => infoApi.getInfo(),
-    enabled: !!user && canAccessAdmin(),
+    enabled: isServerMode && !!user && canAccessAdmin(),
     staleTime: 60000, // Cache for 1 minute
   })
 
@@ -85,15 +89,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   }, [location.pathname])
 
-  // Menu items
+  // Menu items - differ based on app mode
+  // serverOnly: true = visible uniquement en mode serveur
   const menuItems = [
     { to: '/dashboard', icon: Home, label: 'Tableau de bord' },
     { to: '/production', icon: Sun, label: 'Production' },
     { to: '/balance', icon: Scale, label: 'Bilan' },
-    { to: '/simulator', icon: Calculator, label: 'Simulateur' },
-    { to: '/contribute', icon: Users, label: 'Contribuer', badgeCount: unreadContributionsCount },
+    { to: '/simulator', icon: Calculator, label: 'Simulateur', serverOnly: true },
+    { to: '/contribute', icon: Users, label: 'Contribuer', serverOnly: true, hasBadge: true },
     { to: '/tempo', icon: Calendar, label: 'Tempo' },
     { to: '/ecowatt', icon: Zap, label: 'EcoWatt' },
+    { to: '/france', icon: Activity, label: 'France' },
   ]
 
   // Consumption submenu items
@@ -106,6 +112,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const adminSubItems = [
     { to: '/admin', label: 'Tableau de bord' },
     { to: '/admin/users', label: 'Utilisateurs' },
+    { to: '/admin/rte', label: 'API RTE' },
     { to: '/admin/tempo', label: 'Tempo' },
     { to: '/admin/ecowatt', label: 'EcoWatt' },
     { to: '/admin/contributions', label: 'Contributions', badgeCount: pendingContributionsCount },
@@ -303,46 +310,50 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* Other menu items */}
-            {menuItems.filter(item => item.to !== '/dashboard').map((item) => {
-              const isActive = location.pathname === item.to
-              const hasBadge = item.badgeCount !== undefined && item.badgeCount > 0
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors relative ${
-                    isActive
-                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                  title={sidebarCollapsed ? item.label : ''}
-                  data-tour={item.to === '/simulator' ? 'nav-simulator' :
-                            item.to === '/contribute' ? 'nav-contribute' : undefined}
-                >
-                  <div className="relative">
-                    <item.icon size={20} className="flex-shrink-0" />
-                    {hasBadge && sidebarCollapsed && (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
-                        {item.badgeCount > 9 ? '9+' : item.badgeCount}
-                      </span>
-                    )}
-                  </div>
-                  {!sidebarCollapsed && (
-                    <>
-                      <span className="font-medium">{item.label}</span>
-                      {hasBadge && (
-                        <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-bold text-white">
-                          {item.badgeCount > 99 ? '99+' : item.badgeCount}
+            {menuItems
+              .filter(item => item.to !== '/dashboard')
+              .filter(item => !item.serverOnly || isServerMode)
+              .map((item) => {
+                const isActive = item.to === '/contribute'
+                  ? location.pathname.startsWith('/contribute')
+                  : location.pathname === item.to
+                const showBadge = item.hasBadge && unreadContributionsCount > 0
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors relative ${
+                      isActive
+                        ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                    title={sidebarCollapsed ? item.label : ''}
+                    data-tour={item.to === '/simulator' ? 'nav-simulator' : item.to === '/contribute' ? 'nav-contribute' : undefined}
+                  >
+                    <div className="relative">
+                      <item.icon size={20} className="flex-shrink-0" />
+                      {showBadge && sidebarCollapsed && (
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
+                          {unreadContributionsCount > 9 ? '9+' : unreadContributionsCount}
                         </span>
                       )}
-                    </>
-                  )}
-                </Link>
-              )
-            })}
+                    </div>
+                    {!sidebarCollapsed && (
+                      <>
+                        <span className="font-medium">{item.label}</span>
+                        {showBadge && (
+                          <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-bold text-white">
+                            {unreadContributionsCount > 99 ? '99+' : unreadContributionsCount}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </Link>
+                )
+              })}
 
-            {/* Admin Link */}
-            {canAccessAdmin() && (
+            {/* Admin Link - Server mode only */}
+            {isServerMode && canAccessAdmin() && (
               <>
                 <div className="border-t border-gray-300 dark:border-gray-600 my-2" />
                 <div className="relative">
@@ -422,25 +433,68 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </button>
               </>
             )}
+
+            {/* Export Links - Client mode only */}
+            {isClientMode && (
+              <>
+                <div className="border-t border-gray-300 dark:border-gray-600 my-2" />
+                <Link
+                  to="/home-assistant"
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                    location.pathname === '/home-assistant'
+                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                  title={sidebarCollapsed ? 'Home Assistant' : ''}
+                >
+                  <Home size={20} className="flex-shrink-0" />
+                  {!sidebarCollapsed && <span className="font-medium">Home Assistant</span>}
+                </Link>
+                <Link
+                  to="/mqtt"
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                    location.pathname === '/mqtt'
+                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                  title={sidebarCollapsed ? 'MQTT' : ''}
+                >
+                  <Radio size={20} className="flex-shrink-0" />
+                  {!sidebarCollapsed && <span className="font-medium">MQTT</span>}
+                </Link>
+                <Link
+                  to="/victoriametrics"
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                    location.pathname === '/victoriametrics'
+                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                  title={sidebarCollapsed ? 'VictoriaMetrics' : ''}
+                >
+                  <Database size={20} className="flex-shrink-0" />
+                  {!sidebarCollapsed && <span className="font-medium">VictoriaMetrics</span>}
+                </Link>
+              </>
+            )}
           </div>
         </nav>
 
         {/* Bottom Actions */}
         <div className="border-t border-gray-300 dark:border-gray-700 p-2 space-y-1">
-          {/* Donation Button */}
-          <a
-            href="https://www.paypal.com/donate/?business=FY25JLXDYLXAJ&no_recurring=0&currency_code=EUR"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-md bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white transition-all ${sidebarCollapsed ? 'justify-center' : ''}`}
-            title={sidebarCollapsed ? 'Faire un don' : ''}
-          >
-            <Heart size={20} className="flex-shrink-0 fill-current" />
-            {!sidebarCollapsed && <span className="font-medium">Faire un don</span>}
-          </a>
+          {/* Donation Button - Server mode only */}
+          {isServerMode && (
+            <button
+              onClick={() => setShowDonationModal(true)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white transition-all ${sidebarCollapsed ? 'justify-center' : ''}`}
+              title={sidebarCollapsed ? 'Faire un don' : ''}
+            >
+              <Heart size={20} className="flex-shrink-0 fill-current" />
+              {!sidebarCollapsed && <span className="font-medium">Faire un don</span>}
+            </button>
+          )}
 
-          {/* FAQ and Documentation with separator */}
-          <div className="border-t border-gray-300 dark:border-gray-600 pt-1 mt-1">
+          {/* FAQ and Documentation - separator only in server mode */}
+          <div className={isServerMode ? 'border-t border-gray-300 dark:border-gray-600 pt-1 mt-1' : ''}>
             <Link
               to="/faq"
               className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
@@ -480,21 +534,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {!sidebarCollapsed && <span className="font-medium">{isDark ? 'Mode clair' : 'Mode sombre'}</span>}
             </button>
 
-            <Link
-              to="/settings"
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
-                location.pathname === '/settings'
-                  ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-              title={sidebarCollapsed ? 'Mon compte' : ''}
-              data-tour="nav-settings"
-            >
-              <UserCircle size={20} className="flex-shrink-0" />
-              {!sidebarCollapsed && <span className="font-medium">Mon compte</span>}
-            </Link>
+            {/* Settings link - Server mode only */}
+            {isServerMode && (
+              <Link
+                to="/settings"
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                  location.pathname === '/settings'
+                    ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title={sidebarCollapsed ? 'Mon compte' : ''}
+                data-tour="nav-settings"
+              >
+                <UserCircle size={20} className="flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">Mon compte</span>}
+              </Link>
+            )}
 
-            {user && (
+            {/* Logout button - Server mode only */}
+            {isServerMode && user && (
               <button
                 onClick={logout}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
@@ -506,8 +564,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {/* User info at the very bottom */}
-          {user && !sidebarCollapsed && (
+          {/* User info at the very bottom - Server mode only */}
+          {isServerMode && user && !sidebarCollapsed && (
             <div className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 border-t border-gray-300 dark:border-gray-600 mt-2 pt-2">
               <p className="font-medium truncate">{user.email}</p>
             </div>
@@ -609,36 +667,37 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* Other menu items */}
-            {menuItems.filter(item => item.to !== '/dashboard').map((item) => {
-              const isActive = location.pathname === item.to
-              const hasBadge = item.badgeCount !== undefined && item.badgeCount > 0
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
-                    isActive
-                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  {hasBadge ? (
-                    <MessageCircle size={20} className="text-orange-500" />
-                  ) : (
+            {menuItems
+              .filter(item => item.to !== '/dashboard')
+              .filter(item => !item.serverOnly || isServerMode)
+              .map((item) => {
+                const isActive = item.to === '/contribute'
+                  ? location.pathname.startsWith('/contribute')
+                  : location.pathname === item.to
+                const showBadge = item.hasBadge && unreadContributionsCount > 0
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                      isActive
+                        ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
                     <item.icon size={20} />
-                  )}
-                  <span className="font-medium">{item.label}</span>
-                  {hasBadge && (
-                    <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-bold text-white">
-                      {item.badgeCount > 99 ? '99+' : item.badgeCount}
-                    </span>
-                  )}
-                </Link>
-              )
-            })}
+                    <span className="font-medium">{item.label}</span>
+                    {showBadge && (
+                      <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-bold text-white">
+                        {unreadContributionsCount > 99 ? '99+' : unreadContributionsCount}
+                      </span>
+                    )}
+                  </Link>
+                )
+              })}
 
-            {canAccessAdmin() && (
+            {isServerMode && canAccessAdmin() && (
               <>
                 <div className="border-t border-gray-300 dark:border-gray-600 my-2" />
                 <div>
@@ -719,30 +778,76 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </button>
               </>
             )}
+
+            {/* Export Links - Client mode only */}
+            {isClientMode && (
+              <>
+                <div className="border-t border-gray-300 dark:border-gray-600 my-2" />
+                <Link
+                  to="/home-assistant"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                    location.pathname === '/home-assistant'
+                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <Home size={20} />
+                  <span className="font-medium">Home Assistant</span>
+                </Link>
+                <Link
+                  to="/mqtt"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                    location.pathname === '/mqtt'
+                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <Radio size={20} />
+                  <span className="font-medium">MQTT</span>
+                </Link>
+                <Link
+                  to="/victoriametrics"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                    location.pathname === '/victoriametrics'
+                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <Database size={20} />
+                  <span className="font-medium">VictoriaMetrics</span>
+                </Link>
+              </>
+            )}
           </div>
         </nav>
 
         {/* Bottom Actions */}
         <div className="border-t border-gray-300 dark:border-gray-700 p-2 space-y-1">
-          {/* User info */}
-          {user && (
+          {/* User info - Server mode only */}
+          {isServerMode && user && (
             <div className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 border-b border-gray-300 dark:border-gray-600 mb-2 pb-2">
               <p className="font-medium truncate">{user.email}</p>
             </div>
           )}
 
-          <Link
-            to="/settings"
-            onClick={() => setMobileMenuOpen(false)}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
-              location.pathname === '/settings'
-                ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <UserCircle size={20} />
-            <span className="font-medium">Mon compte</span>
-          </Link>
+          {/* Settings link - Server mode only */}
+          {isServerMode && (
+            <Link
+              to="/settings"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
+                location.pathname === '/settings'
+                  ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              <UserCircle size={20} />
+              <span className="font-medium">Mon compte</span>
+            </Link>
+          )}
 
           <button
             onClick={() => {
@@ -755,8 +860,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <span className="font-medium">{isDark ? 'Mode clair' : 'Mode sombre'}</span>
           </button>
 
-          {/* FAQ and Documentation with separator */}
-          <div className="border-t border-gray-300 dark:border-gray-600 pt-1 mt-1">
+          {/* FAQ and Documentation - separator only in server mode */}
+          <div className={isServerMode ? 'border-t border-gray-300 dark:border-gray-600 pt-1 mt-1' : ''}>
             <Link
               to="/faq"
               onClick={() => setMobileMenuOpen(false)}
@@ -784,7 +889,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
 
-          {user && (
+          {/* Logout button - Server mode only */}
+          {isServerMode && user && (
             <button
               onClick={() => {
                 logout()
@@ -825,24 +931,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Footer - Fixed at bottom - Hidden on mobile */}
         <footer className={`hidden md:fixed bottom-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-300 dark:border-gray-700 z-30 transition-all duration-300 ${sidebarCollapsed ? 'left-0 md:left-16' : 'left-0 md:left-56'}`}>
           <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-3 max-w-[1920px]">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className={`flex flex-col sm:flex-row items-center gap-4 ${isServerMode ? 'justify-between' : 'justify-center'}`}>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 © 2025 MyElectricalData - Passerelle API Enedis
               </p>
-              <a
-                href="https://www.paypal.com/donate/?business=FY25JLXDYLXAJ&no_recurring=0&currency_code=EUR"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-medium shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
-              >
-                <Heart size={18} className="fill-current" />
-                <span>Faire un don</span>
-              </a>
+              {/* Donation button - Server mode only */}
+              {isServerMode && (
+                <button
+                  onClick={() => setShowDonationModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-medium shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+                >
+                  <Heart size={18} className="fill-current" />
+                  <span>Faire un don</span>
+                </button>
+              )}
             </div>
           </div>
         </footer>
       </div>
 
+      {/* Donation Modal */}
+      <DonationModal isOpen={showDonationModal} onClose={() => setShowDonationModal(false)} />
     </div>
   )
 }

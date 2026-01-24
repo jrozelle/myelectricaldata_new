@@ -1,245 +1,311 @@
+# Installation Mode Client
+
+## Prérequis
+
+### Matériel
+
+- **RAM** : 512 Mo minimum (1 Go recommandé)
+- **Disque** : 500 Mo pour l'application + espace pour les données
+- **CPU** : 1 core minimum
+
+### Logiciels
+
+- Docker 24+ et Docker Compose v2
+- Accès réseau vers `www.v2.myelectricaldata.fr`
+
+### Compte MyElectricalData
+
+1. Créer un compte sur [www.v2.myelectricaldata.fr](https://www.v2.myelectricaldata.fr)
+2. Autoriser vos PDL (Points de Livraison) via le consentement Enedis
+3. Récupérer vos **Client ID** et **Client Secret** dans les paramètres
+
 ---
-sidebar_position: 2
-title: Installation
+
+## Installation Docker
+
+### Étape 1 : Cloner le dépôt
+
+```bash
+git clone https://github.com/MyElectricalData/myelectricaldata.git
+cd myelectricaldata
+```
+
+### Étape 2 : Créer le fichier de configuration
+
+```bash
+# Copier le template
+cp .env.client.example .env.client
+
+# Éditer avec vos credentials
+nano .env.client
+```
+
+**Contenu minimum de `.env.client`** :
+
+```bash
+# === OBLIGATOIRE ===
+# Credentials API MyElectricalData (depuis votre compte)
+MED_CLIENT_ID=cli_xxxxxxxxxxxxxxxxxxxxxxxxx
+MED_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# === OPTIONNEL ===
+# Timezone (défaut: Europe/Paris)
+TZ=Europe/Paris
+
+# Port frontend (défaut: 8100)
+CLIENT_FRONTEND_PORT=8100
+
+# Port backend (défaut: 8181)
+CLIENT_BACKEND_PORT=8181
+```
+
+### Étape 3 : Démarrer les services
+
+```bash
+# Démarrer le mode client
+docker compose -f docker-compose.client.yml up -d
+
+# Vérifier les logs
+docker compose -f docker-compose.client.yml logs -f
+```
+
+### Étape 4 : Accéder à l'interface
+
+Ouvrir http://localhost:8100 dans un navigateur.
+
 ---
 
-# Installation du Client Local
+## Première synchronisation
 
-## Méthode 1 : Docker (Recommandé)
+Au premier démarrage, les données ne sont pas encore synchronisées. Deux options :
 
-### Docker Run
+### Option A : Synchronisation automatique
 
-```bash
-docker run -d \
-  --name myelectricaldata-client \
-  --restart unless-stopped \
-  -e CLIENT_ID=votre_client_id \
-  -e CLIENT_SECRET=votre_client_secret \
-  -e GATEWAY_URL=https://api.myelectricaldata.fr \
-  -v myelectricaldata_data:/data \
-  -p 8080:8080 \
-  myelectricaldata/local-client:latest
-```
+Le scheduler lance une synchronisation automatique à 6h00 chaque jour. Attendez la prochaine exécution.
 
-### Docker Compose
+### Option B : Synchronisation manuelle
 
-Créez un fichier `docker-compose.yml` :
+1. Accéder à l'interface : http://localhost:8100
+2. Aller dans **Dashboard**
+3. Cliquer sur le bouton **Synchroniser**
 
-```yaml
-version: '3.8'
-
-services:
-  myelectricaldata:
-    image: myelectricaldata/local-client:latest
-    container_name: myelectricaldata-client
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    environment:
-      # Identifiants API (obligatoires)
-      - CLIENT_ID=votre_client_id
-      - CLIENT_SECRET=votre_client_secret
-      - GATEWAY_URL=https://api.myelectricaldata.fr
-
-      # Base de données (optionnel, SQLite par défaut)
-      - DATABASE_URL=sqlite:///data/myelectricaldata.db
-
-      # Synchronisation (optionnel)
-      - SYNC_INTERVAL=3600  # Toutes les heures
-      - SYNC_DAYS_BACK=7    # Récupérer les 7 derniers jours
-
-      # Intégrations (optionnel)
-      - MQTT_ENABLED=false
-      - HA_ENABLED=true
-      - VICTORIAMETRICS_ENABLED=false
-    volumes:
-      - ./data:/data
-      - ./config:/config
-```
-
-Démarrez avec :
+Ou via API :
 
 ```bash
-docker compose up -d
+curl -X POST http://localhost:8181/api/sync
 ```
 
-## Méthode 2 : Installation manuelle
+---
 
-### Prérequis
+## Coexistence avec le mode serveur
 
-- Python 3.11+
-- pip ou uv (gestionnaire de paquets)
+Les deux modes utilisent des ports et volumes différents :
 
-### Installation
+### Ports par défaut
+
+| Service | Mode Serveur | Mode Client |
+|---------|--------------|-------------|
+| Frontend | 8000 | 8100 |
+| Backend | 8081 | 8181 |
+| PostgreSQL | 5432 (interne) | 5433 (interne) |
+
+### Démarrer les deux modes
 
 ```bash
-# Cloner le repository
-git clone https://github.com/MyElectricalData/local-client.git
-cd local-client
+# Terminal 1 : Mode serveur
+docker compose -f docker-compose.yml up -d
 
-# Créer un environnement virtuel
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# ou .venv\Scripts\activate  # Windows
-
-# Installer les dépendances
-pip install -r requirements.txt
-# ou avec uv
-uv sync
-
-# Copier la configuration exemple
-cp config.example.yaml config.yaml
-
-# Éditer la configuration
-nano config.yaml
-
-# Démarrer le client
-python -m myelectricaldata_client
+# Terminal 2 : Mode client
+docker compose -f docker-compose.client.yml up -d
 ```
 
-## Méthode 3 : Home Assistant Add-on
+### Vérifier les conteneurs
 
-Si vous utilisez Home Assistant OS ou Supervised :
-
-1. Allez dans **Paramètres** → **Modules complémentaires**
-2. Cliquez sur **Boutique des modules complémentaires**
-3. Menu ⋮ → **Dépôts** → Ajoutez :
-   ```
-   https://github.com/MyElectricalData/ha-addons
-   ```
-4. Recherchez **MyElectricalData Local Client**
-5. Cliquez sur **Installer**
-6. Configurez vos identifiants dans l'onglet **Configuration**
-7. Démarrez l'add-on
-
-## Configuration de la base de données
-
-### SQLite (par défaut)
-
-Aucune configuration nécessaire. La base est créée automatiquement dans `/data/myelectricaldata.db`.
-
-```yaml
-database:
-  url: "sqlite:///data/myelectricaldata.db"
+```bash
+docker ps --format "table {{.Names}}\t{{.Ports}}\t{{.Status}}"
 ```
 
-### PostgreSQL
+Résultat attendu :
 
-```yaml
-database:
-  url: "postgresql://user:password@localhost:5432/myelectricaldata"
+```
+NAMES                          PORTS                     STATUS
+myelectricaldata-frontend-1    0.0.0.0:8000->5173/tcp   Up
+myelectricaldata-backend-1     0.0.0.0:8081->8000/tcp   Up
+myelectricaldata-client-1      0.0.0.0:8100->5173/tcp   Up
+myelectricaldata-client-api-1  0.0.0.0:8181->8000/tcp   Up
 ```
 
-Avec Docker Compose :
+---
 
-```yaml
-version: '3.8'
+## Installation sur Raspberry Pi
 
-services:
-  myelectricaldata:
-    image: myelectricaldata/local-client:latest
-    environment:
-      - DATABASE_URL=postgresql://med:password@postgres:5432/myelectricaldata
-    depends_on:
-      - postgres
+Le mode client est optimisé pour fonctionner sur Raspberry Pi 3B+ ou supérieur.
 
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=med
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=myelectricaldata
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+### Configuration spécifique
 
-volumes:
-  postgres_data:
+Ajouter dans `.env.client` :
+
+```bash
+# Réduire l'utilisation mémoire
+POSTGRES_SHARED_BUFFERS=64MB
+POSTGRES_WORK_MEM=4MB
+
+# Désactiver le hot-reload (économie CPU)
+DISABLE_HOT_RELOAD=true
 ```
 
-### MySQL / MariaDB
+### Image Docker ARM
 
-```yaml
-database:
-  url: "mysql://user:password@localhost:3306/myelectricaldata"
+Les images Docker supportent automatiquement ARM64 (Pi 4) et ARMv7 (Pi 3).
+
+```bash
+# Vérifier l'architecture
+uname -m
+# aarch64 (Pi 4) ou armv7l (Pi 3)
+
+# Pull des images optimisées
+docker compose -f docker-compose.client.yml pull
 ```
 
-Avec Docker Compose :
+---
 
-```yaml
-version: '3.8'
+## Mise à jour
 
-services:
-  myelectricaldata:
-    image: myelectricaldata/local-client:latest
-    environment:
-      - DATABASE_URL=mysql://med:password@mariadb:3306/myelectricaldata
-    depends_on:
-      - mariadb
+### Mise à jour des images
 
-  mariadb:
-    image: mariadb:11
-    environment:
-      - MYSQL_ROOT_PASSWORD=rootpassword
-      - MYSQL_DATABASE=myelectricaldata
-      - MYSQL_USER=med
-      - MYSQL_PASSWORD=password
-    volumes:
-      - mariadb_data:/var/lib/mysql
+```bash
+cd myelectricaldata
 
-volumes:
-  mariadb_data:
+# Arrêter les services
+docker compose -f docker-compose.client.yml down
+
+# Mettre à jour le code
+git pull
+
+# Reconstruire et redémarrer
+docker compose -f docker-compose.client.yml up -d --build
 ```
 
-## Obtenir vos identifiants API
+### Migration de base de données
 
-1. Connectez-vous sur [MyElectricalData](https://myelectricaldata.fr)
-2. Allez dans **Paramètres** → **API**
-3. Copiez votre `client_id` et `client_secret`
+Les migrations Alembic s'appliquent automatiquement au démarrage. Pour une migration manuelle :
 
-:::warning Important
-Ne partagez jamais votre `client_secret`. Il donne accès à toutes vos données électriques.
-:::
+```bash
+docker compose -f docker-compose.client.yml exec backend-client \
+  alembic upgrade head
+```
 
-## Vérification de l'installation
+---
 
-Après le démarrage, vérifiez que le client fonctionne :
+## Sauvegarde et restauration
+
+### Sauvegarde PostgreSQL
+
+```bash
+# Créer une sauvegarde
+docker compose -f docker-compose.client.yml exec postgres-client \
+  pg_dump -U client client > backup_$(date +%Y%m%d).sql
+```
+
+### Restauration
+
+```bash
+# Restaurer depuis une sauvegarde
+docker compose -f docker-compose.client.yml exec -T postgres-client \
+  psql -U client client < backup_20240115.sql
+```
+
+### Sauvegarde complète (volumes Docker)
+
+```bash
+# Arrêter les services
+docker compose -f docker-compose.client.yml down
+
+# Sauvegarder les volumes
+docker run --rm \
+  -v myelectricaldata_client_postgres_data:/data \
+  -v $(pwd)/backups:/backup \
+  alpine tar czf /backup/postgres_data.tar.gz -C /data .
+
+# Redémarrer
+docker compose -f docker-compose.client.yml up -d
+```
+
+---
+
+## Dépannage
+
+### Le frontend ne démarre pas
 
 ```bash
 # Vérifier les logs
-docker logs myelectricaldata-client
+docker compose -f docker-compose.client.yml logs frontend-client
 
-# Tester l'API locale
-curl http://localhost:8080/health
-
-# Vérifier la synchronisation
-curl http://localhost:8080/api/status
+# Erreur courante : port déjà utilisé
+# Solution : modifier CLIENT_FRONTEND_PORT dans .env.client
 ```
 
-Réponse attendue :
+### Erreur de connexion à l'API MyElectricalData
 
-```json
-{
-  "status": "ok",
-  "last_sync": "2024-01-15T10:30:00Z",
-  "pdl_count": 1,
-  "database": "sqlite",
-  "integrations": {
-    "home_assistant": true,
-    "mqtt": false,
-    "victoriametrics": false
-  }
-}
+```bash
+# Vérifier les credentials
+docker compose -f docker-compose.client.yml exec backend-client \
+  curl -X POST https://www.v2.myelectricaldata.fr/api/accounts/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials&client_id=${MED_CLIENT_ID}&client_secret=${MED_CLIENT_SECRET}"
 ```
 
-## Ports utilisés
+### Base de données corrompue
 
-| Port | Usage |
-|------|-------|
-| 8080 | API REST locale et interface web |
-| 9090 | Métriques Prometheus (si activé) |
+```bash
+# Réinitialiser la base (ATTENTION : perte de données)
+docker compose -f docker-compose.client.yml down -v
+docker compose -f docker-compose.client.yml up -d
+```
 
-## Prochaines étapes
+### Voir les logs en temps réel
 
-- [Configuration détaillée](./configuration)
-- [Intégration Home Assistant](./integrations/home-assistant)
-- [Configuration MQTT](./integrations/mqtt)
+```bash
+# Tous les services
+docker compose -f docker-compose.client.yml logs -f
+
+# Backend uniquement
+docker compose -f docker-compose.client.yml logs -f backend-client
+
+# Avec timestamps
+docker compose -f docker-compose.client.yml logs -f -t
+```
+
+---
+
+## Structure des fichiers
+
+Après installation, la structure est :
+
+```
+myelectricaldata/
+├── docker-compose.yml           # Mode serveur
+├── docker-compose.client.yml    # Mode client
+├── .env.api                     # Config mode serveur
+├── .env.client                  # Config mode client
+└── apps/
+    ├── api/
+    │   └── data/
+    │       └── client/          # Données mode client
+    └── web/
+```
+
+---
+
+## Désinstallation
+
+```bash
+# Arrêter et supprimer les conteneurs
+docker compose -f docker-compose.client.yml down
+
+# Supprimer aussi les volumes (données)
+docker compose -f docker-compose.client.yml down -v
+
+# Supprimer les images
+docker rmi $(docker images 'myelectricaldata-client*' -q)
+```

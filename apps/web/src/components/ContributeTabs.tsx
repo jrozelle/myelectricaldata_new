@@ -8,7 +8,7 @@ interface Tab {
 }
 
 const tabs: Tab[] = [
-  { name: 'Offres disponibles', path: '/contribute/offers', icon: Package },
+  { name: 'Toutes les offres', path: '/contribute/offers', icon: Package },
   { name: 'Nouvelle contribution', path: '/contribute/new', icon: Plus },
   { name: 'Mes contributions', path: '/contribute/mine', icon: List },
 ]

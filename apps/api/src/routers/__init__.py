@@ -8,5 +8,20 @@ from .tempo import router as tempo_router
 from .ecowatt import router as ecowatt_router
 from .roles import router as roles_router
 from .logs import router as logs_router
+from .consumption_france import router as consumption_france_router
+from .generation_forecast import router as generation_forecast_router
 
-__all__ = ["accounts_router", "pdl_router", "oauth_router", "enedis_router", "admin_router", "energy_offers_router", "tempo_router", "ecowatt_router", "roles_router", "logs_router"]
+__all__ = [
+    "accounts_router",
+    "pdl_router",
+    "oauth_router",
+    "enedis_router",
+    "admin_router",
+    "energy_offers_router",
+    "tempo_router",
+    "ecowatt_router",
+    "roles_router",
+    "logs_router",
+    "consumption_france_router",
+    "generation_forecast_router",
+]

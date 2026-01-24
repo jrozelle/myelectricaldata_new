@@ -1,10 +1,11 @@
 import { useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { TrendingUp, Sun, Calculator, Download, Lock, LayoutDashboard, Calendar, Zap, Users, AlertCircle, BookOpen, Settings as SettingsIcon, Key, Shield, FileText, Activity, Euro, Scale, UserCheck } from 'lucide-react'
+import { TrendingUp, Sun, Calculator, Download, Lock, LayoutDashboard, Calendar, Zap, Users, AlertCircle, BookOpen, Settings as SettingsIcon, Key, Shield, FileText, Activity, Euro, Scale, UserCheck, Radio, Home, Database } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { pdlApi } from '@/api/pdl'
 import { adminApi } from '@/api/admin'
 import { usePdlStore } from '@/stores/pdlStore'
+import { useAppMode } from '@/hooks/useAppMode'
 import { useDataFetchStore } from '@/stores/dataFetchStore'
 import { useIsDemo } from '@/hooks/useIsDemo'
 import { useUnifiedDataFetch } from '@/hooks/useUnifiedDataFetch'
@@ -21,10 +22,11 @@ interface SharedPDL extends PDL {
 
 // Pages qui affichent le sélecteur de PDL avec bouton "Récupérer"
 const PDL_SELECTOR_PAGES = [
-  '/consumption_kwh', '/consumption_euro', '/production', '/balance', '/simulator', '/dashboard', '/tempo', '/ecowatt',
+  '/consumption_kwh', '/consumption_euro', '/production', '/balance', '/simulator', '/dashboard', '/tempo', '/ecowatt', '/france',
   '/contribute', '/contribute/new', '/contribute/mine', '/contribute/offers',
   '/faq', '/api-docs', '/api-docs/auth', '/settings',
-  '/admin', '/admin/users', '/admin/tempo', '/admin/ecowatt', '/admin/contributions', '/admin/offers', '/admin/roles', '/admin/logs', '/admin/add-pdl'
+  '/admin', '/admin/users', '/admin/tempo', '/admin/ecowatt', '/admin/contributions', '/admin/offers', '/admin/roles', '/admin/logs', '/admin/add-pdl', '/admin/rte',
+  '/home-assistant', '/mqtt', '/victoriametrics'
 ]
 
 // Configuration des titres et icônes par page
@@ -55,14 +57,25 @@ const PAGE_CONFIG: Record<string, { title: string; icon: typeof TrendingUp; subt
   '/admin/roles': { title: 'Gestion des rôles', icon: Shield, subtitle: 'Configurez les rôles et permissions' },
   '/admin/logs': { title: 'Logs d\'application', icon: FileText, subtitle: 'Consultez les logs du système' },
   '/admin/add-pdl': { title: 'Ajouter un PDL', icon: Activity, subtitle: 'Ajouter un point de livraison à un utilisateur' },
+  '/admin/rte': { title: 'Administration RTE', icon: Radio, subtitle: 'Gestion et monitoring des 4 API RTE (Tempo, EcoWatt, Consumption, Generation)' },
+  '/france': { title: 'Réseau France', icon: Activity, subtitle: 'Consommation et production électrique nationale en temps réel' },
+  // Client mode export pages
+  '/home-assistant': { title: 'Home Assistant', icon: Home, subtitle: 'Exportez vos données vers Home Assistant via MQTT Discovery ou l\'API WebSocket' },
+  '/mqtt': { title: 'MQTT', icon: Radio, subtitle: 'Exportez vos données vers un broker MQTT avec des topics personnalisés' },
+  '/victoriametrics': { title: 'VictoriaMetrics', icon: Database, subtitle: 'Exportez vos données vers VictoriaMetrics pour le stockage et la visualisation' },
 }
 
-export default function PageHeader() {
+interface PageHeaderProps {
+  actions?: React.ReactNode
+}
+
+export default function PageHeader({ actions }: PageHeaderProps = {}) {
   const location = useLocation()
   const { selectedPdl, setSelectedPdl, impersonation, clearImpersonation } = usePdlStore()
   const { setFetchDataFunction, isLoading, setIsLoading } = useDataFetchStore()
   const isDemo = useIsDemo()
   const { isAdmin } = usePermissions()
+  const { isServerMode } = useAppMode()
 
   // Clear stale impersonation state for non-admin users
   useEffect(() => {
@@ -93,7 +106,7 @@ export default function PageHeader() {
       }
       return []
     },
-    enabled: isAdmin(), // Only fetch if user is admin
+    enabled: isServerMode && isAdmin(), // Only fetch if server mode AND user is admin
     staleTime: 60000, // Cache for 1 minute
   })
 
@@ -148,17 +161,6 @@ export default function PageHeader() {
     return () => setFetchDataFunction(null)
   }, [selectedPdl, setFetchDataFunction, setIsLoading])
 
-  // Déterminer si on affiche le sélecteur de PDL
-  const showPdlSelector = PDL_SELECTOR_PAGES.includes(location.pathname)
-
-  // Trouver la configuration pour la page actuelle
-  const config = PAGE_CONFIG[location.pathname]
-
-  // Si pas de config pour cette page, ne rien afficher
-  if (!config) return null
-
-  const Icon = config.icon
-
   // Get the set of production PDL IDs that are linked to consumption PDLs
   // These should be hidden from the selector (the consumption PDL will show instead)
   const linkedProductionIds = new Set(
@@ -183,6 +185,17 @@ export default function PageHeader() {
     }
   }, [displayedPdls, selectedPdl, setSelectedPdl, isInitialDataLoading])
 
+  // Déterminer si on affiche le sélecteur de PDL
+  const showPdlSelector = PDL_SELECTOR_PAGES.includes(location.pathname)
+
+  // Trouver la configuration pour la page actuelle
+  const config = PAGE_CONFIG[location.pathname]
+
+  // Si pas de config pour cette page, ne rien afficher
+  if (!config) return null
+
+  const Icon = config.icon
+
   return (
     <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
       <div className="container mx-auto px-3 sm:px-4 lg:px-6 max-w-[1920px]">
@@ -201,6 +214,13 @@ export default function PageHeader() {
               )}
             </div>
           </div>
+
+          {/* Actions personnalisées ou sélecteur de PDL */}
+          {!showPdlSelector && actions && (
+            <div className="flex items-center gap-3">
+              {actions}
+            </div>
+          )}
 
           {/* Sélecteur de PDL et bouton de récupération (uniquement sur certaines pages) */}
           {showPdlSelector && (

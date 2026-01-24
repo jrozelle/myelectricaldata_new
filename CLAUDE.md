@@ -8,6 +8,17 @@ MyElectricalData is a secure API gateway that enables French individuals to acce
 
 **Architecture**: Monorepo with FastAPI backend (`apps/api/`) and React/Vite frontend (`apps/web/`)
 
+## Modes d'exécution
+
+**IMPORTANT : Ce projet supporte DEUX modes. Voir `.claude/rules/modes.md` pour les règles détaillées.**
+
+| Mode | Description | Docker Compose | Ports |
+|------|-------------|----------------|-------|
+| **Serveur** | Gateway complet avec admin, multi-users, Enedis direct | `docker-compose.yml` | 8000/8081 |
+| **Client** | Installation locale, mono-user, API MyElectricalData, exports | `docker-compose.client.yml` | 8100/8181 |
+
+Les deux modes peuvent tourner en parallèle. Documentation mode client : `docs/local-client/`
+
 ## Development Commands
 
 ### Root Makefile (Recommended)
@@ -368,3 +379,5 @@ See `apps/api/SECURITY.md` for detailed security model.
 - `docs/features-spec/rules/testing.md`: Testing requirements
 - `docs/design/checklist.md`: UI compliance checklist
 - `.claude/agents/*.md`: Agent-specific instructions
+- `.claude/rules/modes.md`: Règles pour les modes serveur/client
+- `docs/local-client/`: Documentation complète du mode client

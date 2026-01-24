@@ -29,7 +29,7 @@ La page affiche actuellement un placeholder "Coming Soon" avec les fonctionnalit
 
 ## Fichier principal
 
-```
+```text
 apps/web/src/pages/ConsumptionEuro/
 └── index.tsx                           # Page placeholder
 ```

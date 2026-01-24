@@ -89,6 +89,15 @@ help:
 	@echo "  REGISTRY=$(REGISTRY)"
 	@echo "  GITHUB_ORG=$(GITHUB_ORG)"
 	@echo ""
+	@echo "$(YELLOW)Client Mode (local installation):$(NC)"
+	@echo "  make client-up        - Start client mode services"
+	@echo "  make client-down      - Stop client mode services"
+	@echo "  make client-logs      - Show client mode logs"
+	@echo "  make client-restart   - Restart client mode services"
+	@echo "  make client-rebuild   - Rebuild client mode containers"
+	@echo "  make client-migrate   - Apply migrations for client database"
+	@echo "  make client-db-shell  - Access client PostgreSQL shell"
+	@echo ""
 	@echo "$(YELLOW)Kubernetes (rancher-desktop):$(NC)"
 	@echo "  make k8s-deploy       - Deploy to K8s in dev mode (volume mounts)"
 	@echo "  make k8s-deploy-prod  - Deploy to K8s in production mode"
@@ -119,6 +128,10 @@ down:
 	@make stop-watch
 	@make stop-docs
 	$(COMPOSE) down
+	@if [ -f .env.local-client ]; then \
+		echo "$(YELLOW)Stopping client mode services...$(NC)"; \
+		$(COMPOSE_CLIENT) down; \
+	fi
 	@echo "$(GREEN)All services stopped$(NC)"
 
 ## Stop documentation server
@@ -515,4 +528,75 @@ k8s-logs-backend:
 k8s-logs-frontend:
 	@$(K8S_DEPLOY_SCRIPT) logs frontend
 
-.PHONY: help dev up up-fg down restart watch stop-watch stop-docs backend-logs backend-restart db-shell db-backup migrate migrate-downgrade migrate-history migrate-current migrate-revision migrate-stamp logs ps clean rebuild check-deps install-fswatch docs docs-build docs-dev docs-down docker-login docker-build docker-build-backend docker-build-frontend docker-push docker-push-backend docker-push-frontend docker-release docker-release-native docker-release-multiarch docker-release-amd64 docker-release-arm64 docker-release-ci docker-buildx-setup docker-info k8s-deploy k8s-deploy-prod k8s-delete k8s-status k8s-logs-backend k8s-logs-frontend
+# =============================================================================
+# Client Mode Commands (local installation)
+# =============================================================================
+
+COMPOSE_CLIENT = docker compose -f docker-compose.client.yml
+
+## Start client mode services
+client-up:
+	@echo "$(GREEN)Starting client mode services...$(NC)"
+	@if [ ! -f .env.local-client ]; then \
+		echo "$(RED)Error: .env.local-client not found$(NC)"; \
+		echo "$(YELLOW)Copy .env.client.example to .env.local-client and configure your credentials$(NC)"; \
+		exit 1; \
+	fi
+	$(COMPOSE_CLIENT) up -d
+	@echo "$(GREEN)Client mode started!$(NC)"
+	@echo "  Frontend: http://localhost:8100"
+	@echo "  Backend:  http://localhost:8181"
+	@echo "  API Docs: http://localhost:8181/docs"
+
+## Stop client mode services
+client-down:
+	@echo "$(YELLOW)Stopping client mode services...$(NC)"
+	$(COMPOSE_CLIENT) down
+	@echo "$(GREEN)Client mode stopped$(NC)"
+
+## Show client mode logs
+client-logs:
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		script -q /dev/null $(COMPOSE_CLIENT) logs -f; \
+	else \
+		script -q -c "$(COMPOSE_CLIENT) logs -f" /dev/null; \
+	fi
+
+## Restart client mode services
+client-restart:
+	@echo "$(YELLOW)Restarting client mode services...$(NC)"
+	$(COMPOSE_CLIENT) restart
+	@echo "$(GREEN)Client mode restarted$(NC)"
+
+## Rebuild client mode containers
+client-rebuild:
+	@echo "$(YELLOW)Rebuilding client mode containers...$(NC)"
+	$(COMPOSE_CLIENT) down
+	$(COMPOSE_CLIENT) build --no-cache
+	$(COMPOSE_CLIENT) up -d
+	@echo "$(GREEN)Client mode rebuild complete$(NC)"
+
+## Apply migrations for client database
+client-migrate:
+	@echo "$(GREEN)Applying migrations to client database...$(NC)"
+	$(COMPOSE_CLIENT) exec backend-client alembic upgrade head
+	@echo "$(GREEN)Client migrations applied$(NC)"
+
+## Access client PostgreSQL shell
+client-db-shell:
+	@echo "$(GREEN)Connecting to client PostgreSQL...$(NC)"
+	$(COMPOSE_CLIENT) exec postgres-client psql -U myelectricaldata -d myelectricaldata_client
+
+## Show client mode container status
+client-ps:
+	$(COMPOSE_CLIENT) ps
+
+## Show client backend logs only
+client-backend-logs:
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		script -q /dev/null $(COMPOSE_CLIENT) logs -f backend-client; \
+	else \
+		script -q -c "$(COMPOSE_CLIENT) logs -f backend-client" /dev/null; \
+	fi
+
+.PHONY: help dev up up-fg down restart watch stop-watch stop-docs backend-logs backend-restart db-shell db-backup migrate migrate-downgrade migrate-history migrate-current migrate-revision migrate-stamp logs ps clean rebuild check-deps install-fswatch docs docs-build docs-dev docs-down docker-login docker-build docker-build-backend docker-build-frontend docker-push docker-push-backend docker-push-frontend docker-release docker-release-native docker-release-multiarch docker-release-amd64 docker-release-arm64 docker-release-ci docker-buildx-setup docker-info k8s-deploy k8s-deploy-prod k8s-delete k8s-status k8s-logs-backend k8s-logs-frontend client-up client-down client-logs client-restart client-rebuild client-migrate client-db-shell client-ps client-backend-logs

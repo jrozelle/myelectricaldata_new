@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 import logging
 
+from ..config import settings
 from ..models.database import get_db
 from ..middleware import get_current_user, require_action
 from ..models import User
@@ -341,8 +342,17 @@ async def refresh_ecowatt_cache(
                     )
 
         # Perform refresh
-        logger.info(f"[ECOWATT] Refreshing cache (user: {current_user.email})")
-        updated_count = await rte_service.update_ecowatt_cache(db)
+        logger.info(f"[ECOWATT] Refreshing cache (user: {current_user.email}, mode: {'CLIENT' if settings.CLIENT_MODE else 'SERVER'})")
+
+        if settings.CLIENT_MODE:
+            # Client mode: sync from gateway
+            from ..services.sync import SyncService
+            sync_service = SyncService(db)
+            result = await sync_service.sync_ecowatt()
+            updated_count = result.get("synced", 0)
+        else:
+            # Server mode: fetch from RTE API
+            updated_count = await rte_service.update_ecowatt_cache(db)
 
         # Update last refresh timestamp
         if cache_service.redis_client:

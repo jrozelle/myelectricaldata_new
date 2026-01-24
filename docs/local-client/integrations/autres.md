@@ -1,459 +1,225 @@
+# Autres intégrations
+
+## Intégrations planifiées
+
+Les intégrations suivantes sont prévues pour de futures versions :
+
+| Destination | Statut | Description |
+|-------------|--------|-------------|
+| InfluxDB | 🔜 Planifié | Base time-series alternative |
+| Domoticz | 🔜 Planifié | Solution domotique open-source |
+| OpenHAB | 🔜 Planifié | Plateforme domotique Java |
+| Prometheus | 🔜 Planifié | Scraping metrics (pull) |
+| Webhook | 🔜 Planifié | Appels HTTP personnalisés |
+
 ---
-sidebar_position: 5
-title: Autres intégrations
+
+## Créer une intégration personnalisée
+
+### Structure d'un exportateur
+
+Chaque exportateur hérite de la classe de base :
+
+```python
+# apps/api/src/services/exporters/base.py
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+class BaseExporter(ABC):
+    """Classe de base pour tous les exportateurs"""
+
+    def __init__(self, config: dict):
+        self.config = config
+
+    @abstractmethod
+    async def test_connection(self) -> ConnectionTestResult:
+        """Teste la connexion à la destination"""
+        pass
+
+    @abstractmethod
+    async def export_consumption(self, data: ConsumptionData) -> ExportResult:
+        """Exporte les données de consommation"""
+        pass
+
+    @abstractmethod
+    async def export_production(self, data: ProductionData) -> ExportResult:
+        """Exporte les données de production"""
+        pass
+
+    @abstractmethod
+    async def export_tempo(self, data: TempoData) -> ExportResult:
+        """Exporte les données Tempo"""
+        pass
+
+    @abstractmethod
+    async def export_ecowatt(self, data: EcowattData) -> ExportResult:
+        """Exporte les données EcoWatt"""
+        pass
+```
+
+### Exemple : Exportateur Webhook
+
+```python
+# apps/api/src/services/exporters/webhook.py
+
+from .base import BaseExporter
+import aiohttp
+
+class WebhookExporter(BaseExporter):
+    """Exportateur générique vers un webhook HTTP"""
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.url = config["url"]
+        self.headers = config.get("headers", {})
+        self.method = config.get("method", "POST")
+
+    async def test_connection(self) -> ConnectionTestResult:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.request(
+                    "HEAD", self.url, headers=self.headers, timeout=10
+                ) as resp:
+                    return ConnectionTestResult(
+                        success=resp.status < 400,
+                        message=f"HTTP {resp.status}"
+                    )
+        except Exception as e:
+            return ConnectionTestResult(success=False, error=str(e))
+
+    async def export_consumption(self, data: ConsumptionData) -> ExportResult:
+        payload = {
+            "type": "consumption",
+            "pdl": data.pdl,
+            "date": data.date.isoformat(),
+            "value_kwh": data.value_wh / 1000,
+            "timestamp": datetime.now().isoformat(),
+        }
+        return await self._send(payload)
+
+    async def _send(self, payload: dict) -> ExportResult:
+        async with aiohttp.ClientSession() as session:
+            async with session.request(
+                self.method,
+                self.url,
+                json=payload,
+                headers=self.headers,
+            ) as resp:
+                return ExportResult(
+                    success=resp.status < 400,
+                    records_exported=1,
+                    error=None if resp.status < 400 else await resp.text(),
+                )
+```
+
+### Enregistrer l'exportateur
+
+```python
+# apps/api/src/services/exporter.py
+
+from .exporters.webhook import WebhookExporter
+
+class ExporterService:
+    exporters = {
+        'home_assistant': HomeAssistantExporter,
+        'mqtt': MQTTExporter,
+        'victoriametrics': VictoriaMetricsExporter,
+        'jeedom': JeedomExporter,
+        'webhook': WebhookExporter,  # Nouveau
+    }
+```
+
 ---
 
-# Autres intégrations domotiques
+## Utiliser les données via API
 
-Le client local peut s'intégrer avec de nombreux autres systèmes domotiques grâce à son API REST, son support MQTT et ses métriques Prometheus.
-
-## Domoticz
-
-### Via MQTT
-
-Domoticz supporte nativement MQTT via le plugin **MQTT Client Gateway with LAN interface**.
-
-#### Configuration du plugin
-
-1. **Configuration** → **Matériel** → **Ajouter**
-2. Type : `MQTT Client Gateway with LAN interface`
-3. Configuration :
-   - Remote Address : IP de votre broker
-   - Port : 1883
-   - Publish Topic : `out`
-
-#### Créer les capteurs virtuels
-
-1. **Configuration** → **Matériel** → Ajoutez un **Dummy**
-2. Créez des **Virtual Sensors** de type `kWh` ou `Electric`
-
-#### Configuration du client
-
-```yaml
-mqtt:
-  enabled: true
-  host: "votre_broker"
-  topic_prefix: "domoticz/in"
-  format: "domoticz"  # Format spécifique Domoticz
-```
-
-Le format Domoticz envoie des messages de ce type :
-
-```json
-{
-  "idx": 123,
-  "nvalue": 0,
-  "svalue": "15.234"
-}
-```
-
-### Via API HTTP
-
-```yaml
-domoticz:
-  enabled: true
-  url: "http://domoticz.local:8080"
-  username: ""
-  password: ""
-
-  # Mapping des IDX Domoticz
-  devices:
-    consumption_daily: 123
-    production_daily: 124
-    max_power: 125
-```
-
-## OpenHAB
-
-### Via MQTT
-
-OpenHAB s'intègre facilement via son **MQTT Binding**.
-
-#### Installation du binding
-
-1. **Settings** → **Bindings** → **Install MQTT Binding**
-2. Configurez un **Bridge** vers votre broker
-
-#### Configuration des Items
-
-Créez un fichier `myelectricaldata.items` :
-
-```java
-Number:Energy Linky_Consumption_Daily "Consommation [%.2f kWh]" <energy>
-  {channel="mqtt:topic:broker:linky:consumption_daily"}
-
-Number:Energy Linky_Consumption_HC "Heures Creuses [%.2f kWh]" <energy>
-  {channel="mqtt:topic:broker:linky:consumption_hc"}
-
-Number:Energy Linky_Consumption_HP "Heures Pleines [%.2f kWh]" <energy>
-  {channel="mqtt:topic:broker:linky:consumption_hp"}
-
-Number:Power Linky_Max_Power "Puissance Max [%.2f kVA]" <energy>
-  {channel="mqtt:topic:broker:linky:max_power"}
-
-Number:Energy Linky_Production_Daily "Production [%.2f kWh]" <solarplant>
-  {channel="mqtt:topic:broker:linky:production_daily"}
-```
-
-#### Configuration du Thing
-
-```java
-Thing mqtt:topic:broker:linky "Linky" (mqtt:broker:broker) {
-    Channels:
-        Type number : consumption_daily [
-            stateTopic="myelectricaldata/+/consumption/daily",
-            transformationPattern="JSONPATH:$.value"
-        ]
-        Type number : consumption_hc [
-            stateTopic="myelectricaldata/+/consumption/daily",
-            transformationPattern="JSONPATH:$.hc"
-        ]
-        Type number : consumption_hp [
-            stateTopic="myelectricaldata/+/consumption/daily",
-            transformationPattern="JSONPATH:$.hp"
-        ]
-        Type number : production_daily [
-            stateTopic="myelectricaldata/+/production/daily",
-            transformationPattern="JSONPATH:$.value"
-        ]
-}
-```
-
-### Via REST API
-
-OpenHAB peut récupérer les données via l'API REST du client :
-
-```java
-// rules/linky.rules
-rule "Update Linky Data"
-when
-    Time cron "0 0 * * * ?"  // Toutes les heures
-then
-    val String response = sendHttpGetRequest("http://myelectricaldata-client:8080/api/consumption/daily")
-    val consumption = transform("JSONPATH", "$.value", response)
-    Linky_Consumption_Daily.postUpdate(consumption)
-end
-```
-
-## Gladys Assistant
-
-### Via MQTT
-
-Gladys supporte MQTT nativement.
-
-#### Configuration
-
-1. **Intégrations** → **MQTT**
-2. Configurez le broker
-3. Créez des appareils avec les topics
-
-#### Créer un appareil
-
-1. **Appareils** → **Créer un appareil**
-2. Service : MQTT
-3. Fonctionnalités :
-   - Type : `Énergie`
-   - Topic : `myelectricaldata/+/consumption/daily`
-   - Transformation : JSONPath `$.value`
-
-### Via API
-
-```javascript
-// Script Gladys
-const response = await axios.get('http://myelectricaldata-client:8080/api/consumption/daily');
-const consumption = response.data.value;
-
-await gladys.device.setValue({
-  device_feature_external_id: 'linky-consumption',
-  state: consumption
-});
-```
-
-## Node-RED
-
-Node-RED est idéal pour créer des flux personnalisés.
-
-### Installation
-
-```bash
-# Via npm
-npm install -g node-red
-
-# Via Docker
-docker run -d -p 1880:1880 nodered/node-red
-```
-
-### Flux MQTT → Dashboard
-
-```json
-[
-  {
-    "id": "mqtt_in",
-    "type": "mqtt in",
-    "topic": "myelectricaldata/+/consumption/daily",
-    "datatype": "json",
-    "broker": "mqtt_broker"
-  },
-  {
-    "id": "extract_value",
-    "type": "function",
-    "func": "msg.payload = msg.payload.value;\nreturn msg;",
-    "wires": [["gauge", "chart"]]
-  },
-  {
-    "id": "gauge",
-    "type": "ui_gauge",
-    "name": "Consommation",
-    "group": "energy",
-    "min": 0,
-    "max": 50,
-    "format": "{{value}} kWh"
-  },
-  {
-    "id": "chart",
-    "type": "ui_chart",
-    "name": "Historique",
-    "group": "energy",
-    "chartType": "line"
-  }
-]
-```
-
-### Flux API → InfluxDB
-
-```json
-[
-  {
-    "id": "cron",
-    "type": "inject",
-    "repeat": "3600",
-    "crontab": ""
-  },
-  {
-    "id": "http_request",
-    "type": "http request",
-    "method": "GET",
-    "url": "http://myelectricaldata-client:8080/api/consumption/daily"
-  },
-  {
-    "id": "parse",
-    "type": "function",
-    "func": "msg.payload = [{\n  measurement: 'consumption',\n  fields: {\n    value: msg.payload.value,\n    hc: msg.payload.hc,\n    hp: msg.payload.hp\n  },\n  tags: {\n    pdl: msg.payload.pdl\n  }\n}];\nreturn msg;"
-  },
-  {
-    "id": "influxdb_out",
-    "type": "influxdb out",
-    "database": "energy"
-  }
-]
-```
-
-## InfluxDB + Grafana
-
-### Configuration InfluxDB
-
-```yaml
-influxdb:
-  enabled: true
-  url: "http://influxdb:8086"
-  token: "your-token"
-  org: "myorg"
-  bucket: "myelectricaldata"
-
-  # Mapping des mesures
-  measurements:
-    consumption: "electricity_consumption"
-    production: "electricity_production"
-    power: "electricity_power"
-```
-
-### Docker Compose
-
-```yaml
-services:
-  myelectricaldata:
-    image: myelectricaldata/local-client:latest
-    environment:
-      - INFLUXDB_ENABLED=true
-      - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=your-token
-      - INFLUXDB_ORG=myorg
-      - INFLUXDB_BUCKET=myelectricaldata
-
-  influxdb:
-    image: influxdb:2
-    ports:
-      - "8086:8086"
-    volumes:
-      - influxdb_data:/var/lib/influxdb2
-    environment:
-      - DOCKER_INFLUXDB_INIT_MODE=setup
-      - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=password
-      - DOCKER_INFLUXDB_INIT_ORG=myorg
-      - DOCKER_INFLUXDB_INIT_BUCKET=myelectricaldata
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-```
-
-### Requêtes Flux (InfluxDB 2.x)
-
-```flux
-// Consommation journalière sur 30 jours
-from(bucket: "myelectricaldata")
-  |> range(start: -30d)
-  |> filter(fn: (r) => r._measurement == "electricity_consumption")
-  |> filter(fn: (r) => r._field == "daily")
-  |> aggregateWindow(every: 1d, fn: last)
-
-// Comparaison HC/HP
-from(bucket: "myelectricaldata")
-  |> range(start: -7d)
-  |> filter(fn: (r) => r._measurement == "electricity_consumption")
-  |> filter(fn: (r) => r._field == "hc" or r._field == "hp")
-  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-```
-
-## API REST locale
-
-Le client expose une API REST complète pour des intégrations personnalisées.
+Si aucune intégration ne correspond à votre besoin, vous pouvez utiliser l'API REST du backend :
 
 ### Endpoints disponibles
 
-| Méthode | Endpoint | Description |
-|---------|----------|-------------|
-| GET | `/api/status` | Statut du client |
-| GET | `/api/pdl` | Liste des PDL |
-| GET | `/api/pdl/{pdl}` | Informations d'un PDL |
-| GET | `/api/consumption/daily` | Consommation journalière |
-| GET | `/api/consumption/detailed` | Consommation 30 min |
-| GET | `/api/production/daily` | Production journalière |
-| GET | `/api/production/detailed` | Production 30 min |
-| POST | `/api/sync` | Forcer une synchronisation |
-| GET | `/health` | Health check |
+```bash
+# Consommation
+GET /api/consumption/daily/{pdl}?start=2024-01-01&end=2024-01-31
 
-### Exemples
+# Production
+GET /api/production/daily/{pdl}?start=2024-01-01&end=2024-01-31
+
+# Tempo
+GET /api/tempo?start=2024-01-01&end=2024-01-31
+
+# EcoWatt
+GET /api/ecowatt?date=2024-01-15
+```
+
+### Exemple avec curl
 
 ```bash
-# Statut
-curl http://localhost:8080/api/status
-
-# Consommation du jour
-curl http://localhost:8080/api/consumption/daily
-
-# Consommation sur une période
-curl "http://localhost:8080/api/consumption/daily?start=2024-01-01&end=2024-01-31"
-
-# Forcer sync
-curl -X POST http://localhost:8080/api/sync
+# Récupérer la consommation
+curl "http://localhost:8181/api/consumption/daily/12345678901234?start=2024-01-01&end=2024-01-31"
 ```
 
-### Authentification (optionnelle)
+### Exemple avec Python
 
-```yaml
-api:
-  auth:
-    enabled: true
-    token: "votre_token_secret"
+```python
+import requests
+from datetime import date, timedelta
+
+# Configuration
+API_URL = "http://localhost:8181/api"
+PDL = "12345678901234"
+
+# Récupérer la consommation du mois
+end = date.today()
+start = end - timedelta(days=30)
+
+response = requests.get(
+    f"{API_URL}/consumption/daily/{PDL}",
+    params={"start": start.isoformat(), "end": end.isoformat()}
+)
+
+data = response.json()
+for reading in data["data"]:
+    print(f"{reading['date']}: {reading['value_wh'] / 1000:.2f} kWh")
 ```
+
+---
+
+## Intégration CSV/Excel
+
+Pour une export ponctuel vers CSV ou Excel :
+
+### Export CSV
 
 ```bash
-curl -H "Authorization: Bearer votre_token_secret" http://localhost:8080/api/status
+# Via API
+curl "http://localhost:8181/api/consumption/daily/12345678901234?start=2024-01-01&end=2024-12-31&format=csv" \
+  -o consumption_2024.csv
 ```
 
-## Webhooks
+### Export via interface
 
-Le client peut envoyer des webhooks lors d'événements.
+1. Aller dans **Consommation** ou **Production**
+2. Sélectionner la période
+3. Cliquer sur le bouton **Exporter** (icône téléchargement)
+4. Choisir le format (CSV ou Excel)
 
-### Configuration
+---
 
-```yaml
-webhooks:
-  enabled: true
+## Contribution
 
-  endpoints:
-    - url: "https://webhook.example.com/linky"
-      events:
-        - sync_complete
-        - sync_error
-        - high_consumption
-      secret: "webhook_secret"  # Pour la signature HMAC
-```
+Pour proposer une nouvelle intégration :
 
-### Payload
+1. Forker le dépôt
+2. Créer l'exportateur dans `apps/api/src/services/exporters/`
+3. Ajouter les tests dans `apps/api/tests/exporters/`
+4. Documenter dans `docs/local-client/integrations/`
+5. Soumettre une Pull Request
 
-```json
-{
-  "event": "sync_complete",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "data": {
-    "pdl": "12345678901234",
-    "consumption_daily": 15.234,
-    "production_daily": 12.8
-  },
-  "signature": "sha256=..."
-}
-```
+### Guidelines
 
-### Exemples d'utilisation
-
-- **IFTTT** : Déclencher des applets
-- **Zapier** : Automatiser des workflows
-- **n8n** : Orchestrer des actions
-- **Make (Integromat)** : Créer des scénarios
-
-## Intégrations supplémentaires
-
-### ESPHome (ESP32/ESP8266)
-
-Récupérez les données via MQTT ou REST pour les afficher sur des écrans :
-
-```yaml
-# esphome/linky_display.yaml
-mqtt:
-  broker: your_broker
-
-sensor:
-  - platform: mqtt_subscribe
-    name: "Consommation Jour"
-    topic: "myelectricaldata/+/consumption/daily"
-    value_template: "{{ value_json.value }}"
-    unit_of_measurement: "kWh"
-
-display:
-  - platform: ssd1306_i2c
-    lambda: |-
-      it.printf(0, 0, "Conso: %.1f kWh", id(consumption).state);
-```
-
-### Homebridge (Apple HomeKit)
-
-Utilisez le plugin `homebridge-mqttthing` :
-
-```json
-{
-  "accessory": "mqttthing",
-  "type": "lightSensor",
-  "name": "Linky",
-  "topics": {
-    "getCurrentAmbientLightLevel": "myelectricaldata/+/consumption/daily"
-  },
-  "minValue": 0,
-  "maxValue": 100
-}
-```
-
-### Homey
-
-Via l'app **MQTT Hub** ou des requêtes HTTP dans les flows.
-
-## Ressources
-
-- [Domoticz Wiki](https://www.domoticz.com/wiki/)
-- [OpenHAB Documentation](https://www.openhab.org/docs/)
-- [Node-RED Documentation](https://nodered.org/docs/)
-- [Gladys Assistant](https://gladysassistant.com/docs/)
-- [InfluxDB Documentation](https://docs.influxdata.com/)
+- Suivre le pattern des exportateurs existants
+- Implémenter toutes les méthodes de `BaseExporter`
+- Ajouter une gestion d'erreurs robuste
+- Documenter la configuration requise
+- Fournir des exemples de test
