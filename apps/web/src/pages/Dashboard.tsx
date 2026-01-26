@@ -4,7 +4,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { pdlApi } from '@/api/pdl'
 import { oauthApi } from '@/api/oauth'
 import { logger } from '@/utils/logger'
-import { CheckCircle, XCircle, ArrowUpDown, GripVertical, UserPlus, Search, Keyboard, X as CloseIcon, AlertCircle, ChevronDown } from 'lucide-react'
+import { CheckCircle, XCircle, ArrowUpDown, GripVertical, UserPlus, Search, Keyboard, X as CloseIcon, AlertCircle, ChevronDown, RefreshCw } from 'lucide-react'
 import PDLDetails from '@/components/PDLDetails'
 import PDLCard from '@/components/PDLCard'
 import { PDLCardSkeleton } from '@/components/Skeleton'
@@ -13,6 +13,9 @@ import { OnboardingTour, type TourStep } from '@/components/OnboardingTour'
 import { HelpButton, createDashboardHelpOptions } from '@/components/HelpButton'
 import { useAuth } from '@/hooks/useAuth'
 import { useIsDemo } from '@/hooks/useIsDemo'
+import { useAppMode } from '@/hooks/useAppMode'
+import { syncApi } from '@/api/sync'
+import { toast } from '@/stores/notificationStore'
 import { triggerHaptic } from '@/utils/haptics'
 import { useKeyboardShortcuts, formatShortcut, type KeyboardShortcut } from '@/hooks/useKeyboardShortcuts'
 import {
@@ -52,9 +55,63 @@ export default function Dashboard() {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const isDemo = useIsDemo()
+  const { isClientMode, isServerMode } = useAppMode()
+  const [isSyncing, setIsSyncing] = useState(false)
+  const energyOffersSyncedRef = useRef(false)
 
-  // Check if user should see onboarding
+  // Client mode: Sync energy offers on mount and periodically
   useEffect(() => {
+    if (!isClientMode) return
+    if (energyOffersSyncedRef.current) return
+
+    // Sync energy offers in background on first load
+    const syncEnergyOffers = async () => {
+      try {
+        logger.log('[Dashboard] Syncing energy offers from gateway...')
+        await syncApi.syncEnergyOffers()
+        energyOffersSyncedRef.current = true
+
+        // Invalidate energy queries to refresh data
+        queryClient.invalidateQueries({ queryKey: ['energy-providers'] })
+        queryClient.invalidateQueries({ queryKey: ['energy-offers'] })
+        logger.log('[Dashboard] Energy offers synced successfully')
+      } catch (error) {
+        logger.warn('[Dashboard] Failed to sync energy offers:', error)
+      }
+    }
+
+    syncEnergyOffers()
+  }, [isClientMode, queryClient])
+
+  // Client mode: Periodic refresh of energy offers (every 24 hours)
+  useEffect(() => {
+    if (!isClientMode) return
+
+    const REFRESH_INTERVAL = 24 * 60 * 60 * 1000 // 24 hours in ms
+
+    const refreshEnergyOffers = async () => {
+      try {
+        logger.log('[Dashboard] Periodic refresh of energy offers...')
+        await syncApi.syncEnergyOffers()
+
+        // Invalidate queries to refresh cache
+        queryClient.invalidateQueries({ queryKey: ['energy-providers'] })
+        queryClient.invalidateQueries({ queryKey: ['energy-offers'] })
+      } catch (error) {
+        logger.warn('[Dashboard] Periodic energy offers refresh failed:', error)
+      }
+    }
+
+    const intervalId = setInterval(refreshEnergyOffers, REFRESH_INTERVAL)
+
+    return () => clearInterval(intervalId)
+  }, [isClientMode, queryClient])
+
+  // Check if user should see onboarding (disabled in client mode)
+  useEffect(() => {
+    // Skip onboarding in client mode
+    if (isClientMode) return
+
     const shouldShowOnboarding = !hasCompletedOnboarding() && !hasTourCompleted('dashboard-tour')
 
     // Debug logging
@@ -74,7 +131,7 @@ export default function Dashboard() {
       }, 1000)
       return () => clearTimeout(timer)
     }
-  }, [])
+  }, [isClientMode])
 
   // Recover error message from sessionStorage after component remount
   // This runs ONCE on mount, before the consent check useEffect
@@ -342,6 +399,54 @@ export default function Dashboard() {
 
   const handleStartConsent = () => {
     getOAuthUrlMutation.mutate()
+  }
+
+  // Client mode: Sync with gateway (PDLs + energy offers)
+  const handleSyncWithGateway = async () => {
+    if (isSyncing) return
+
+    setIsSyncing(true)
+    const loadingId = toast.loading('Synchronisation en cours...')
+
+    try {
+      // Sync PDLs first
+      const response = await syncApi.syncPdlList()
+
+      if (response.success && response.data) {
+        const synced = response.data
+        const created = synced.filter(p => p.action === 'created').length
+        const updated = synced.filter(p => p.action === 'updated').length
+
+        // Refresh PDL list
+        await queryClient.invalidateQueries({ queryKey: ['pdls'] })
+
+        let message = `PDLs : ${synced.length} synchronisé${synced.length > 1 ? 's' : ''}`
+        if (created > 0) message += ` (${created} nouveau${created > 1 ? 'x' : ''})`
+        if (updated > 0) message += ` (${updated} mis à jour)`
+
+        // Also sync energy offers in background
+        try {
+          await syncApi.syncEnergyOffers()
+          queryClient.invalidateQueries({ queryKey: ['energy-providers'] })
+          queryClient.invalidateQueries({ queryKey: ['energy-offers'] })
+          message += ' • Offres d\'énergie mises à jour'
+        } catch (error) {
+          logger.warn('[Dashboard] Energy offers sync failed:', error)
+        }
+
+        toast.dismiss(loadingId)
+        toast.success(message)
+      } else {
+        toast.dismiss(loadingId)
+        toast.error(response.error?.message || 'Une erreur est survenue lors de la synchronisation')
+      }
+    } catch (error) {
+      toast.dismiss(loadingId)
+      logger.error('[Dashboard] Sync error:', error)
+      toast.error(error instanceof Error ? error.message : 'Impossible de se connecter à la passerelle')
+    } finally {
+      setIsSyncing(false)
+    }
   }
 
   // Onboarding handlers
@@ -801,7 +906,8 @@ export default function Dashboard() {
               )}
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-              {user?.is_admin && (
+              {/* Server mode only: Admin add PDL button */}
+              {isServerMode && user?.is_admin && (
                 <Link
                   to="/admin/add-pdl"
                   className="btn bg-amber-600 hover:bg-amber-700 text-white text-sm flex items-center justify-center gap-1 w-full sm:w-auto whitespace-nowrap"
@@ -810,30 +916,47 @@ export default function Dashboard() {
                   Ajouter PDL (Admin)
                 </Link>
               )}
-              <div className="relative group" data-tour="consent-button">
+
+              {/* Client mode: Sync button */}
+              {isClientMode && (
                 <button
-                  onClick={handleStartConsent}
-                  className="px-4 py-0 border-0 bg-[#00a8e0] rounded-2xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
-                  disabled={getOAuthUrlMutation.isPending || isDemo}
-                  aria-describedby="consent-tooltip"
+                  onClick={handleSyncWithGateway}
+                  disabled={isSyncing}
+                  className="btn bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white text-sm flex items-center justify-center gap-2 w-full sm:w-auto whitespace-nowrap disabled:opacity-50"
+                  data-tour="sync-button"
                 >
-                  <img
-                    src="/enedis_azure.png"
-                    alt="Consentement Enedis"
-                    className="h-14 w-auto"
-                  />
+                  <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
+                  {isSyncing ? 'Synchronisation...' : 'Synchroniser'}
                 </button>
-                {!isDemo && (
-                  <div
-                    id="consent-tooltip"
-                    role="tooltip"
-                    className="absolute top-full right-0 mt-2 w-72 p-3 bg-gray-900 dark:bg-gray-700 text-white text-sm rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+              )}
+
+              {/* Server mode: Enedis consent button */}
+              {isServerMode && (
+                <div className="relative group" data-tour="consent-button">
+                  <button
+                    onClick={handleStartConsent}
+                    className="px-4 py-0 border-0 bg-[#00a8e0] rounded-2xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+                    disabled={getOAuthUrlMutation.isPending || isDemo}
+                    aria-describedby="consent-tooltip"
                   >
-                    <div className="absolute bottom-full right-4 border-8 border-transparent border-b-gray-900 dark:border-b-gray-700"></div>
-                    <p>En cliquant sur ce bouton, vous allez accéder à votre compte personnel Enedis où vous pourrez donner votre accord pour qu'Enedis nous transmette vos données.</p>
-                  </div>
-                )}
-              </div>
+                    <img
+                      src="/enedis_azure.png"
+                      alt="Consentement Enedis"
+                      className="h-14 w-auto"
+                    />
+                  </button>
+                  {!isDemo && (
+                    <div
+                      id="consent-tooltip"
+                      role="tooltip"
+                      className="absolute top-full right-0 mt-2 w-72 p-3 bg-gray-900 dark:bg-gray-700 text-white text-sm rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+                    >
+                      <div className="absolute bottom-full right-4 border-8 border-transparent border-b-gray-900 dark:border-b-gray-700"></div>
+                      <p>En cliquant sur ce bouton, vous allez accéder à votre compte personnel Enedis où vous pourrez donner votre accord pour qu'Enedis nous transmette vos données.</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -916,7 +1039,10 @@ export default function Dashboard() {
               Aucun point de livraison détecté
             </p>
             <p className="text-sm text-gray-400">
-              Cliquez sur "Consentement Enedis" pour autoriser l'accès et détecter automatiquement vos PDL
+              {isClientMode
+                ? 'Cliquez sur "Synchroniser" pour récupérer vos PDL depuis la passerelle MyElectricalData'
+                : 'Cliquez sur "Consentement Enedis" pour autoriser l\'accès et détecter automatiquement vos PDL'
+              }
             </p>
           </div>
         ) : (
@@ -973,6 +1099,7 @@ export default function Dashboard() {
                         isDemo={isDemo}
                         allPdls={pdls}
                         isAutoSyncing={syncingPdlIds.has(pdl.id)}
+                        isClientMode={isClientMode}
                       />
                     </div>
                   </div>
@@ -1014,6 +1141,7 @@ export default function Dashboard() {
                             allPdls={pdls}
                             compact={true}
                             isAutoSyncing={syncingPdlIds.has(pdl.id)}
+                            isClientMode={isClientMode}
                           />
                         </div>
                       </div>
@@ -1100,8 +1228,10 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Help Button */}
-      <HelpButton options={helpOptions} position="bottom-right" shouldPulse={shouldPulseHelp} />
+      {/* Help Button - Hidden in client mode */}
+      {!isClientMode && (
+        <HelpButton options={helpOptions} position="bottom-right" shouldPulse={shouldPulseHelp} />
+      )}
     </div>
   )
 }

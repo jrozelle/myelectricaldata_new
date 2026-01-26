@@ -22,9 +22,20 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
     # Seed default roles and permissions
-    from .seed import init_default_roles_and_permissions, sync_admin_users
+    from .seed import (
+        init_default_roles_and_permissions,
+        init_default_energy_offers,
+        sync_admin_users,
+    )
     async with async_session_maker() as session:
         await init_default_roles_and_permissions(session)
+
+    # NOTE: Les types d'offres (PricingType) sont maintenant gérés via OfferRegistry
+    # dans services/offers/registry.py (auto-discovery des calculateurs Python)
+
+    # Seed default energy provider (EDF) and offers
+    async with async_session_maker() as session:
+        await init_default_energy_offers(session)
 
     # Ensure ADMIN_EMAILS users have admin role (runs every startup)
     async with async_session_maker() as session:

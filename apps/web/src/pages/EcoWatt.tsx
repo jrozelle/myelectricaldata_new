@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
-import { AlertTriangle, CheckCircle, AlertCircle, Calendar } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, CheckCircle, AlertCircle, Calendar, RefreshCw, Clock } from 'lucide-react'
 import { ecowattApi, type EcoWattSignal, type EcoWattStatistics } from '../api/ecowatt'
+import { syncApi } from '../api/sync'
+import { useAppMode } from '../hooks/useAppMode'
+import { toast } from '@/stores/notificationStore'
 
 
 const getSignalColor = (value: number) => {
@@ -79,7 +83,32 @@ export default function EcoWatt() {
   const [forecast, setForecast] = useState<EcoWattSignal[]>([])
   const [statistics, setStatistics] = useState<EcoWattStatistics | null>(null)
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { isClientMode } = useAppMode()
+  const queryClient = useQueryClient()
+
+  // Fetch sync status (last sync time) - only in client mode
+  const { data: syncStatus } = useQuery({
+    queryKey: ['ecowatt-sync-status'],
+    queryFn: () => syncApi.getEcowattStatus(),
+    enabled: isClientMode,
+    refetchInterval: 60000, // Refresh every minute
+  })
+
+  const formatLastSync = (isoString: string | null | undefined) => {
+    if (!isoString) return 'Jamais'
+    const date = new Date(isoString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+
+    if (diffMins < 1) return 'À l\'instant'
+    if (diffMins < 60) return `Il y a ${diffMins} min`
+    if (diffHours < 24) return `Il y a ${diffHours}h`
+    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
 
   useEffect(() => {
     fetchEcoWattData()
@@ -115,6 +144,43 @@ export default function EcoWatt() {
     }
   }
 
+  const handleSync = async () => {
+    setSyncing(true)
+    const loadingId = toast.loading('Synchronisation des données EcoWatt...')
+
+    try {
+      const response = await syncApi.syncEcowattNow()
+      toast.dismiss(loadingId)
+
+      // Response structure: { success: boolean, data: { created, updated, errors } }
+      if (response.success && response.data) {
+        const { created, updated, errors } = response.data
+        if (errors && errors.length > 0) {
+          const firstError = errors[0]
+          if (firstError.includes('404')) {
+            toast.error('L\'API EcoWatt n\'est pas encore disponible sur la passerelle distante')
+          } else {
+            toast.warning(`Synchronisation partielle : ${created} créés, ${updated} mis à jour. ${errors.length} erreur(s).`)
+          }
+        } else if (created > 0 || updated > 0) {
+          toast.success(`Synchronisation réussie : ${created} créés, ${updated} mis à jour.`)
+          await fetchEcoWattData()
+          queryClient.invalidateQueries({ queryKey: ['ecowatt-sync-status'] })
+        } else {
+          toast.info('Aucune nouvelle donnée EcoWatt à synchroniser')
+        }
+      } else {
+        toast.error('Échec de la synchronisation')
+      }
+    } catch (err) {
+      toast.dismiss(loadingId)
+      toast.error('Erreur lors de la synchronisation')
+      console.error(err)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -134,8 +200,8 @@ export default function EcoWatt() {
   const currentInfo = currentSignal ? getSignalInfo(currentSignal.dvalue) : getSignalInfo(0)
 
   return (
-    <div className="space-y-6">
-
+    <div className="w-full">
+      <div className="space-y-6">
       {/* Current Signal */}
       <div className={`card p-6 border-l-4 ${currentInfo.borderColor}`}>
         <div className="flex items-start gap-4">
@@ -143,7 +209,26 @@ export default function EcoWatt() {
             <currentInfo.icon className={currentInfo.color} size={32} />
           </div>
           <div className="flex-1">
-            <h2 className="text-xl font-semibold mb-1">Signal du jour</h2>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-xl font-semibold">Signal du jour</h2>
+              {/* Bouton de synchronisation (client mode uniquement) */}
+              {isClientMode && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                    <Clock className="w-4 h-4" />
+                    {formatLastSync(syncStatus?.data?.last_sync_at)}
+                  </span>
+                  <button
+                    onClick={handleSync}
+                    disabled={syncing}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? 'Synchronisation...' : 'Synchroniser'}
+                  </button>
+                </div>
+              )}
+            </div>
             <p className={`text-lg font-medium ${currentInfo.color} mb-2`}>
               {currentInfo.label}
             </p>
@@ -398,6 +483,7 @@ export default function EcoWatt() {
           le gestionnaire du réseau électrique haute tension français. Les prévisions sont disponibles
           pour aujourd'hui et les 2 prochains jours (J+2 maximum).
         </p>
+      </div>
       </div>
     </div>
   )

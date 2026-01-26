@@ -12,8 +12,11 @@ const packageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  // Use process.env first (from Docker env_file), then loadEnv, then default
-  const backendUrl = process.env.VITE_BACKEND_URL || env.VITE_BACKEND_URL || 'http://backend:8000'
+  // Use BACKEND_URL (server-side env) first, then VITE_BACKEND_URL, then default
+  // Note: VITE_* vars are for client code, BACKEND_URL is for Vite server proxy
+  const backendUrl = process.env.BACKEND_URL || process.env.VITE_BACKEND_URL || env.VITE_BACKEND_URL || 'http://backend:8000'
+  // HMR client port - defaults to 8000 for server mode, can be overridden for client mode
+  const hmrClientPort = parseInt(process.env.HMR_CLIENT_PORT || '8000', 10)
 
   return {
     plugins: [react()],
@@ -76,12 +79,14 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       host: '0.0.0.0',
+      // Allow all hosts for Docker networking
+      allowedHosts: true,
       watch: {
         usePolling: true,
         interval: 1000,
       },
       hmr: {
-        clientPort: 8000,
+        clientPort: hmrClientPort,
       },
       // Proxy API requests to backend - ensures same-origin for httpOnly cookies
       proxy: {

@@ -13,14 +13,10 @@
 
 **Documentation de l'API RTE Ecowatt :**
 
-👉 `@docs/rte-api/ecowatt/`
-
-**Avant de commencer à travailler sur cette page :**
-
-1. Lis le fichier de spécifications complet ci-dessus
-2. Respecte l'ordre d'affichage des fonctionnalités défini dans les specs
-3. Consulte les notes techniques importantes pour les détails d'implémentation
+👉 `@docs/external-apis/rte-api/ecowatt/`
 
 ## Description rapide
 
 Page affichant les **informations EcoWatt de RTE** sur l'état du réseau électrique français en temps réel et les prévisions.
+
+**Note** : Cette page existe dans les deux modes (serveur et client). Voir la documentation pour les différences.

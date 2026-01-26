@@ -9,6 +9,19 @@ from .tempo_day import TempoDay, TempoColor
 from .ecowatt import EcoWatt
 from .role import Role, Permission, role_permissions
 from .refresh_tracker import RefreshTracker
+from .client_mode import (
+    ConsumptionData,
+    ProductionData,
+    SyncStatus,
+    SyncStatusType,
+    ExportConfig,
+    ExportType,
+    ContractData,
+    AddressData,
+    DataGranularity,
+)
+from .consumption_france import ConsumptionFrance
+from .generation_forecast import GenerationForecast
 
 __all__ = [
     "Base",
@@ -28,4 +41,17 @@ __all__ = [
     "Permission",
     "role_permissions",
     "RefreshTracker",
+    # Client mode models
+    "ConsumptionData",
+    "ProductionData",
+    "SyncStatus",
+    "SyncStatusType",
+    "ExportConfig",
+    "ExportType",
+    "ContractData",
+    "AddressData",
+    "DataGranularity",
+    # RTE national data models
+    "ConsumptionFrance",
+    "GenerationForecast",
 ]

@@ -1,130 +1,45 @@
----
-sidebar_position: 1
-title: Intégrations
----
+# Intégrations
 
-# Intégrations domotiques
+Le mode client de MyElectricalData supporte l'export vers plusieurs plateformes domotiques et de monitoring.
 
-Le client local MyElectricalData peut s'intégrer avec de nombreuses solutions domotiques pour exposer vos données de consommation et production électrique.
+## Destinations disponibles
 
-## Intégrations natives
+| Destination | Type | Description |
+|-------------|------|-------------|
+| [Home Assistant](./home-assistant.md) | Domotique | Plateforme domotique open-source |
+| [MQTT](./mqtt.md) | Protocole | Broker de messages IoT |
+| [VictoriaMetrics](./victoriametrics.md) | Time-series DB | Base de données métriques |
 
-| Solution | Méthode | Documentation |
-|----------|---------|---------------|
-| **Home Assistant** | MQTT Discovery | [Guide complet](./home-assistant) |
-| **MQTT** | Broker MQTT | [Configuration](./mqtt) |
-| **VictoriaMetrics / Prometheus** | Métriques | [Export métriques](./victoriametrics) |
-| **Jeedom** | API / Plugin Virtuel | [Intégration](./jeedom) |
+➡️ Voir aussi : [Autres intégrations planifiées](./autres.md) (Jeedom, InfluxDB, Domoticz...)
 
-## Intégrations via MQTT
+## Architecture commune
 
-Toute solution supportant MQTT peut recevoir les données :
-
-| Solution | Plugin/Méthode |
-|----------|----------------|
-| Domoticz | MQTT Client Gateway |
-| OpenHAB | MQTT Binding |
-| Gladys | Service MQTT natif |
-| Node-RED | node-red-contrib-mqtt |
-| Homey | MQTT Hub |
-
-➡️ [Voir les autres intégrations](./autres)
-
-## Intégrations via API REST
-
-Le client expose une API REST locale sur le port 8080 :
-
-```bash
-# Consommation du jour
-curl http://localhost:8080/api/consumption/daily
-
-# Production du jour
-curl http://localhost:8080/api/production/daily
-
-# Statut
-curl http://localhost:8080/api/status
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        FLUX D'EXPORT                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────┐               │
+│  │ PostgreSQL  │────▶│ Exporter    │────▶│ Destination     │               │
+│  │ (données)   │     │ Service     │     │ (HA/MQTT/VM)    │               │
+│  └─────────────┘     └─────────────┘     └─────────────────┘               │
+│                            │                                                │
+│                            ▼                                                │
+│                      ┌─────────────┐                                        │
+│                      │ Export Logs │                                        │
+│                      └─────────────┘                                        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Compatible avec :
-- Scripts personnalisés (Python, JavaScript, etc.)
-- Node-RED
-- n8n / Zapier / Make
-- Tout système supportant les requêtes HTTP
+## Données exportables
 
-## Intégrations via métriques Prometheus
+| Donnée | Format | Fréquence |
+|--------|--------|-----------|
+| Consommation journalière | Wh / kWh | Quotidien |
+| Consommation mensuelle | Wh / kWh | Quotidien |
+| Production journalière | Wh / kWh | Quotidien |
+| Tempo couleur | BLEU/BLANC/ROUGE | Quotidien |
+| Tempo J+1 | BLEU/BLANC/ROUGE | Quotidien (après 11h) |
+| EcoWatt niveau | 1/2/3 | Horaire |
 
-Pour les systèmes de monitoring :
-
-| Système | Compatibilité |
-|---------|---------------|
-| VictoriaMetrics | Scraping + Push |
-| Prometheus | Scraping |
-| Grafana | Via datasource |
-| InfluxDB | Via Telegraf |
-
-➡️ [Configuration VictoriaMetrics](./victoriametrics)
-
-## Choix de l'intégration
-
-```mermaid
-graph TD
-    A[Client Local] --> B{Quelle solution?}
-
-    B -->|Home Assistant| C[MQTT Discovery]
-    B -->|Jeedom| D[API ou MQTT]
-    B -->|Monitoring| E[Prometheus/VictoriaMetrics]
-    B -->|Autre domotique| F[MQTT ou REST API]
-
-    C --> G[Entités automatiques]
-    D --> H[Plugin Virtuel]
-    E --> I[Grafana Dashboards]
-    F --> J[Configuration manuelle]
-```
-
-### Home Assistant
-
-**Recommandé** si vous utilisez Home Assistant. L'intégration via MQTT Discovery crée automatiquement :
-- Entités sensor pour consommation/production
-- Compatibilité Energy Dashboard
-- Long-term statistics
-
-### Jeedom
-
-Plusieurs options disponibles :
-- Plugin Virtuel avec commandes info
-- API JSON RPC directe
-- MQTT via jMQTT
-
-### Monitoring (Grafana)
-
-Pour des dashboards avancés et une historisation longue durée :
-- VictoriaMetrics ou Prometheus pour le stockage
-- Grafana pour la visualisation
-- Alerting intégré
-
-### Autres solutions
-
-Via MQTT ou API REST :
-- Domoticz, OpenHAB, Gladys
-- Node-RED pour des flux personnalisés
-- Scripts et automatisations custom
-
-## Combinaison d'intégrations
-
-Vous pouvez activer plusieurs intégrations simultanément :
-
-```yaml
-home_assistant:
-  enabled: true
-
-mqtt:
-  enabled: true
-
-metrics:
-  enabled: true
-
-jeedom:
-  enabled: false
-```
-
-Exemple : Envoyer les données à Home Assistant ET à VictoriaMetrics pour avoir à la fois l'interface domotique et des dashboards Grafana avancés.

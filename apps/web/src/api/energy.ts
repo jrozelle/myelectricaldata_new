@@ -1,5 +1,17 @@
 import { apiClient } from './client'
 
+// Type d'offre tarifaire (auto-découvert depuis le backend via OfferRegistry)
+export interface OfferType {
+  code: string  // BASE, HC_HP, TEMPO, EJP, SEASONAL, HC_NUIT_WEEKEND, WEEKEND
+  name: string  // Nom affiché
+  description: string
+  icon: string  // Icône Lucide (zap, clock, palette, etc.)
+  color: string  // Couleur hex (#3B82F6, etc.)
+  required_price_fields: string[]
+  optional_price_fields: string[]
+  display_order: number
+}
+
 export interface EnergyProvider {
   id: string
   name: string
@@ -56,6 +68,39 @@ export interface EnergyOffer {
   is_active?: boolean
 }
 
+// Power variant interface for new multi-power format
+export interface PowerVariant {
+  power_kva: number  // 3, 6, 9, 12, 15, 18, 24, 30, 36
+  subscription_price: number  // Prix abonnement pour cette puissance
+  // Prix kWh spécifiques à cette puissance
+  pricing_data?: {
+    // BASE
+    base_price?: number
+    // HC/HP
+    hc_price?: number
+    hp_price?: number
+    // TEMPO
+    tempo_blue_hc?: number
+    tempo_blue_hp?: number
+    tempo_white_hc?: number
+    tempo_white_hp?: number
+    tempo_red_hc?: number
+    tempo_red_hp?: number
+    // EJP
+    ejp_normal?: number
+    ejp_peak?: number
+    // SEASONAL / ZEN_FLEX
+    hc_price_winter?: number
+    hp_price_winter?: number
+    hc_price_summer?: number
+    hp_price_summer?: number
+    // Jours de pointe
+    peak_day_price?: number
+    // Weekend
+    base_price_weekend?: number
+  }
+}
+
 export interface ContributionData {
   contribution_type: 'NEW_PROVIDER' | 'NEW_OFFER' | 'UPDATE_OFFER'
   provider_name?: string
@@ -65,8 +110,11 @@ export interface ContributionData {
   offer_name: string
   offer_type: string
   description?: string
-  pricing_data: {
-    subscription_price: number
+  // NEW FORMAT: Array of power variants (one contribution = multiple powers)
+  power_variants?: PowerVariant[]
+  // Prix kWh communs à toutes les variantes de puissance
+  pricing_data?: {
+    subscription_price?: number  // Used only in legacy format
     base_price?: number
     hc_price?: number
     hp_price?: number
@@ -91,9 +139,10 @@ export interface ContributionData {
     peak_day_price?: number
   }
   hc_schedules?: Record<string, string>
-  power_kva?: number // Power in kVA (3, 6, 9, 12, 15, 18, 24, 30, 36)
+  power_kva?: number // LEGACY: Power in kVA (use power_variants for new contributions)
   price_sheet_url: string // REQUIRED: Lien vers la fiche des prix
   screenshot_url?: string // OPTIONAL: Screenshot de la fiche des prix
+  valid_from: string // REQUIRED: Date de mise en service de l'offre (ISO format)
 }
 
 export interface ContributionMessage {
@@ -118,8 +167,9 @@ export interface Contribution {
   offer_name: string
   offer_type: string
   description?: string
-  power_kva?: number
+  power_kva?: number  // Legacy field
   // Pricing
+  power_variants?: PowerVariant[]  // New format: array of power variants
   pricing_data?: {
     subscription_price?: number
     base_price?: number
@@ -146,6 +196,7 @@ export interface Contribution {
   // Documentation
   price_sheet_url?: string
   screenshot_url?: string
+  valid_from?: string  // Date de mise en service de l'offre
   // Timestamps
   created_at: string
   reviewed_at?: string
@@ -185,6 +236,12 @@ export interface SyncStatus {
 
 export const energyApi = {
   // Public endpoints
+
+  // Récupère les types d'offres disponibles (auto-discovery depuis OfferRegistry)
+  getOfferTypes: async () => {
+    return apiClient.get<OfferType[]>('energy/offer-types')
+  },
+
   getProviders: async () => {
     return apiClient.get<EnergyProvider[]>('energy/providers')
   },
@@ -222,6 +279,10 @@ export const energyApi = {
 
   replyToContribution: async (contributionId: string, message: string) => {
     return apiClient.post(`energy/contributions/${contributionId}/reply`, { message })
+  },
+
+  deleteContribution: async (contributionId: string) => {
+    return apiClient.delete(`energy/contributions/${contributionId}`)
   },
 
   // Admin endpoints

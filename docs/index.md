@@ -16,33 +16,56 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
 <Tabs>
-  <TabItem value="docker" label="Docker (recommandé)" default>
+  <TabItem value="client" label="Mode Client (recommandé)" default>
 
 ```bash
 # Cloner le repository
 git clone https://github.com/MyElectricalData/myelectricaldata.git
 cd myelectricaldata
 
+# Configurer les identifiants MyElectricalData API
+cp .env.local-client.example .env.local-client
+nano .env.local-client
+
 # Démarrer les services
-make up
+docker compose up -d
+
+# Accéder à l'application
+open http://localhost:8100
+```
+
+  </TabItem>
+  <TabItem value="server" label="Mode Serveur">
+
+```bash
+# Cloner le repository
+git clone https://github.com/MyElectricalData/myelectricaldata.git
+cd myelectricaldata
+
+# Configurer les identifiants Enedis/RTE
+cp apps/api/.env.example apps/api/.env.docker
+nano apps/api/.env.docker
+
+# Démarrer les services
+docker compose up -d
 
 # Accéder à l'application
 open http://localhost:8000
 ```
 
   </TabItem>
-  <TabItem value="manual" label="Installation manuelle">
+  <TabItem value="helm" label="Kubernetes (Helm)">
 
 ```bash
-# Backend (FastAPI)
-cd apps/api
-uv sync
-uv run uvicorn src.main:app --reload
+# Mode Client
+helm install myelectricaldata ./helm/myelectricaldata-client \
+  --set secrets.med.clientId.value=xxx \
+  --set secrets.med.clientSecret.value=xxx
 
-# Frontend (React/Vite)
-cd apps/web
-npm install
-npm run dev
+# Mode Serveur
+helm install myelectricaldata ./helm/myelectricaldata-server \
+  --set secrets.enedis.clientId.value=xxx \
+  --set secrets.enedis.clientSecret.value=xxx
 ```
 
   </TabItem>
@@ -50,14 +73,20 @@ npm run dev
 
 ## 📚 Documentation
 
+### Guides par mode
+
+| Mode | Description | Documentation |
+|------|-------------|---------------|
+| **Mode Client** | Installation locale mono-utilisateur | [Documentation Client](/local-client) |
+| **Mode Serveur** | Gateway multi-utilisateurs avec API Enedis | [Documentation Serveur](/server-mode) |
+
+### Ressources générales
+
 | Section | Description |
 |---------|-------------|
-| [**Installation**](/setup/docker) | Guides d'installation et de configuration |
-| [**Client Local**](/local-client) | Client domotique pour Home Assistant, MQTT, Jeedom, etc. |
-| [**Fonctionnalités**](/features-spec/simulator) | Spécifications des fonctionnalités |
-| [**Architecture**](/architecture/summary) | Vue d'ensemble technique et [chiffrement](/architecture/encryption) |
-| [**Design System**](/design) | Règles de design et composants UI |
-| [**API**](/enedis-api/endpoint) | Documentation des API Enedis et RTE |
+| [**APIs Externes**](/external-apis) | Documentation des API Enedis DataHub et RTE |
+| [**Design System**](/specs/design) | Règles de design et composants UI |
+| [**Pages**](/pages/dashboard) | Guide de conception des pages de l'application |
 
 ## ✨ Fonctionnalités principales
 
@@ -98,7 +127,7 @@ npm run dev
 ## 🔐 Sécurité
 
 - **Isolation des données** : Chaque utilisateur n'accède qu'à ses propres PDL
-- **[Chiffrement Fernet](/architecture/encryption)** : Données en cache chiffrées avec la clé secrète de l'utilisateur
+- **[Chiffrement Fernet](/server-mode/encryption)** : Données en cache chiffrées avec la clé secrète de l'utilisateur
 - **OAuth2** : Flux de consentement Enedis sécurisé
 - **Rate limiting** : Protection contre les abus
 
@@ -109,18 +138,27 @@ Installez le **Client Local** chez vous pour intégrer vos données Linky dans v
 - **Home Assistant** : Energy Dashboard, entités automatiques
 - **MQTT** : Compatible avec tout broker MQTT
 - **VictoriaMetrics** : Métriques Prometheus pour Grafana
-- **Jeedom** : Plugin et widgets dédiés
 
 ➡️ [Documentation du Client Local](/local-client)
 
+## 🖥️ Mode Serveur (Gateway)
+
+Déployez votre propre gateway multi-utilisateurs avec accès direct aux API Enedis :
+
+- **Multi-utilisateurs** : Gestion complète des comptes et rôles
+- **OAuth2 Enedis** : Consentement et tokens automatiques
+- **Administration** : Interface complète (users, offres, logs)
+- **Simulateur** : Comparaison de 130+ offres tarifaires
+
+➡️ [Documentation du Mode Serveur](/server-mode)
+
 ## 📖 Ressources
 
-- [Guide d'installation Docker](/setup/docker)
-- [Configuration de la base de données](/setup/database)
 - [Client Local domotique](/local-client)
-- [Création d'un compte démo](/demo)
-- [FAQ](/pages/faq)
+- [Mode Serveur (Gateway)](/server-mode)
+- [APIs Externes](/external-apis)
+- [Design System](/specs/design)
 
 ## 🤝 Contribution
 
-Le projet est open-source. Consultez le [guide de contribution](/pages/contribute) pour participer.
+Le projet est open-source. Les contributions sont les bienvenues sur [GitHub](https://github.com/MyElectricalData/myelectricaldata).

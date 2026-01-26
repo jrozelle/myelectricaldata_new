@@ -1,397 +1,317 @@
+# Intégration VictoriaMetrics
+
+## Vue d'ensemble
+
+L'intégration VictoriaMetrics permet d'exporter vos données vers une base de données time-series, idéale pour le monitoring long terme et la visualisation avec Grafana.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INTÉGRATION VICTORIAMETRICS                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  MyElectricalData Client          VictoriaMetrics         Grafana           │
+│  ━━━━━━━━━━━━━━━━━━━━━━           ━━━━━━━━━━━━━━━━        ━━━━━━━           │
+│                                                                             │
+│  ┌─────────────┐                  ┌─────────────┐        ┌──────────┐       │
+│  │ PostgreSQL  │                  │ Time-Series │        │ Dashboards│      │
+│  │             │                  │ Storage     │        │          │       │
+│  │ consumption │───────────────▶  │             │───────▶│ 📊 Conso │       │
+│  │ production  │  POST /import    │ Metrics     │  Query │ 📈 Prod  │       │
+│  │ tempo       │                  │             │        │ 🎨 Tempo │       │
+│  │ ecowatt     │                  │             │        │          │       │
+│  └─────────────┘                  └─────────────┘        └──────────┘       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
-sidebar_position: 3
-title: VictoriaMetrics
+
+## Prérequis
+
+1. VictoriaMetrics single-node ou cluster
+2. Accès réseau depuis le client MyElectricalData
+3. (Optionnel) Grafana pour la visualisation
+
+### Installation VictoriaMetrics
+
+```bash
+# Docker simple
+docker run -d -p 8428:8428 \
+  -v vmdata:/victoria-metrics-data \
+  victoriametrics/victoria-metrics
+
+# Docker Compose (avec rétention 1 an)
+# Voir docker-compose.yml
+```
+
 ---
-
-# Intégration VictoriaMetrics / Prometheus
-
-Le client local expose des métriques au format Prometheus, compatibles avec VictoriaMetrics, Prometheus, Grafana et tout système de monitoring basé sur le format OpenMetrics.
-
-## Avantages de cette intégration
-
-- **Historisation longue durée** : Conservez des années de données sans surcharger votre système domotique
-- **Dashboards Grafana** : Créez des visualisations avancées et personnalisées
-- **Alertes** : Configurez des alertes basées sur la consommation
-- **Agrégations** : Calculez des moyennes, percentiles, comparaisons
 
 ## Configuration
 
-### Exposition des métriques (pull)
+### Via l'interface web
 
-Le client expose un endpoint `/metrics` que Prometheus/VictoriaMetrics peut scraper :
+1. Aller dans **Exporter** > **VictoriaMetrics**
+2. Renseigner :
+   - **URL** : `http://victoriametrics:8428`
+   - **Username/Password** (si authentification)
+3. Cliquer sur **Tester la connexion**
+4. Si OK, activer l'export et **Sauvegarder**
 
-```yaml
-metrics:
-  enabled: true
-  port: 9090
-  path: "/metrics"
-
-  labels:
-    instance: "home"
-    location: "paris"
-```
-
-### Push vers VictoriaMetrics
-
-Pour les environnements où le scraping n'est pas possible :
-
-```yaml
-metrics:
-  enabled: true
-
-  push:
-    enabled: true
-    url: "http://victoriametrics:8428/api/v1/import/prometheus"
-    interval: 60  # Toutes les 60 secondes
-
-    # Authentification (optionnel)
-    username: ""
-    password: ""
-
-    # Headers personnalisés
-    headers:
-      X-Custom-Header: "value"
-```
-
-### Variables d'environnement
+### Via variables d'environnement
 
 ```bash
-METRICS_ENABLED=true
-METRICS_PORT=9090
-METRICS_PATH=/metrics
-METRICS_PUSH_ENABLED=true
-METRICS_PUSH_URL=http://victoriametrics:8428/api/v1/import/prometheus
-METRICS_PUSH_INTERVAL=60
+# .env.client
+VICTORIAMETRICS_URL=http://localhost:8428
+VICTORIAMETRICS_ENABLED=true
+
+# Authentification (optionnel)
+VICTORIAMETRICS_USERNAME=admin
+VICTORIAMETRICS_PASSWORD=secret
+
+# Labels additionnels
+VICTORIAMETRICS_LABELS={"env": "production", "host": "raspberry"}
 ```
 
-## Métriques exposées
+---
 
-### Consommation
+## Métriques exportées
+
+### Format Prometheus
+
+Les métriques sont exportées au format Prometheus :
 
 ```prometheus
-# Consommation journalière en kWh
-myelectricaldata_consumption_daily_kwh{pdl="12345678901234",tariff="hc_hp"} 15.234
+# Consommation
+myelectricaldata_consumption_wh{pdl="12345678901234",type="daily"} 15200 1705312800000
+myelectricaldata_consumption_wh{pdl="12345678901234",type="monthly"} 245600 1705312800000
 
-# Consommation heures creuses
-myelectricaldata_consumption_hc_kwh{pdl="12345678901234"} 8.5
+# Production
+myelectricaldata_production_wh{pdl="12345678901234",type="daily"} 8500 1705312800000
+myelectricaldata_production_wh{pdl="12345678901234",type="monthly"} 120300 1705312800000
 
-# Consommation heures pleines
-myelectricaldata_consumption_hp_kwh{pdl="12345678901234"} 6.734
+# Tempo
+myelectricaldata_tempo_color{pdl="12345678901234",color="BLEU"} 1 1705312800000
+myelectricaldata_tempo_remaining{pdl="12345678901234",color="blue"} 280 1705312800000
+myelectricaldata_tempo_remaining{pdl="12345678901234",color="white"} 40 1705312800000
+myelectricaldata_tempo_remaining{pdl="12345678901234",color="red"} 20 1705312800000
 
-# Consommation mensuelle
-myelectricaldata_consumption_monthly_kwh{pdl="12345678901234",month="2024-01"} 450.5
-
-# Consommation annuelle
-myelectricaldata_consumption_yearly_kwh{pdl="12345678901234",year="2024"} 5420.8
-
-# Puissance maximale quotidienne en kVA
-myelectricaldata_max_power_kva{pdl="12345678901234"} 6.5
+# EcoWatt
+myelectricaldata_ecowatt_level{region="france"} 1 1705312800000
 ```
 
-### Production
+### Labels
 
-```prometheus
-# Production journalière en kWh
-myelectricaldata_production_daily_kwh{pdl="12345678901234"} 12.8
+| Label | Description |
+|-------|-------------|
+| `pdl` | Identifiant du point de livraison |
+| `type` | Type de données (daily, monthly) |
+| `color` | Couleur Tempo (BLEU, BLANC, ROUGE) |
+| `quality` | Qualité des données (BRUT, CORRIGE) |
 
-# Production mensuelle
-myelectricaldata_production_monthly_kwh{pdl="12345678901234",month="2024-01"} 280.5
+---
 
-# Production annuelle
-myelectricaldata_production_yearly_kwh{pdl="12345678901234",year="2024"} 3200.0
+## API utilisée
+
+L'exportateur utilise l'API `/api/v1/import` de VictoriaMetrics :
+
+```bash
+# Exemple d'import manuel
+curl -X POST "http://localhost:8428/api/v1/import" \
+  -H "Content-Type: text/plain" \
+  -d 'myelectricaldata_consumption_wh{pdl="12345678901234"} 15200 1705312800000'
 ```
 
-### Métadonnées et statut
+### Batch import
 
-```prometheus
-# Informations sur le PDL
-myelectricaldata_pdl_info{pdl="12345678901234",tariff="hc_hp",power="6"} 1
+Les données sont envoyées par batch pour optimiser les performances :
 
-# Timestamp de la dernière synchronisation
-myelectricaldata_last_sync_timestamp{pdl="12345678901234"} 1705312200
-
-# Statut de synchronisation (1=ok, 0=erreur)
-myelectricaldata_sync_status{pdl="12345678901234"} 1
-
-# Nombre de jours synchronisés
-myelectricaldata_synced_days_total{pdl="12345678901234"} 365
+```python
+# 100 lignes par batch
+async def export_batch(self, metrics: list[str]):
+    payload = "\n".join(metrics)
+    await self.session.post(
+        f"{self.url}/api/v1/import",
+        data=payload,
+        headers={"Content-Type": "text/plain"}
+    )
 ```
 
-### Métriques internes
-
-```prometheus
-# Nombre de synchronisations
-myelectricaldata_sync_total{status="success"} 150
-myelectricaldata_sync_total{status="error"} 2
-
-# Durée des synchronisations
-myelectricaldata_sync_duration_seconds{quantile="0.5"} 2.5
-myelectricaldata_sync_duration_seconds{quantile="0.9"} 5.2
-
-# Requêtes API effectuées
-myelectricaldata_api_requests_total{endpoint="consumption"} 500
-```
-
-## Déploiement
-
-### VictoriaMetrics (Docker Compose)
-
-```yaml
-version: '3.8'
-
-services:
-  myelectricaldata:
-    image: myelectricaldata/local-client:latest
-    environment:
-      - CLIENT_ID=votre_client_id
-      - CLIENT_SECRET=votre_client_secret
-      - METRICS_ENABLED=true
-      - METRICS_PORT=9090
-    ports:
-      - "8080:8080"
-      - "9090:9090"
-
-  victoriametrics:
-    image: victoriametrics/victoria-metrics:latest
-    ports:
-      - "8428:8428"
-    volumes:
-      - vm_data:/storage
-    command:
-      - "-storageDataPath=/storage"
-      - "-retentionPeriod=5y"  # Conserver 5 ans de données
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    volumes:
-      - grafana_data:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-
-volumes:
-  vm_data:
-  grafana_data:
-```
-
-### Configuration du scraping
-
-Créez un fichier `prometheus.yml` pour VictoriaMetrics :
-
-```yaml
-scrape_configs:
-  - job_name: 'myelectricaldata'
-    scrape_interval: 60s
-    static_configs:
-      - targets: ['myelectricaldata:9090']
-        labels:
-          instance: 'home'
-```
-
-Montez-le dans VictoriaMetrics :
-
-```yaml
-victoriametrics:
-  volumes:
-    - ./prometheus.yml:/etc/prometheus/prometheus.yml
-  command:
-    - "-promscrape.config=/etc/prometheus/prometheus.yml"
-```
-
-### Prometheus
-
-```yaml
-# prometheus.yml
-global:
-  scrape_interval: 60s
-
-scrape_configs:
-  - job_name: 'myelectricaldata'
-    static_configs:
-      - targets: ['myelectricaldata:9090']
-```
+---
 
 ## Dashboards Grafana
 
-### Installation
-
-1. Connectez-vous à Grafana (http://localhost:3000)
-2. Ajoutez VictoriaMetrics comme source de données :
-   - Type : Prometheus
-   - URL : http://victoriametrics:8428
-3. Importez le dashboard
-
 ### Dashboard de base
 
-Importez ce JSON dans Grafana :
+Importer le dashboard depuis `docs/grafana/myelectricaldata.json` ou créer manuellement :
 
-```json
-{
-  "title": "MyElectricalData - Consommation",
-  "panels": [
-    {
-      "title": "Consommation journalière",
-      "type": "timeseries",
-      "targets": [
-        {
-          "expr": "myelectricaldata_consumption_daily_kwh",
-          "legendFormat": "{{pdl}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "kwatth"
-        }
-      }
-    },
-    {
-      "title": "HC vs HP",
-      "type": "piechart",
-      "targets": [
-        {
-          "expr": "myelectricaldata_consumption_hc_kwh",
-          "legendFormat": "Heures Creuses"
-        },
-        {
-          "expr": "myelectricaldata_consumption_hp_kwh",
-          "legendFormat": "Heures Pleines"
-        }
-      ]
-    },
-    {
-      "title": "Consommation mensuelle",
-      "type": "barchart",
-      "targets": [
-        {
-          "expr": "sum(increase(myelectricaldata_consumption_daily_kwh[30d])) by (pdl)",
-          "legendFormat": "{{pdl}}"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### Requêtes PromQL utiles
+#### Consommation journalière
 
 ```promql
-# Consommation des 7 derniers jours
-sum(increase(myelectricaldata_consumption_daily_kwh[7d]))
-
-# Moyenne journalière sur le mois
-avg_over_time(myelectricaldata_consumption_daily_kwh[30d])
-
-# Comparaison avec le mois précédent
-myelectricaldata_consumption_daily_kwh - myelectricaldata_consumption_daily_kwh offset 30d
-
-# Puissance max sur la semaine
-max_over_time(myelectricaldata_max_power_kva[7d])
-
-# Ratio production/consommation
-myelectricaldata_production_daily_kwh / myelectricaldata_consumption_daily_kwh * 100
-
-# Consommation par tarif
-sum by (tariff) (myelectricaldata_consumption_daily_kwh)
+sum(myelectricaldata_consumption_wh{type="daily"}) by (pdl) / 1000
 ```
 
-## Alertes
+#### Comparaison mensuelle
 
-### Alertmanager
+```promql
+sum(increase(myelectricaldata_consumption_wh{type="daily"}[$__range])) by (pdl) / 1000
+```
+
+#### Coût estimé Tempo
+
+```promql
+# Hypothèse : prix HP
+sum(myelectricaldata_consumption_wh{type="daily"}) by (pdl) / 1000 *
+  on(pdl) group_left()
+  (
+    myelectricaldata_tempo_color{color="BLEU"} * 0.1609 +
+    myelectricaldata_tempo_color{color="BLANC"} * 0.1894 +
+    myelectricaldata_tempo_color{color="ROUGE"} * 0.7324
+  )
+```
+
+### Alertes Grafana
+
+#### Alerte Tempo Rouge
 
 ```yaml
-# alertmanager.yml
-groups:
-  - name: myelectricaldata
-    rules:
-      - alert: HighConsumption
-        expr: myelectricaldata_consumption_daily_kwh > 30
-        for: 1h
-        labels:
-          severity: warning
-        annotations:
-          summary: "Consommation élevée détectée"
-          description: "{{ $labels.pdl }} consomme {{ $value }} kWh"
-
-      - alert: SyncFailed
-        expr: myelectricaldata_sync_status == 0
-        for: 6h
-        labels:
-          severity: critical
-        annotations:
-          summary: "Synchronisation échouée"
-          description: "Le PDL {{ $labels.pdl }} n'a pas été synchronisé depuis 6h"
-
-      - alert: MaxPowerExceeded
-        expr: myelectricaldata_max_power_kva > 6
-        labels:
-          severity: warning
-        annotations:
-          summary: "Puissance maximale dépassée"
+# Grafana alerting rule
+alert: TempoRouge
+expr: myelectricaldata_tempo_color{color="ROUGE"} == 1
+for: 0m
+labels:
+  severity: warning
+annotations:
+  summary: "Jour Tempo Rouge"
+  description: "Demain est un jour Tempo Rouge, réduisez votre consommation"
 ```
 
-### Grafana Alerts
+#### Alerte EcoWatt
 
-Dans Grafana 8+, créez des alertes directement sur les panels :
+```yaml
+alert: EcoWattAlerte
+expr: myelectricaldata_ecowatt_level >= 2
+for: 0m
+labels:
+  severity: warning
+annotations:
+  summary: "Alerte EcoWatt niveau {{ $value }}"
+```
 
-1. Éditez un panel
-2. Onglet **Alert**
-3. Configurez les conditions
-4. Définissez les notifications
+---
 
 ## Rétention des données
 
-### VictoriaMetrics
+VictoriaMetrics supporte une rétention configurable :
 
 ```bash
-# Conserver 5 ans de données
-docker run -d \
-  -v vm_data:/storage \
+# Docker avec rétention 2 ans
+docker run -d -p 8428:8428 \
+  -v vmdata:/victoria-metrics-data \
   victoriametrics/victoria-metrics \
-  -storageDataPath=/storage \
-  -retentionPeriod=5y
+  -retentionPeriod=24M
 ```
 
-### Downsampling
+### Estimation de l'espace disque
 
-Pour les données anciennes, utilisez le downsampling :
+| Données | Métriques/jour | Espace/an |
+|---------|----------------|-----------|
+| 1 PDL | ~10 | ~50 MB |
+| 5 PDLs | ~50 | ~250 MB |
+| 10 PDLs | ~100 | ~500 MB |
 
-```bash
-# Créer des agrégations mensuelles pour les données > 1 an
-vmctl prometheus \
-  --vm-addr=http://victoriametrics:8428 \
-  --match='{__name__=~"myelectricaldata.*"}' \
-  --step=30d
+---
+
+## Architecture cluster
+
+Pour une haute disponibilité :
+
 ```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      CLUSTER VICTORIAMETRICS                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  MyElectricalData                   VictoriaMetrics Cluster                 │
+│                                                                             │
+│  ┌─────────────┐                    ┌─────────────────────┐                 │
+│  │ Exporter    │                    │ vminsert (write)    │                 │
+│  │             │───────────────────▶│   ↓                 │                 │
+│  └─────────────┘                    │ vmstorage (x3)      │                 │
+│                                     │   ↓                 │                 │
+│  ┌─────────────┐                    │ vmselect (read)     │                 │
+│  │ Grafana     │◀───────────────────│                     │                 │
+│  └─────────────┘                    └─────────────────────┘                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
 
 ## Dépannage
 
-### Métriques non disponibles
+### Erreur "Connection refused"
+
+- Vérifier que VictoriaMetrics est démarré
+- Vérifier le port (8428 par défaut)
+- Si sur l'hôte Docker, utiliser `host.docker.internal`
+
+### Erreur "400 Bad Request"
+
+- Vérifier le format des métriques (pas d'espace dans les labels)
+- Utiliser `/api/v1/import` et non `/api/v1/write`
+- Valider avec :
+  ```bash
+  curl -X POST "http://localhost:8428/api/v1/import" \
+    -d 'test_metric{label="value"} 1'
+  ```
+
+### Données non visibles dans Grafana
+
+- Vérifier que la datasource est configurée
+- Attendre quelques secondes après l'import
+- Vérifier la plage de temps dans Grafana
+
+### Test de l'API
 
 ```bash
-# Vérifier l'endpoint
-curl http://localhost:9090/metrics
+# Écrire une métrique test
+curl -X POST "http://localhost:8428/api/v1/import" \
+  -d 'myelectricaldata_test{pdl="test"} 42'
 
-# Vérifier dans VictoriaMetrics
-curl 'http://localhost:8428/api/v1/query?query=myelectricaldata_consumption_daily_kwh'
+# Lire la métrique
+curl "http://localhost:8428/api/v1/query?query=myelectricaldata_test"
 ```
 
-### Push échoue
+---
 
-```bash
-# Tester le push manuellement
-curl -X POST http://victoriametrics:8428/api/v1/import/prometheus \
-  -d 'myelectricaldata_test{pdl="test"} 1'
+## Code source
+
+L'exportateur VictoriaMetrics est implémenté dans :
+
+```
+apps/api/src/services/exporters/victoriametrics.py
 ```
 
-### Données manquantes dans Grafana
+### Exemple d'export
 
-1. Vérifiez la période sélectionnée
-2. Vérifiez la source de données
-3. Testez la requête dans **Explore**
+```python
+class VictoriaMetricsExporter:
+    async def export_consumption(self, data: ConsumptionData):
+        timestamp_ms = int(data.date.timestamp() * 1000)
 
-## Ressources
+        metrics = [
+            f'myelectricaldata_consumption_wh{{pdl="{data.pdl}",type="daily"}} '
+            f'{data.value_wh} {timestamp_ms}'
+        ]
 
-- [VictoriaMetrics Documentation](https://docs.victoriametrics.com/)
-- [PromQL Basics](https://prometheus.io/docs/prometheus/latest/querying/basics/)
-- [Grafana Dashboards](https://grafana.com/grafana/dashboards/)
+        await self._send_metrics(metrics)
+
+    async def _send_metrics(self, metrics: list[str]):
+        payload = "\n".join(metrics)
+        async with self.session.post(
+            f"{self.url}/api/v1/import",
+            data=payload,
+            headers={"Content-Type": "text/plain"},
+        ) as resp:
+            if resp.status != 204:
+                raise ExportError(f"VictoriaMetrics error: {resp.status}")
+```

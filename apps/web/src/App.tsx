@@ -1,6 +1,9 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { useAuth } from './hooks/useAuth'
+import { useAppMode, isClientMode as checkClientMode } from './hooks/useAppMode'
+import { authApi } from './api/auth'
+
 import Layout from './components/Layout'
 import ToastContainer from './components/Toast'
 import PermissionRoute from './components/PermissionRoute'
@@ -12,20 +15,22 @@ import OAuthCallback from './pages/OAuthCallback'
 import ConsentRedirect from './pages/ConsentRedirect'
 import Settings from './pages/Settings'
 import VerifyEmail from './pages/VerifyEmail'
-import Admin from './pages/Admin'
+import AdminDashboard from './pages/Admin/Dashboard'
+import AdminUsers from './pages/Admin/Users'
+import AdminRoles from './pages/Admin/Roles'
+import AdminOffers from './pages/Admin/Offers'
+import AdminContributions from './pages/Admin/Contributions'
+import AdminTempo from './pages/Admin/Tempo'
+import AdminEcoWatt from './pages/Admin/EcoWatt'
+import AdminRTE from './pages/Admin/RTE'
+import AdminLogs from './pages/Admin/Logs'
+import AdminAddPDL from './pages/Admin/AddPDL'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import Contribute from './pages/Contribute'
-import AdminContributions from './pages/AdminContributions'
-import AdminOffers from './pages/AdminOffers'
-import AdminUsers from './pages/AdminUsers'
-import AdminTempo from './pages/AdminTempo'
-import AdminEcoWatt from './pages/AdminEcoWatt'
-import AdminAddPDL from './pages/AdminAddPDL'
-import AdminRoles from './pages/AdminRoles'
-import AdminLogs from './pages/AdminLogs'
 import Tempo from './pages/Tempo'
 import EcoWatt from './pages/EcoWatt'
+import France from './pages/France'
 import ConsumptionKwh from './pages/ConsumptionKwh'
 import ConsumptionEuro from './pages/ConsumptionEuro'
 import Production from './pages/Production'
@@ -36,9 +41,17 @@ import ApiAuth from './pages/ApiAuth'
 import NotFound from './pages/NotFound'
 import Forbidden from './pages/Forbidden'
 
+// Check client mode once at module load (before React renders)
+const IS_CLIENT_MODE = checkClientMode()
+
 // Lazy load heavy pages (swagger-ui: ~1.3MB, jspdf: ~600KB)
 const Simulator = lazy(() => import('./pages/Simulator'))
 const ApiDocs = lazy(() => import('./pages/ApiDocs'))
+
+// Client mode export pages
+const HomeAssistant = lazy(() => import('./pages/HomeAssistant'))
+const MQTT = lazy(() => import('./pages/MQTT'))
+const VictoriaMetrics = lazy(() => import('./pages/VictoriaMetrics'))
 
 // Loading fallback for lazy-loaded pages
 function PageLoader() {
@@ -51,14 +64,21 @@ function PageLoader() {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
+  const { isClientMode } = useAppMode()
   const location = useLocation()
 
+  // Wait for auth to complete in both modes (ensures auto-login completes in client mode)
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-lg">Chargement...</div>
       </div>
     )
+  }
+
+  // In client mode, no authentication redirect needed - always render children
+  if (isClientMode) {
+    return <>{children}</>
   }
 
   if (!isAuthenticated) {
@@ -74,45 +94,118 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+/**
+ * Client Mode Initializer
+ * In client mode, we need to auto-login before rendering any routes.
+ * This ensures the auth cookie is set before any API requests are made.
+ */
+function ClientModeInitializer({ children }: { children: React.ReactNode }) {
+  const [isInitialized, setIsInitialized] = useState(!IS_CLIENT_MODE)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!IS_CLIENT_MODE) return
+
+    const initialize = async () => {
+      try {
+        // Try to get current user first (cookie might already exist)
+        const meResponse = await authApi.getMe()
+        if (meResponse.success) {
+          setIsInitialized(true)
+          return
+        }
+
+        // No valid session, do auto-login
+        const loginResponse = await authApi.autoLogin()
+        if (!loginResponse.success) {
+          setError('Échec de la connexion automatique')
+          return
+        }
+
+        setIsInitialized(true)
+      } catch (err) {
+        console.error('[CLIENT_MODE] Initialization error:', err)
+        setError('Erreur lors de l\'initialisation')
+      }
+    }
+
+    initialize()
+  }, [])
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="text-red-600 text-lg mb-2">{error}</div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isInitialized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-lg">Initialisation...</div>
+      </div>
+    )
+  }
+
+  return <>{children}</>
+}
+
 function App() {
+  const { isClientMode, isServerMode } = useAppMode()
+
   return (
-    <>
+    <ClientModeInitializer>
       <ToastContainer />
       <Routes>
-      {/* Public routes */}
-      <Route path="/" element={<Landing />} />
-      <Route
-        path="/login"
-        element={
-          <PublicRoute>
-            <Login />
-          </PublicRoute>
-        }
-      />
-      <Route
-        path="/signup"
-        element={
-          <PublicRoute>
-            <Signup />
-          </PublicRoute>
-        }
-      />
-      <Route
-        path="/forgot-password"
-        element={
-          <PublicRoute>
-            <ForgotPassword />
-          </PublicRoute>
-        }
-      />
-      <Route
-        path="/reset-password"
-        element={
-          <PublicRoute>
-            <ResetPassword />
-          </PublicRoute>
-        }
-      />
+      {/* Root route - depends on mode */}
+      <Route path="/" element={isClientMode ? <Navigate to="/dashboard" replace /> : <Landing />} />
+
+      {/* Server mode only: Auth routes */}
+      {isServerMode && (
+        <>
+          <Route
+            path="/login"
+            element={
+              <PublicRoute>
+                <Login />
+              </PublicRoute>
+            }
+          />
+          <Route
+            path="/signup"
+            element={
+              <PublicRoute>
+                <Signup />
+              </PublicRoute>
+            }
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              <PublicRoute>
+                <ForgotPassword />
+              </PublicRoute>
+            }
+          />
+          <Route
+            path="/reset-password"
+            element={
+              <PublicRoute>
+                <ResetPassword />
+              </PublicRoute>
+            }
+          />
+        </>
+      )}
 
       {/* Protected routes */}
       <Route
@@ -125,16 +218,19 @@ function App() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/settings"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <Settings />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
+      {/* Server mode only: Settings page */}
+      {isServerMode && (
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Settings />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+      )}
       <Route
         path="/simulator"
         element={
@@ -161,7 +257,8 @@ function App() {
         path="/contribute"
         element={<Navigate to="/contribute/offers" replace />}
       />
-      <Route
+      {/* Route désactivée temporairement - fonctionnalité intégrée dans /contribute/offers */}
+      {/* <Route
         path="/contribute/new"
         element={
           <ProtectedRoute>
@@ -170,7 +267,7 @@ function App() {
             </Layout>
           </ProtectedRoute>
         }
-      />
+      /> */}
       <Route
         path="/contribute/mine"
         element={
@@ -243,6 +340,19 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/france"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <France />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      {/* Redirects for old routes */}
+      <Route path="/consumption-france" element={<Navigate to="/france" replace />} />
+      <Route path="/generation-forecast" element={<Navigate to="/france" replace />} />
       {/* Consumption routes with submenu */}
       <Route
         path="/consumption"
@@ -288,13 +398,61 @@ function App() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/admin"
+
+      {/* Client mode only: Export configuration pages */}
+      {isClientMode && (
+        <>
+          <Route
+            path="/home-assistant"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Suspense fallback={<PageLoader />}>
+                    <HomeAssistant />
+                  </Suspense>
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/mqtt"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Suspense fallback={<PageLoader />}>
+                    <MQTT />
+                  </Suspense>
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/victoriametrics"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Suspense fallback={<PageLoader />}>
+                    <VictoriaMetrics />
+                  </Suspense>
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Redirect old /export route to /home-assistant */}
+          <Route path="/export" element={<Navigate to="/home-assistant" replace />} />
+        </>
+      )}
+
+      {/* Server mode only: Admin routes */}
+      {isServerMode && (
+        <>
+          <Route
+            path="/admin"
         element={
           <ProtectedRoute>
             <PermissionRoute resource="admin_dashboard">
               <Layout>
-                <Admin />
+                <AdminDashboard />
               </Layout>
             </PermissionRoute>
           </ProtectedRoute>
@@ -329,6 +487,18 @@ function App() {
             <PermissionRoute resource="admin_dashboard">
               <Layout>
                 <AdminEcoWatt />
+              </Layout>
+            </PermissionRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/rte"
+        element={
+          <ProtectedRoute>
+            <PermissionRoute resource="admin_dashboard">
+              <Layout>
+                <AdminRTE />
               </Layout>
             </PermissionRoute>
           </ProtectedRoute>
@@ -382,38 +552,40 @@ function App() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/admin/add-pdl"
-        element={
-          <ProtectedRoute>
-            <PermissionRoute resource="users">
-              <Layout>
-                <AdminAddPDL />
-              </Layout>
-            </PermissionRoute>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/oauth/callback"
-        element={
-          <ProtectedRoute>
-            <OAuthCallback />
-          </ProtectedRoute>
-        }
-      />
-      {/* Route for Enedis consent redirect - forwards to backend */}
-      <Route path="/consent" element={<ConsentRedirect />} />
-      <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route
+            path="/admin/add-pdl"
+            element={
+              <ProtectedRoute>
+                <PermissionRoute resource="users">
+                  <Layout>
+                    <AdminAddPDL />
+                  </Layout>
+                </PermissionRoute>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/oauth/callback"
+            element={
+              <ProtectedRoute>
+                <OAuthCallback />
+              </ProtectedRoute>
+            }
+          />
+          {/* Route for Enedis consent redirect - forwards to backend */}
+          <Route path="/consent" element={<ConsentRedirect />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+        </>
+      )}
 
-      {/* Error pages */}
+      {/* Shared: Error pages */}
       <Route path="/forbidden" element={<Forbidden />} />
       <Route path="/404" element={<NotFound />} />
 
       {/* 404 - catch all */}
       <Route path="*" element={<NotFound />} />
     </Routes>
-    </>
+    </ClientModeInitializer>
   )
 }
 

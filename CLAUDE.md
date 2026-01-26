@@ -8,6 +8,17 @@ MyElectricalData is a secure API gateway that enables French individuals to acce
 
 **Architecture**: Monorepo with FastAPI backend (`apps/api/`) and React/Vite frontend (`apps/web/`)
 
+## Modes d'exécution
+
+**IMPORTANT : Ce projet supporte DEUX modes. Le mode Client est le défaut. Voir `.claude/rules/modes.md` pour les règles détaillées.**
+
+| Mode        | Description                                                   | Docker Compose              | Ports     | Défaut |
+| ----------- | ------------------------------------------------------------- | --------------------------- | --------- | ------ |
+| **Client**  | Installation locale, mono-user, API MyElectricalData, exports | `docker-compose.yml`        | 8100/8181 | ✅     |
+| **Serveur** | Gateway complet avec admin, multi-users, Enedis direct        | `docker-compose.server.yml` | 8000/8081 |        |
+
+Les deux modes peuvent tourner en parallèle. Documentation mode client : `docs/local-client/`
+
 ## Development Commands
 
 ### Root Makefile (Recommended)
@@ -43,9 +54,16 @@ make rebuild          # Rebuild all containers
 make help             # Show all available commands
 ```
 
-**Access Points:**
+**Access Points (Client Mode - Default):**
 
-- Frontend: <http://localhost:8000> (via Vite dev server)
+- Frontend: <http://localhost:8100>
+- Backend API: <http://localhost:8181>
+- API Docs: <http://localhost:8181/docs>
+- pgAdmin: <http://localhost:5051>
+
+**Access Points (Server Mode):**
+
+- Frontend: <http://localhost:8000>
 - Backend API: <http://localhost:8081>
 - API Docs: <http://localhost:8081/docs>
 - pgAdmin: <http://localhost:5050>
@@ -53,15 +71,18 @@ make help             # Show all available commands
 ### Docker (Manual Alternative)
 
 ```bash
-# Start all services
+# Start client mode services (default)
 docker compose up -d
 
 # View logs
-docker compose logs -f backend
-docker compose logs -f frontend
+docker compose logs -f backend-client
+docker compose logs -f frontend-client
 
 # Stop services
 docker compose down
+
+# Start server mode services
+docker compose -f docker-compose.server.yml up -d
 ```
 
 ### Backend (apps/api/)
@@ -111,20 +132,23 @@ uv run ruff check --fix src tests
 # SQLite: sqlite+aiosqlite:///./data/myelectricaldata.db
 # PostgreSQL: postgresql+asyncpg://user:pass@postgres:5432/db
 
-# Apply all pending migrations
-docker compose exec backend alembic upgrade head
+# Apply all pending migrations (client mode - default)
+docker compose exec backend-client alembic upgrade head
 
 # Rollback last migration
-docker compose exec backend alembic downgrade -1
+docker compose exec backend-client alembic downgrade -1
 
 # Show migration history
-docker compose exec backend alembic history
+docker compose exec backend-client alembic history
 
 # Generate a new migration (after modifying models)
-docker compose exec backend alembic revision --autogenerate -m "Description"
+docker compose exec backend-client alembic revision --autogenerate -m "Description"
 
 # For existing databases, stamp with current revision
-docker compose exec backend alembic stamp head
+docker compose exec backend-client alembic stamp head
+
+# Server mode migrations
+docker compose -f docker-compose.server.yml exec backend alembic upgrade head
 
 # Local development (from apps/api/)
 cd apps/api
@@ -227,21 +251,22 @@ Key relationships:
 - **Admin interface**: `/admin/offers` with logo display, URL management, preview/refresh actions
 
 **Scraper types**:
+
 - PDF parsing (EDF, Enercoop, TotalEnergies, Priméo)
 - Fallback data for all providers
 - ~133 total offers across 4 providers
 
-See `docs/features-spec/energy-providers-scrapers.md` for detailed documentation.
+See `docs/server-mode/features/energy-providers-scrapers.md` for detailed documentation.
 
 ## Design System
 
 **Regles critiques** : `.claude/rules/design.md` (injecte automatiquement pour `apps/web/**`)
 
-**Documentation complete** : `docs/design/`
+**Documentation complete** : `docs/specs/design/`
 
 **Pour toute modification UI** : Utiliser l'agent `frontend-specialist`
 
-**Verification** : `/check_design` ou `docs/design/checklist.md`
+**Verification** : `/check_design` ou `docs/specs/design/checklist.md`
 
 ## Agent System
 
@@ -249,7 +274,7 @@ Project uses specialized Claude Code agents defined in `.claude/agents/`:
 
 - **`frontend-specialist.md`**: React/TypeScript, must check `@docs/design` before UI work
 - **`backend-specialist.md`**: Python/FastAPI, must follow API design rules
-- **`enedis-specialist.md`**: Expert API Enedis Data Connect, must check `@docs/enedis-api` before any Enedis integration
+- **`enedis-specialist.md`**: Expert API Enedis Data Connect, must check `@docs/external-apis/enedis-api` before any Enedis integration
 - **`devops-specialist.md`**: Kubernetes/Helm for deployment
 
 When agents generate code:
@@ -315,7 +340,7 @@ VITE_API_BASE_URL=/api  # In Docker, or http://localhost:8081 for local
 ### Adding a New Page
 
 1. Create component in `apps/web/src/pages/`
-2. Follow design checklist: `docs/design/checklist.md`
+2. Follow design checklist: `docs/specs/design/checklist.md`
 3. Add route in `apps/web/src/App.tsx`
 4. Add navigation link in `apps/web/src/components/Layout.tsx` if needed
 5. Ensure `pt-6` on root container and H1 icon pattern
@@ -324,12 +349,13 @@ VITE_API_BASE_URL=/api  # In Docker, or http://localhost:8081 for local
 ### Creating Demo Account
 
 ```bash
-docker compose exec backend python scripts/create_demo_account.py
+# Server mode only (demo accounts are for the gateway)
+docker compose -f docker-compose.server.yml exec backend python scripts/create_demo_account.py
 # Creates: demo@myelectricaldata.fr / DemoPassword123!
 # With 2 PDLs and 365 days of mock consumption/production data
 ```
 
-See `docs/demo/` for detailed implementation guide.
+See `docs/server-mode/demo/` for detailed implementation guide.
 
 ## Production Deployment
 
@@ -339,18 +365,21 @@ See `docs/demo/` for detailed implementation guide.
 - PostgreSQL recommended over SQLite
 - Valkey required for caching
 
-Deployment docs: `docs/setup/docker.md`
+Deployment docs:
+- Server mode: `docs/server-mode/installation/docker.md`
+- Client mode: `docs/local-client/installation/docker.md`
 
 ## Documentation Structure
 
 All docs now in `docs/`:
 
-- `docs/setup/`: Installation, Docker, database, dev-mode
-- `docs/features-spec/`: Functional specifications
-- `docs/design/`: UI design system with component guidelines
-- `docs/demo/`: Demo account implementation
-- `docs/architecture/`: System architecture overview
-- `docs/enedis-api/`: Enedis API reference
+- `docs/local-client/`: Client mode documentation (installation, integrations, exports)
+- `docs/server-mode/`: Server mode documentation (installation, administration, architecture, features)
+- `docs/specs/pages/`: Page-specific guides for Claude (UI implementation guidelines)
+- `docs/features-spec/`: Common features specifications (cache, database)
+- `docs/specs/design/`: UI design system with component guidelines
+- `docs/server-mode/demo/`: Demo account implementation
+- `docs/external-apis/`: External APIs documentation (Enedis, RTE)
 
 ## Security Considerations
 
@@ -366,5 +395,7 @@ See `apps/api/SECURITY.md` for detailed security model.
 
 - `docs/features-spec/rules/api-design.json`: API response format standard
 - `docs/features-spec/rules/testing.md`: Testing requirements
-- `docs/design/checklist.md`: UI compliance checklist
+- `docs/specs/design/checklist.md`: UI compliance checklist
 - `.claude/agents/*.md`: Agent-specific instructions
+- `.claude/rules/modes.md`: Règles pour les modes serveur/client
+- `docs/local-client/`: Documentation complète du mode client

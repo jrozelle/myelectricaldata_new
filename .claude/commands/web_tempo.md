@@ -13,15 +13,10 @@
 
 **Documentation de l'API RTE Tempo :**
 
-👉 `@docs/rte-api/tempo/`
-
-**Avant de commencer à travailler sur cette page :**
-
-1. Lis le fichier de spécifications complet ci-dessus
-2. Consulte la documentation de l'API RTE Tempo pour comprendre les données disponibles
-3. Respecte l'ordre d'affichage des fonctionnalités défini dans les specs
-4. Consulte les notes techniques importantes pour les détails d'implémentation
+👉 `@docs/external-apis/rte-api/tempo/`
 
 ## Description rapide
 
 Page affichant le **calendrier TEMPO d'EDF** avec les couleurs des jours (bleu, blanc, rouge) et les statistiques associées.
+
+**Note** : Cette page existe dans les deux modes (serveur et client). Voir la documentation pour les différences.

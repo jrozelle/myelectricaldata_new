@@ -2,18 +2,9 @@ import axios, { AxiosError, AxiosInstance } from 'axios'
 import type { APIResponse } from '@/types/api'
 import { logger, isDebugEnabled } from '@/utils/logger'
 import { usePdlStore } from '@/stores/pdlStore'
+import { isClientMode } from '@/hooks/useAppMode'
 
-// Runtime environment from env.js (generated at container startup)
-// Falls back to build-time env or default
-declare global {
-  interface Window {
-    __ENV__?: {
-      VITE_API_BASE_URL?: string
-      VITE_BACKEND_URL?: string
-    }
-  }
-}
-
+// Window.__ENV__ is declared globally in vite-env.d.ts
 const API_BASE_URL = window.__ENV__?.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api'
 
 class APIClient {
@@ -66,11 +57,29 @@ class APIClient {
           // Don't redirect if:
           // 1. Already on login page (would cause loop)
           // 2. Checking auth status (normal to get 401 if not logged in)
+          // 3. Already trying to auto-login
           const isLoginPage = window.location.pathname === '/login'
           const isAuthCheck = error.config?.url?.includes('accounts/me')
+          const isAutoLogin = error.config?.url?.includes('accounts/auto-login')
 
-          if (!isLoginPage && !isAuthCheck) {
-            // Session expired during normal use, redirect to login
+          // In client mode, try auto-login instead of redirecting
+          if (isClientMode() && !isAuthCheck && !isAutoLogin) {
+            try {
+              // Attempt auto-login to refresh the session
+              await this.client.post('accounts/auto-login')
+              // Retry the original request
+              if (error.config) {
+                return this.client.request(error.config)
+              }
+            } catch (autoLoginError) {
+              // Auto-login failed, log error but don't redirect
+              // (in client mode, there's no login page to redirect to)
+              if (isDebugEnabled()) {
+                logger.log('[API Client] Auto-login failed:', autoLoginError)
+              }
+            }
+          } else if (!isLoginPage && !isAuthCheck && !isAutoLogin) {
+            // Server mode: Session expired during normal use, redirect to login
             window.location.href = '/login'
           }
         }

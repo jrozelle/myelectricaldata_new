@@ -8,6 +8,7 @@ cat <<EOF > /usr/share/nginx/html/env.js
 window.__ENV__ = {
   VITE_API_BASE_URL: "${VITE_API_BASE_URL:-/api}",
   VITE_BACKEND_URL: "${VITE_BACKEND_URL:-/api}",
+  VITE_SERVER_MODE: "${VITE_SERVER_MODE:-false}",
 };
 EOF
 

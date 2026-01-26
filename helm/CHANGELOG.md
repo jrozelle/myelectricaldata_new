@@ -1,3 +1,36 @@
+# Helm Charts Changelog
+
+## [1.2.0-dev.2](https://github.com/MyElectricalData/myelectricaldata_new/compare/helm/1.2.0-dev.1...helm/1.2.0-dev.2) (2026-01-26)
+
+### Features
+
+* mise à jour de la version du chart et ajout de la variable d'environnement SERVER_MODE pour le déploiement ([829025e](https://github.com/MyElectricalData/myelectricaldata_new/commit/829025e4ea32fbc3544e8e852747672d199b8abb))
+* mise à jour des configurations mypy et ESLint, amélioration de la gestion des erreurs de token et refactorisation des appels d'API ([431145e](https://github.com/MyElectricalData/myelectricaldata_new/commit/431145e5e05362228ce747df8f214a1bcfc0262c))
+* refactor global environment declaration for runtime configuration in vite-env.d.ts ([2cb1870](https://github.com/MyElectricalData/myelectricaldata_new/commit/2cb1870b39d40078ef347aa49645d69c5fe00657))
+* **web:** support runtime VITE_SERVER_MODE via env.js ([811ec6b](https://github.com/MyElectricalData/myelectricaldata_new/commit/811ec6b6537a5bc33a354b6bb076ca87797d52d1))
+
+## [1.2.0-dev.1](https://github.com/MyElectricalData/myelectricaldata_new/compare/helm/1.1.0...helm/1.2.0-dev.1) (2026-01-26)
+
+### Features
+
+* Add backend and frontend Helm chart templates with configuration ([b6d263a](https://github.com/MyElectricalData/myelectricaldata_new/commit/b6d263a9c544d41434e2653bb1ab03198e998ce0))
+* add consumption euro page with detailed features and implementation ([2902470](https://github.com/MyElectricalData/myelectricaldata_new/commit/290247055268633bbfdf438c4c7399dad8be0ad8))
+* Add new pricing calculators for various offers ([72e47ad](https://github.com/MyElectricalData/myelectricaldata_new/commit/72e47ad284218550f18c29c37ed997d2dc12831a))
+* mettre à jour le package valkey à la version 0.13.0 ([2bcfe80](https://github.com/MyElectricalData/myelectricaldata_new/commit/2bcfe80e4a641680a9665857c361028360bdcb65))
+* mise à jour des fichiers de configuration et des instructions Docker pour le mode client ([9dd2bc7](https://github.com/MyElectricalData/myelectricaldata_new/commit/9dd2bc7f39846affc20e6b8895d08403a90d4c16))
+* **roles:** add persistent default roles and CRUD operations ([9c56c38](https://github.com/MyElectricalData/myelectricaldata_new/commit/9c56c386701450451e4af7a353ffc7477511ac9e))
+* **simulator:** amelioration export PDF et offre de reference ([b872ed0](https://github.com/MyElectricalData/myelectricaldata_new/commit/b872ed02ce0dce0997ad7694110b430b411b02a0))
+* **simulator:** highlight current offer and calculate gap relative to it ([4fc8569](https://github.com/MyElectricalData/myelectricaldata_new/commit/4fc856913e0a7fb470bdea47291b305e36fea617))
+* **ui:** display frontend and backend versions in admin menu ([350971d](https://github.com/MyElectricalData/myelectricaldata_new/commit/350971d06ecff945a281ad1c53078ae25357ff6b))
+* **web:** unify notification system with custom Zustand toast ([71825f0](https://github.com/MyElectricalData/myelectricaldata_new/commit/71825f044400304767046d41382a73895e8e2ac3))
+
+### Bug Fixes
+
+* add missing useAllPdls hook ([85e31d6](https://github.com/MyElectricalData/myelectricaldata_new/commit/85e31d6f62b045224776c0a9cc928817ecd88c33))
+* **api:** add type annotation to fix mypy error in version.py ([c09d769](https://github.com/MyElectricalData/myelectricaldata_new/commit/c09d7699e34d8a391d09e6ae222d5f1dbb15b01e))
+* **api:** disable redirect_slashes to fix Vite proxy routing ([7fbb6e0](https://github.com/MyElectricalData/myelectricaldata_new/commit/7fbb6e07812af81d3874385c0b03f60b69431df3))
+* **auth:** preserve query params in OAuth callback redirect ([c0b51c0](https://github.com/MyElectricalData/myelectricaldata_new/commit/c0b51c02a6e083c141afde7fad00e3f72d899fb5))
+
 # Helm Chart Changelog
 
 ## [1.1.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/helm/1.0.0...helm/1.1.0) (2025-12-21)

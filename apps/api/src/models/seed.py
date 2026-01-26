@@ -7,10 +7,12 @@ It also ensures ADMIN_EMAILS users always have the admin role.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from .role import Role, Permission
+from .energy_provider import EnergyProvider, EnergyOffer
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +205,173 @@ async def init_default_roles_and_permissions(db: AsyncSession) -> None:
 
     except Exception as e:
         logger.error(f"[SEED] Error initializing roles and permissions: {e}")
+        await db.rollback()
+        raise
+
+
+# ============================================================================
+# NOTE: Les types d'offres (PricingType) sont maintenant gérés via OfferRegistry
+# dans services/offers/registry.py (auto-discovery des calculateurs Python)
+# La fonction init_default_pricing_types a été supprimée car redondante.
+# ============================================================================
+
+
+# ============================================================================
+# DEFAULT ENERGY PROVIDERS & OFFERS (EDF Tarif Bleu - Août 2025)
+# ============================================================================
+
+# Date de mise à jour des tarifs EDF (1er août 2025)
+EDF_PRICE_UPDATE_DATE = datetime(2025, 8, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+# Fournisseur EDF
+DEFAULT_PROVIDER = {
+    "name": "EDF",
+    "website": "https://www.edf.fr",
+    "logo_url": "https://logo.clearbit.com/edf.fr",
+    "is_active": True,
+}
+
+# Offres BASE (Option Base TTC) - kVA, Abonnement €/mois, Prix kWh
+DEFAULT_BASE_OFFERS = [
+    (3, 11.73, 0.1952),
+    (6, 15.47, 0.1952),
+    (9, 19.39, 0.1952),
+    (12, 23.32, 0.1952),
+    (15, 27.06, 0.1952),
+    (18, 30.76, 0.1952),
+    (24, 38.79, 0.1952),
+    (30, 46.44, 0.1952),
+    (36, 54.29, 0.1952),
+]
+
+# Offres HC/HP (Option Heures Creuses TTC) - kVA, Abonnement €/mois, HP €/kWh, HC €/kWh
+DEFAULT_HCHP_OFFERS = [
+    (6, 15.74, 0.2081, 0.1635),
+    (9, 19.81, 0.2081, 0.1635),
+    (12, 23.76, 0.2081, 0.1635),
+    (15, 27.49, 0.2081, 0.1635),
+    (18, 31.34, 0.2081, 0.1635),
+    (24, 39.47, 0.2081, 0.1635),
+    (30, 47.02, 0.2081, 0.1635),
+    (36, 54.61, 0.2081, 0.1635),
+]
+
+# Offres TEMPO (Option Tempo TTC) - kVA, Abo, Bleu HC/HP, Blanc HC/HP, Rouge HC/HP
+DEFAULT_TEMPO_OFFERS = [
+    (6, 15.50, 0.1232, 0.1494, 0.1391, 0.1730, 0.1460, 0.6468),
+    (9, 19.49, 0.1232, 0.1494, 0.1391, 0.1730, 0.1460, 0.6468),
+    (12, 23.38, 0.1232, 0.1494, 0.1391, 0.1730, 0.1460, 0.6468),
+    (15, 27.01, 0.1232, 0.1494, 0.1391, 0.1730, 0.1460, 0.6468),
+    (18, 30.79, 0.1232, 0.1494, 0.1391, 0.1730, 0.1460, 0.6468),
+    (30, 46.31, 0.1232, 0.1494, 0.1391, 0.1730, 0.1460, 0.6468),
+    (36, 54.43, 0.1232, 0.1494, 0.1391, 0.1730, 0.1460, 0.6468),
+]
+
+
+async def init_default_energy_offers(db: AsyncSession) -> None:
+    """
+    Initialize default energy provider (EDF) and offers.
+
+    This function is idempotent - it only creates the provider and offers
+    if they don't already exist. Existing offers are not modified.
+    Les types d'offres sont validés via OfferRegistry (auto-discovery).
+    """
+    try:
+        logger.info("[SEED] Checking default energy provider and offers...")
+
+        # Check if EDF provider already exists
+        result = await db.execute(
+            select(EnergyProvider).where(EnergyProvider.name == DEFAULT_PROVIDER["name"])
+        )
+        provider = result.scalar_one_or_none()
+
+        if provider:
+            logger.info("[SEED] EDF provider already exists, checking offers...")
+        else:
+            # Create EDF provider
+            provider = EnergyProvider(
+                name=DEFAULT_PROVIDER["name"],
+                website=DEFAULT_PROVIDER["website"],
+                logo_url=DEFAULT_PROVIDER["logo_url"],
+                is_active=DEFAULT_PROVIDER["is_active"],
+            )
+            db.add(provider)
+            await db.flush()
+            logger.info(f"[SEED] Created EDF provider: {provider.id}")
+
+        # Check existing offers for this provider
+        result = await db.execute(
+            select(EnergyOffer).where(EnergyOffer.provider_id == provider.id)
+        )
+        existing_offers = {offer.name for offer in result.scalars().all()}
+
+        offers_created = 0
+
+        # Create BASE offers
+        for kva, subscription, base_price in DEFAULT_BASE_OFFERS:
+            offer_name = f"Tarif Bleu - BASE {kva} kVA"
+            if offer_name not in existing_offers:
+                offer = EnergyOffer(
+                    provider_id=provider.id,
+                    name=offer_name,
+                    offer_type="BASE",
+                    subscription_price=subscription,
+                    base_price=base_price,
+                    power_kva=kva,
+                    price_updated_at=EDF_PRICE_UPDATE_DATE,
+                )
+                db.add(offer)
+                offers_created += 1
+                logger.debug(f"[SEED] Created offer: {offer_name}")
+
+        # Create HC/HP offers
+        for kva, subscription, hp_price, hc_price in DEFAULT_HCHP_OFFERS:
+            offer_name = f"Tarif Bleu - HC/HP {kva} kVA"
+            if offer_name not in existing_offers:
+                offer = EnergyOffer(
+                    provider_id=provider.id,
+                    name=offer_name,
+                    offer_type="HC_HP",
+                    subscription_price=subscription,
+                    hp_price=hp_price,
+                    hc_price=hc_price,
+                    power_kva=kva,
+                    price_updated_at=EDF_PRICE_UPDATE_DATE,
+                )
+                db.add(offer)
+                offers_created += 1
+                logger.debug(f"[SEED] Created offer: {offer_name}")
+
+        # Create TEMPO offers
+        for kva, subscription, blue_hc, blue_hp, white_hc, white_hp, red_hc, red_hp in DEFAULT_TEMPO_OFFERS:
+            offer_name = f"Tarif Bleu - TEMPO {kva} kVA"
+            if offer_name not in existing_offers:
+                offer = EnergyOffer(
+                    provider_id=provider.id,
+                    name=offer_name,
+                    offer_type="TEMPO",
+                    subscription_price=subscription,
+                    tempo_blue_hc=blue_hc,
+                    tempo_blue_hp=blue_hp,
+                    tempo_white_hc=white_hc,
+                    tempo_white_hp=white_hp,
+                    tempo_red_hc=red_hc,
+                    tempo_red_hp=red_hp,
+                    power_kva=kva,
+                    price_updated_at=EDF_PRICE_UPDATE_DATE,
+                )
+                db.add(offer)
+                offers_created += 1
+                logger.debug(f"[SEED] Created offer: {offer_name}")
+
+        if offers_created > 0:
+            await db.commit()
+            logger.info(f"[SEED] Created {offers_created} EDF offer(s)")
+        else:
+            logger.info("[SEED] All EDF offers already exist, nothing to do")
+
+    except Exception as e:
+        logger.error(f"[SEED] Error initializing energy offers: {e}")
         await db.rollback()
         raise
 
