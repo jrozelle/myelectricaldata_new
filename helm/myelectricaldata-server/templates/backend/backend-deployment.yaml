@@ -89,6 +89,9 @@ spec:
               value: {{ .Values.backend.env.TZ | quote }}
             - name: PYTHONUNBUFFERED
               value: {{ .Values.backend.env.PYTHONUNBUFFERED | quote }}
+            # SERVER_MODE is required for this chart (multi-user gateway with Enedis direct access)
+            - name: SERVER_MODE
+              value: {{ .Values.backend.env.SERVER_MODE | quote }}
             {{- if .Values.devMode.enabled }}
             - name: WATCHFILES_FORCE_POLLING
               value: "true"
