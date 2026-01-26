@@ -25,9 +25,33 @@ export interface AppModeInfo {
   isServerMode: boolean
 }
 
+// Extend window type for runtime env
+declare global {
+  interface Window {
+    __ENV__?: {
+      VITE_API_BASE_URL?: string
+      VITE_BACKEND_URL?: string
+      VITE_SERVER_MODE?: string
+    }
+  }
+}
+
+/**
+ * Get VITE_SERVER_MODE from runtime env (window.__ENV__) or build-time env
+ * Runtime env takes precedence for Docker deployments
+ */
+function getServerModeValue(): string {
+  // Check runtime env first (Docker deployments via env.js)
+  if (typeof window !== 'undefined' && window.__ENV__?.VITE_SERVER_MODE) {
+    return window.__ENV__.VITE_SERVER_MODE
+  }
+  // Fallback to build-time env (local development)
+  return import.meta.env.VITE_SERVER_MODE || 'false'
+}
+
 export function useAppMode(): AppModeInfo {
   // Client mode is the default (SERVER_MODE not set or false)
-  const mode: AppMode = import.meta.env.VITE_SERVER_MODE === 'true' ? 'server' : 'client'
+  const mode: AppMode = getServerModeValue() === 'true' ? 'server' : 'client'
 
   return {
     mode,
@@ -40,13 +64,13 @@ export function useAppMode(): AppModeInfo {
  * Get app mode without hook (for use outside React components)
  */
 export function getAppMode(): AppMode {
-  return import.meta.env.VITE_SERVER_MODE === 'true' ? 'server' : 'client'
+  return getServerModeValue() === 'true' ? 'server' : 'client'
 }
 
 export function isClientMode(): boolean {
-  return import.meta.env.VITE_SERVER_MODE !== 'true'
+  return getServerModeValue() !== 'true'
 }
 
 export function isServerMode(): boolean {
-  return import.meta.env.VITE_SERVER_MODE === 'true'
+  return getServerModeValue() === 'true'
 }
