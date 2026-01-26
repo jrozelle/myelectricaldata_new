@@ -8,6 +8,7 @@ from ..schemas import APIResponse, ErrorDetail
 from ..middleware import get_current_user, require_permission, require_action, require_not_demo
 from ..services.email import email_service
 from ..services.slack import slack_service
+from ..services.offers import get_all_offer_types
 from ..config import settings
 import logging
 
@@ -17,7 +18,55 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/energy", tags=["Energy Offers"])
 
 
-# Public endpoints - Get providers and offers
+def parse_iso_datetime(value: str | None) -> datetime | None:
+    """Parse an ISO datetime string to a datetime object."""
+    if not value:
+        return None
+    try:
+        # Handle ISO format with timezone (e.g., '2025-12-01T00:00:00+00:00')
+        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except (ValueError, AttributeError):
+        return None
+
+
+# Public endpoints - Get offer types (auto-discovery), providers and offers
+@router.get("/offer-types", response_model=APIResponse)
+async def list_offer_types() -> APIResponse:
+    """List all available offer types via auto-discovery.
+
+    Returns offer type definitions discovered from calculator classes.
+    Each type includes required/optional price fields, icons, and colors.
+
+    This endpoint uses the OfferRegistry which auto-discovers all
+    BaseOfferCalculator subclasses (BASE, HC_HP, TEMPO, EJP, etc.).
+    """
+    offer_types = get_all_offer_types()
+
+    return APIResponse(
+        success=True,
+        data=offer_types,
+    )
+
+
+@router.get("/pricing-types", response_model=APIResponse)
+async def list_pricing_types() -> APIResponse:
+    """List all active pricing types via auto-discovery.
+
+    DEPRECATED: Use /offer-types instead. This endpoint is kept for backward
+    compatibility but now uses the same OfferRegistry as /offer-types.
+
+    Returns pricing type definitions discovered from calculator classes.
+    Each type includes required and optional price fields for validation.
+    """
+    # Utilise OfferRegistry au lieu de la table PricingType (supprimée)
+    offer_types = get_all_offer_types()
+
+    return APIResponse(
+        success=True,
+        data=offer_types,
+    )
+
+
 @router.get("/providers", response_model=APIResponse)
 async def list_providers(db: AsyncSession = Depends(get_db)) -> APIResponse:
     """List all active energy providers"""
@@ -120,12 +169,34 @@ async def create_contribution(
     logger.info(f"[CONTRIBUTION] New contribution from user: {current_user.email}")
     logger.info(f"[CONTRIBUTION] Data: {contribution_data}")
 
-    # Validate required fields
-    if not contribution_data.get("price_sheet_url"):
+    # Check if user is admin or moderator (privileged user)
+    is_privileged = current_user.is_admin or (current_user.role and current_user.role.name in ["admin", "moderator"])
+
+    # Validate required fields - price_sheet_url is optional for privileged users
+    if not contribution_data.get("price_sheet_url") and not is_privileged:
         return APIResponse(success=False, error=ErrorDetail(code="MISSING_FIELD", message="Le lien vers la fiche des prix est obligatoire"))
 
-    if not contribution_data.get("power_kva"):
-        return APIResponse(success=False, error=ErrorDetail(code="MISSING_FIELD", message="La puissance (kVA) est obligatoire"))
+    # Check if using new format (power_variants) or legacy format (power_kva)
+    power_variants = contribution_data.get("power_variants")
+    power_kva_legacy = contribution_data.get("power_kva")
+
+    # Les suppressions de fournisseur n'ont pas besoin de puissance
+    offer_name = contribution_data.get("offer_name", "")
+    is_provider_deletion = "[SUPPRESSION FOURNISSEUR]" in offer_name or "[SUPPRESSION_FOURNISSEUR]" in offer_name
+
+    if not power_variants and not power_kva_legacy and not is_provider_deletion:
+        return APIResponse(success=False, error=ErrorDetail(code="MISSING_FIELD", message="Au moins une puissance (kVA) est obligatoire"))
+
+    # Validate power_variants format if provided
+    if power_variants:
+        if not isinstance(power_variants, list) or len(power_variants) == 0:
+            return APIResponse(success=False, error=ErrorDetail(code="INVALID_FORMAT", message="power_variants doit être un tableau non vide"))
+
+        for variant in power_variants:
+            if not isinstance(variant, dict):
+                return APIResponse(success=False, error=ErrorDetail(code="INVALID_FORMAT", message="Chaque variante doit être un objet"))
+            if "power_kva" not in variant or "subscription_price" not in variant:
+                return APIResponse(success=False, error=ErrorDetail(code="MISSING_FIELD", message="Chaque variante doit contenir power_kva et subscription_price"))
 
     # Create contribution
     contribution = OfferContribution(
@@ -139,11 +210,15 @@ async def create_contribution(
         offer_name=contribution_data["offer_name"],
         offer_type=contribution_data["offer_type"],
         description=contribution_data.get("description"),
-        pricing_data=contribution_data.get("pricing_data", {}),
+        # New format: use power_variants if provided
+        power_variants=power_variants,
+        # Legacy format: keep pricing_data and power_kva for backward compatibility
+        pricing_data=contribution_data.get("pricing_data") if not power_variants else None,
         hc_schedules=contribution_data.get("hc_schedules"),
-        power_kva=contribution_data.get("power_kva"),
+        power_kva=power_kva_legacy if not power_variants else None,
         price_sheet_url=contribution_data["price_sheet_url"],
         screenshot_url=contribution_data.get("screenshot_url"),
+        valid_from=parse_iso_datetime(contribution_data.get("valid_from")),  # Date de mise en service de l'offre
     )
 
     db.add(contribution)
@@ -198,12 +273,34 @@ async def update_contribution(
     if contribution.status not in ("pending", "rejected"):
         raise HTTPException(status_code=400, detail="Seules les contributions en attente ou rejetées peuvent être modifiées")
 
-    # Validate required fields
-    if not contribution_data.get("price_sheet_url"):
+    # Check if user is admin or moderator (privileged user)
+    is_privileged = current_user.is_admin or (current_user.role and current_user.role.name in ["admin", "moderator"])
+
+    # Validate required fields - price_sheet_url is optional for privileged users
+    if not contribution_data.get("price_sheet_url") and not is_privileged:
         return APIResponse(success=False, error=ErrorDetail(code="MISSING_FIELD", message="Le lien vers la fiche des prix est obligatoire"))
 
-    if not contribution_data.get("power_kva"):
-        return APIResponse(success=False, error=ErrorDetail(code="MISSING_FIELD", message="La puissance (kVA) est obligatoire"))
+    # Check if using new format (power_variants) or legacy format (power_kva)
+    power_variants = contribution_data.get("power_variants")
+    power_kva_legacy = contribution_data.get("power_kva")
+
+    # Les suppressions de fournisseur n'ont pas besoin de puissance
+    offer_name = contribution_data.get("offer_name", "")
+    is_provider_deletion = "[SUPPRESSION FOURNISSEUR]" in offer_name or "[SUPPRESSION_FOURNISSEUR]" in offer_name
+
+    if not power_variants and not power_kva_legacy and not is_provider_deletion:
+        return APIResponse(success=False, error=ErrorDetail(code="MISSING_FIELD", message="Au moins une puissance (kVA) est obligatoire"))
+
+    # Validate power_variants format if provided
+    if power_variants:
+        if not isinstance(power_variants, list) or len(power_variants) == 0:
+            return APIResponse(success=False, error=ErrorDetail(code="INVALID_FORMAT", message="power_variants doit être un tableau non vide"))
+
+        for variant in power_variants:
+            if not isinstance(variant, dict):
+                return APIResponse(success=False, error=ErrorDetail(code="INVALID_FORMAT", message="Chaque variante doit être un objet"))
+            if "power_kva" not in variant or "subscription_price" not in variant:
+                return APIResponse(success=False, error=ErrorDetail(code="MISSING_FIELD", message="Chaque variante doit contenir power_kva et subscription_price"))
 
     logger.info(f"[CONTRIBUTION] Updating contribution {contribution_id} from user: {current_user.email}")
 
@@ -216,11 +313,15 @@ async def update_contribution(
     contribution.offer_name = contribution_data["offer_name"]
     contribution.offer_type = contribution_data["offer_type"]
     contribution.description = contribution_data.get("description")
-    contribution.pricing_data = contribution_data.get("pricing_data", {})
+    # New format: use power_variants if provided
+    contribution.power_variants = power_variants
+    # Legacy format: keep pricing_data and power_kva for backward compatibility
+    contribution.pricing_data = contribution_data.get("pricing_data") if not power_variants else None
     contribution.hc_schedules = contribution_data.get("hc_schedules")
-    contribution.power_kva = contribution_data.get("power_kva")
+    contribution.power_kva = power_kva_legacy if not power_variants else None
     contribution.price_sheet_url = contribution_data["price_sheet_url"]
     contribution.screenshot_url = contribution_data.get("screenshot_url")
+    contribution.valid_from = parse_iso_datetime(contribution_data.get("valid_from"))  # Date de mise en service
 
     # Reset status to pending if it was rejected
     if contribution.status == "rejected":
@@ -237,6 +338,51 @@ async def update_contribution(
         data={
             "id": contribution.id,
             "message": "Contribution mise à jour avec succès.",
+        },
+    )
+
+
+@router.delete("/contributions/{contribution_id}", response_model=APIResponse)
+async def delete_contribution(
+    contribution_id: str = Path(..., description="Contribution ID"),
+    current_user: User = Depends(require_not_demo),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """Delete a contribution (only pending or rejected ones owned by the user)"""
+    # Find the contribution
+    result = await db.execute(
+        select(OfferContribution).where(OfferContribution.id == contribution_id)
+    )
+    contribution = result.scalar_one_or_none()
+
+    if not contribution:
+        raise HTTPException(status_code=404, detail="Contribution non trouvée")
+
+    # Check ownership
+    if contribution.contributor_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Vous ne pouvez supprimer que vos propres contributions")
+
+    # Check status - can only delete pending or rejected contributions
+    if contribution.status not in ("pending", "rejected"):
+        raise HTTPException(status_code=400, detail="Seules les contributions en attente ou rejetées peuvent être supprimées")
+
+    logger.info(f"[CONTRIBUTION] Deleting contribution {contribution_id} from user: {current_user.email}")
+
+    # Delete associated messages first (cascade)
+    await db.execute(
+        ContributionMessage.__table__.delete().where(
+            ContributionMessage.contribution_id == contribution_id
+        )
+    )
+
+    # Delete the contribution
+    await db.delete(contribution)
+    await db.commit()
+
+    return APIResponse(
+        success=True,
+        data={
+            "message": "Contribution supprimée avec succès.",
         },
     )
 
@@ -297,13 +443,15 @@ async def list_my_contributions(current_user: User = Depends(get_current_user), 
             "offer_name": c.offer_name,
             "offer_type": c.offer_type,
             "description": c.description,
-            "power_kva": c.power_kva,
+            "power_kva": c.power_kva,  # Legacy field
             # Pricing
-            "pricing_data": c.pricing_data,
+            "pricing_data": c.pricing_data,  # Legacy field
+            "power_variants": c.power_variants,  # New field: array of {power_kva, subscription_price}
             "hc_schedules": c.hc_schedules,
             # Documentation
             "price_sheet_url": c.price_sheet_url,
             "screenshot_url": c.screenshot_url,
+            "valid_from": c.valid_from.isoformat() if c.valid_from else None,  # Date de mise en service
             # Timestamps
             "created_at": c.created_at.isoformat(),
             "reviewed_at": c.reviewed_at.isoformat() if c.reviewed_at else None,
@@ -639,56 +787,178 @@ async def approve_contribution(
         if not provider_id:
             return APIResponse(success=False, error=ErrorDetail(code="INVALID_DATA", message="Provider ID required"))
 
-        # Create or update offer
-        pricing = contribution.pricing_data
+        # Create or update offer(s)
+        # New format: create one offer per power variant
+        # Legacy format: create a single offer with pricing_data
 
         if contribution.contribution_type in ["NEW_OFFER", "NEW_PROVIDER"]:
-            # Create new offer
-            offer = EnergyOffer(
-                provider_id=provider_id,
-                name=contribution.offer_name,
-                offer_type=contribution.offer_type,
-                description=contribution.description,
-                subscription_price=pricing.get("subscription_price", 0),
-                base_price=pricing.get("base_price"),
-                hc_price=pricing.get("hc_price"),
-                hp_price=pricing.get("hp_price"),
-                tempo_blue_hc=pricing.get("tempo_blue_hc"),
-                tempo_blue_hp=pricing.get("tempo_blue_hp"),
-                tempo_white_hc=pricing.get("tempo_white_hc"),
-                tempo_white_hp=pricing.get("tempo_white_hp"),
-                tempo_red_hc=pricing.get("tempo_red_hc"),
-                tempo_red_hp=pricing.get("tempo_red_hp"),
-                ejp_normal=pricing.get("ejp_normal"),
-                ejp_peak=pricing.get("ejp_peak"),
-                hc_schedules=contribution.hc_schedules,
-            )
-            db.add(offer)
+            # Check if using new format (power_variants) or legacy format
+            if contribution.power_variants:
+                # New format: create one offer per power variant
+                pricing_common = contribution.pricing_data or {}  # Prix kWh communs
 
-        elif contribution.contribution_type == "UPDATE_OFFER" and contribution.existing_offer_id:
-            # Update existing offer
-            offer_result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id))
-            offer_maybe = offer_result.scalar_one_or_none()
+                for variant in contribution.power_variants:
+                    power_kva = variant.get("power_kva")
+                    subscription_price = variant.get("subscription_price")
 
-            if offer_maybe:
-                offer = offer_maybe
-                offer.name = contribution.offer_name
-                offer.offer_type = contribution.offer_type
-                offer.description = contribution.description
-                offer.subscription_price = pricing.get("subscription_price", 0)
-                offer.base_price = pricing.get("base_price")
-                offer.hc_price = pricing.get("hc_price")
-                offer.hp_price = pricing.get("hp_price")
-                offer.tempo_blue_hc = pricing.get("tempo_blue_hc")
-                offer.tempo_blue_hp = pricing.get("tempo_blue_hp")
-                offer.tempo_white_hc = pricing.get("tempo_white_hc")
-                offer.tempo_white_hp = pricing.get("tempo_white_hp")
-                offer.tempo_red_hc = pricing.get("tempo_red_hc")
-                offer.tempo_red_hp = pricing.get("tempo_red_hp")
-                offer.ejp_normal = pricing.get("ejp_normal")
-                offer.ejp_peak = pricing.get("ejp_peak")
-                offer.hc_schedules = contribution.hc_schedules
-                offer.updated_at = datetime.now(UTC)
+                    # Générer nom avec puissance
+                    offer_name = f"{contribution.offer_name} - {power_kva} kVA"
+
+                    offer = EnergyOffer(
+                        provider_id=provider_id,
+                        name=offer_name,
+                        offer_type=contribution.offer_type,
+                        description=contribution.description,
+                        subscription_price=subscription_price,
+                        # Prix kWh communs à toutes les variantes
+                        base_price=pricing_common.get("base_price"),
+                        hc_price=pricing_common.get("hc_price"),
+                        hp_price=pricing_common.get("hp_price"),
+                        base_price_weekend=pricing_common.get("base_price_weekend"),
+                        hc_price_weekend=pricing_common.get("hc_price_weekend"),
+                        hp_price_weekend=pricing_common.get("hp_price_weekend"),
+                        tempo_blue_hc=pricing_common.get("tempo_blue_hc"),
+                        tempo_blue_hp=pricing_common.get("tempo_blue_hp"),
+                        tempo_white_hc=pricing_common.get("tempo_white_hc"),
+                        tempo_white_hp=pricing_common.get("tempo_white_hp"),
+                        tempo_red_hc=pricing_common.get("tempo_red_hc"),
+                        tempo_red_hp=pricing_common.get("tempo_red_hp"),
+                        ejp_normal=pricing_common.get("ejp_normal"),
+                        ejp_peak=pricing_common.get("ejp_peak"),
+                        hc_price_winter=pricing_common.get("hc_price_winter"),
+                        hp_price_winter=pricing_common.get("hp_price_winter"),
+                        hc_price_summer=pricing_common.get("hc_price_summer"),
+                        hp_price_summer=pricing_common.get("hp_price_summer"),
+                        peak_day_price=pricing_common.get("peak_day_price"),
+                        hc_schedules=contribution.hc_schedules,
+                        power_kva=power_kva,
+                        valid_from=contribution.valid_from or datetime.now(UTC),
+                        offer_url=contribution.price_sheet_url,
+                        price_updated_at=datetime.now(UTC),
+                    )
+                    db.add(offer)
+            else:
+                # Legacy format: single offer with pricing_data
+                pricing = contribution.pricing_data or {}
+                offer = EnergyOffer(
+                    provider_id=provider_id,
+                    name=contribution.offer_name,
+                    offer_type=contribution.offer_type,
+                    description=contribution.description,
+                    subscription_price=pricing.get("subscription_price", 0),
+                    base_price=pricing.get("base_price"),
+                    hc_price=pricing.get("hc_price"),
+                    hp_price=pricing.get("hp_price"),
+                    tempo_blue_hc=pricing.get("tempo_blue_hc"),
+                    tempo_blue_hp=pricing.get("tempo_blue_hp"),
+                    tempo_white_hc=pricing.get("tempo_white_hc"),
+                    tempo_white_hp=pricing.get("tempo_white_hp"),
+                    tempo_red_hc=pricing.get("tempo_red_hc"),
+                    tempo_red_hp=pricing.get("tempo_red_hp"),
+                    ejp_normal=pricing.get("ejp_normal"),
+                    ejp_peak=pricing.get("ejp_peak"),
+                    hc_schedules=contribution.hc_schedules,
+                    power_kva=contribution.power_kva,
+                    valid_from=contribution.valid_from or datetime.now(UTC),
+                    offer_url=contribution.price_sheet_url,
+                    price_updated_at=datetime.now(UTC),
+                )
+                db.add(offer)
+
+        elif contribution.contribution_type == "UPDATE_OFFER":
+            # Check if this is a provider deletion request (offer_name contains [SUPPRESSION FOURNISSEUR])
+            if contribution.offer_name and "[SUPPRESSION FOURNISSEUR]" in contribution.offer_name:
+                # Delete provider and all its offers
+                if contribution.existing_provider_id:
+                    # First delete all offers for this provider
+                    offers_result = await db.execute(
+                        select(EnergyOffer).where(EnergyOffer.provider_id == contribution.existing_provider_id)
+                    )
+                    offers_to_delete = offers_result.scalars().all()
+
+                    for offer in offers_to_delete:
+                        await db.delete(offer)
+
+                    # Then delete the provider
+                    provider_result = await db.execute(
+                        select(EnergyProvider).where(EnergyProvider.id == contribution.existing_provider_id)
+                    )
+                    provider_to_delete = provider_result.scalar_one_or_none()
+
+                    if provider_to_delete:
+                        await db.delete(provider_to_delete)
+                        logger.info(
+                            f"[CONTRIBUTION] Deleted provider: {provider_to_delete.name} (id={contribution.existing_provider_id}), "
+                            f"with {len(offers_to_delete)} offers"
+                        )
+                    else:
+                        logger.warning(
+                            f"[CONTRIBUTION] Provider to delete not found: id={contribution.existing_provider_id}"
+                        )
+            # Check if this is a deletion request (offer_name starts with [SUPPRESSION])
+            elif contribution.offer_name and contribution.offer_name.startswith("[SUPPRESSION]"):
+                # Delete offer by provider_id, offer_type and power_kva
+                if contribution.existing_provider_id and contribution.offer_type and contribution.power_kva:
+                    # First try to find by power_kva field
+                    delete_query = select(EnergyOffer).where(
+                        EnergyOffer.provider_id == contribution.existing_provider_id,
+                        EnergyOffer.offer_type == contribution.offer_type,
+                        EnergyOffer.power_kva == contribution.power_kva
+                    )
+                    delete_result = await db.execute(delete_query)
+                    offer_to_delete = delete_result.scalar_one_or_none()
+
+                    # If not found by power_kva, try to find by name pattern (for offers with NULL power_kva)
+                    if not offer_to_delete:
+                        # Search for offers matching the exact pattern "- X kVA" at the end of the name
+                        # This avoids matching "12 kVA" when searching for "2 kVA"
+                        power_pattern = f"- {contribution.power_kva} kVA"
+                        all_offers_query = select(EnergyOffer).where(
+                            EnergyOffer.provider_id == contribution.existing_provider_id,
+                            EnergyOffer.offer_type == contribution.offer_type,
+                            EnergyOffer.name.ilike(f"%{power_pattern}")
+                        )
+                        all_offers_result = await db.execute(all_offers_query)
+                        offers_found = all_offers_result.scalars().all()
+                        # Take the first match if any
+                        offer_to_delete = offers_found[0] if offers_found else None
+
+                    if offer_to_delete:
+                        await db.delete(offer_to_delete)
+                        logger.info(
+                            f"[CONTRIBUTION] Deleted offer: provider={contribution.existing_provider_id}, "
+                            f"type={contribution.offer_type}, power={contribution.power_kva} kVA, offer_id={offer_to_delete.id}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[CONTRIBUTION] Offer to delete not found: provider={contribution.existing_provider_id}, "
+                            f"type={contribution.offer_type}, power={contribution.power_kva} kVA"
+                        )
+            elif contribution.existing_offer_id:
+                # Update existing offer
+                offer_result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id))
+                offer_maybe = offer_result.scalar_one_or_none()
+
+                if offer_maybe:
+                    pricing = contribution.pricing_data or {}
+                    offer = offer_maybe
+                    offer.name = contribution.offer_name
+                    offer.offer_type = contribution.offer_type
+                    offer.description = contribution.description
+                    offer.subscription_price = pricing.get("subscription_price", 0)
+                    offer.base_price = pricing.get("base_price")
+                    offer.hc_price = pricing.get("hc_price")
+                    offer.hp_price = pricing.get("hp_price")
+                    offer.tempo_blue_hc = pricing.get("tempo_blue_hc")
+                    offer.tempo_blue_hp = pricing.get("tempo_blue_hp")
+                    offer.tempo_white_hc = pricing.get("tempo_white_hc")
+                    offer.tempo_white_hp = pricing.get("tempo_white_hp")
+                    offer.tempo_red_hc = pricing.get("tempo_red_hc")
+                    offer.tempo_red_hp = pricing.get("tempo_red_hp")
+                    offer.ejp_normal = pricing.get("ejp_normal")
+                    offer.ejp_peak = pricing.get("ejp_peak")
+                    offer.hc_schedules = contribution.hc_schedules
+                    offer.updated_at = datetime.now(UTC)
 
         # Mark contribution as approved
         contribution.status = "approved"
@@ -787,11 +1057,23 @@ async def bulk_approve_contributions(
             provider_id = contribution.existing_provider_id
 
             if contribution.contribution_type == "NEW_PROVIDER" and contribution.provider_name:
-                # Create new provider
-                provider = EnergyProvider(name=contribution.provider_name, website=contribution.provider_website)
-                db.add(provider)
-                await db.flush()
-                provider_id = provider.id
+                # Check if provider already exists (may have been created by a previous contribution in this batch)
+                existing_provider_result = await db.execute(
+                    select(EnergyProvider).where(EnergyProvider.name == contribution.provider_name)
+                )
+                existing_provider = existing_provider_result.scalar_one_or_none()
+
+                if existing_provider:
+                    # Reuse existing provider
+                    provider_id = existing_provider.id
+                    logger.info(f"[BULK APPROVE] Reusing existing provider: {contribution.provider_name} (id={provider_id})")
+                else:
+                    # Create new provider
+                    provider = EnergyProvider(name=contribution.provider_name, website=contribution.provider_website)
+                    db.add(provider)
+                    await db.flush()
+                    provider_id = provider.id
+                    logger.info(f"[BULK APPROVE] Created new provider: {contribution.provider_name} (id={provider_id})")
 
             if not provider_id:
                 skipped += 1
@@ -824,30 +1106,117 @@ async def bulk_approve_contributions(
                 )
                 db.add(offer)
 
-            elif contribution.contribution_type == "UPDATE_OFFER" and contribution.existing_offer_id:
-                # Update existing offer
-                offer_result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id))
-                offer_maybe = offer_result.scalar_one_or_none()
+            elif contribution.contribution_type == "UPDATE_OFFER":
+                # Check if this is a provider deletion request (offer_name contains [SUPPRESSION FOURNISSEUR])
+                if contribution.offer_name and "[SUPPRESSION FOURNISSEUR]" in contribution.offer_name:
+                    # Delete provider and all its offers
+                    if contribution.existing_provider_id:
+                        # First delete all offers for this provider
+                        offers_result = await db.execute(
+                            select(EnergyOffer).where(EnergyOffer.provider_id == contribution.existing_provider_id)
+                        )
+                        offers_to_delete = offers_result.scalars().all()
 
-                if offer_maybe:
-                    offer = offer_maybe
-                    offer.name = contribution.offer_name
-                    offer.offer_type = contribution.offer_type
-                    offer.description = contribution.description
-                    offer.subscription_price = pricing.get("subscription_price", 0)
-                    offer.base_price = pricing.get("base_price")
-                    offer.hc_price = pricing.get("hc_price")
-                    offer.hp_price = pricing.get("hp_price")
-                    offer.tempo_blue_hc = pricing.get("tempo_blue_hc")
-                    offer.tempo_blue_hp = pricing.get("tempo_blue_hp")
-                    offer.tempo_white_hc = pricing.get("tempo_white_hc")
-                    offer.tempo_white_hp = pricing.get("tempo_white_hp")
-                    offer.tempo_red_hc = pricing.get("tempo_red_hc")
-                    offer.tempo_red_hp = pricing.get("tempo_red_hp")
-                    offer.ejp_normal = pricing.get("ejp_normal")
-                    offer.ejp_peak = pricing.get("ejp_peak")
-                    offer.hc_schedules = contribution.hc_schedules
-                    offer.updated_at = datetime.now(UTC)
+                        for offer in offers_to_delete:
+                            await db.delete(offer)
+
+                        # Then delete the provider
+                        provider_result = await db.execute(
+                            select(EnergyProvider).where(EnergyProvider.id == contribution.existing_provider_id)
+                        )
+                        provider_to_delete = provider_result.scalar_one_or_none()
+
+                        if provider_to_delete:
+                            await db.delete(provider_to_delete)
+                            logger.info(
+                                f"[BULK APPROVE] Deleted provider: {provider_to_delete.name} (id={contribution.existing_provider_id}), "
+                                f"with {len(offers_to_delete)} offers"
+                            )
+                        else:
+                            logger.warning(
+                                f"[BULK APPROVE] Provider to delete not found: id={contribution.existing_provider_id}"
+                            )
+                # Check if this is a rename request (offer_name starts with [RENOMMAGE])
+                elif contribution.offer_name and contribution.offer_name.startswith("[RENOMMAGE]"):
+                    if contribution.existing_offer_id:
+                        offer_result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id))
+                        offer_maybe = offer_result.scalar_one_or_none()
+
+                        if offer_maybe:
+                            # Extract new name from "[RENOMMAGE] NewName"
+                            new_name = contribution.offer_name.replace("[RENOMMAGE] ", "")
+                            old_name = offer_maybe.name
+                            offer_maybe.name = new_name
+                            offer_maybe.updated_at = datetime.now(UTC)
+                            logger.info(f"[BULK APPROVE] Renamed offer: '{old_name}' → '{new_name}'")
+                        else:
+                            logger.warning(f"[BULK APPROVE] Offer not found for rename: {contribution.existing_offer_id}")
+
+                # Check if this is a deletion request (offer_name starts with [SUPPRESSION])
+                elif contribution.offer_name and contribution.offer_name.startswith("[SUPPRESSION]"):
+                    # Delete offer by provider_id, offer_type and power_kva
+                    if contribution.existing_provider_id and contribution.offer_type and contribution.power_kva:
+                        # First try to find by power_kva field
+                        delete_query = select(EnergyOffer).where(
+                            EnergyOffer.provider_id == contribution.existing_provider_id,
+                            EnergyOffer.offer_type == contribution.offer_type,
+                            EnergyOffer.power_kva == contribution.power_kva
+                        )
+                        delete_result = await db.execute(delete_query)
+                        offer_to_delete = delete_result.scalar_one_or_none()
+
+                        # If not found by power_kva, try to find by name pattern (e.g. "- 2 kVA" at end of name)
+                        # This handles offers created via contributions that may not have power_kva set
+                        if not offer_to_delete:
+                            # Use exact pattern "- X kVA" at end to avoid matching "12 kVA" when searching for "2 kVA"
+                            power_pattern = f"- {contribution.power_kva} kVA"
+                            all_offers_query = select(EnergyOffer).where(
+                                EnergyOffer.provider_id == contribution.existing_provider_id,
+                                EnergyOffer.offer_type == contribution.offer_type,
+                                EnergyOffer.name.ilike(f"%{power_pattern}")
+                            )
+                            all_offers_result = await db.execute(all_offers_query)
+                            offers_found = all_offers_result.scalars().all()
+                            # Take the first match if any
+                            offer_to_delete = offers_found[0] if offers_found else None
+                            if offer_to_delete:
+                                logger.info(f"[BULK APPROVE] Found offer by name pattern: {offer_to_delete.name}")
+
+                        if offer_to_delete:
+                            await db.delete(offer_to_delete)
+                            logger.info(
+                                f"[BULK APPROVE] Deleted offer: provider={contribution.existing_provider_id}, "
+                                f"type={contribution.offer_type}, power={contribution.power_kva} kVA"
+                            )
+                        else:
+                            logger.warning(
+                                f"[BULK APPROVE] Offer not found for deletion: provider={contribution.existing_provider_id}, "
+                                f"type={contribution.offer_type}, power={contribution.power_kva} kVA"
+                            )
+                elif contribution.existing_offer_id:
+                    # Update existing offer
+                    offer_result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id))
+                    offer_maybe = offer_result.scalar_one_or_none()
+
+                    if offer_maybe:
+                        offer = offer_maybe
+                        offer.name = contribution.offer_name
+                        offer.offer_type = contribution.offer_type
+                        offer.description = contribution.description
+                        offer.subscription_price = pricing.get("subscription_price", 0)
+                        offer.base_price = pricing.get("base_price")
+                        offer.hc_price = pricing.get("hc_price")
+                        offer.hp_price = pricing.get("hp_price")
+                        offer.tempo_blue_hc = pricing.get("tempo_blue_hc")
+                        offer.tempo_blue_hp = pricing.get("tempo_blue_hp")
+                        offer.tempo_white_hc = pricing.get("tempo_white_hc")
+                        offer.tempo_white_hp = pricing.get("tempo_white_hp")
+                        offer.tempo_red_hc = pricing.get("tempo_red_hc")
+                        offer.tempo_red_hp = pricing.get("tempo_red_hp")
+                        offer.ejp_normal = pricing.get("ejp_normal")
+                        offer.ejp_peak = pricing.get("ejp_peak")
+                        offer.hc_schedules = contribution.hc_schedules
+                        offer.updated_at = datetime.now(UTC)
 
             # Mark contribution as approved
             contribution.status = "approved"

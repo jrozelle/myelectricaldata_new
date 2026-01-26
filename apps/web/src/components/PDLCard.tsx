@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Info, Trash2, RefreshCw, Edit2, Save, X, Zap, Clock, Factory, Plus, Minus, Eye, EyeOff, Calendar, MoreVertical, ShoppingBag } from 'lucide-react'
 import { pdlApi } from '@/api/pdl'
 import { oauthApi } from '@/api/oauth'
+import { syncApi } from '@/api/sync'
 import type { PDL } from '@/types/api'
 import OfferSelector from './OfferSelector'
 
@@ -15,9 +16,10 @@ interface PDLCardProps {
   allPdls?: PDL[] // All PDLs for linking production
   compact?: boolean // Only show header (name, buttons) - hide configuration details
   isAutoSyncing?: boolean // Show loading overlay when auto-syncing after consent
+  isClientMode?: boolean // Hide delete/disable buttons in client mode
 }
 
-export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, allPdls = [], compact = false, isAutoSyncing = false }: PDLCardProps) {
+export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, allPdls = [], compact = false, isAutoSyncing = false, isClientMode = false }: PDLCardProps) {
   const [isEditingName, setIsEditingName] = useState(false)
   const [showSyncWarning, setShowSyncWarning] = useState(false)
   const [showDeleteWarning, setShowDeleteWarning] = useState(false)
@@ -219,11 +221,16 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
 
   const fetchContractMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (isDemo) {
-        return Promise.reject(new Error('Synchronisation désactivée en mode démo'))
+        throw new Error('Synchronisation désactivée en mode démo')
       }
-      return pdlApi.fetchContract(pdl.id)
+      // In client mode, sync PDL info from gateway (not full data sync)
+      if (isClientMode) {
+        await syncApi.syncPdlList()
+        return
+      }
+      await pdlApi.fetchContract(pdl.id)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pdls'] })
@@ -231,12 +238,14 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
       setHasConsentError(false)
     },
     onError: (error: any) => {
-      // Check if it's a consent error from Enedis
-      const errorMessage = error?.response?.data?.error?.message || error?.message || ''
-      if (errorMessage.includes('ERRE001150') || errorMessage.includes('No consent')) {
-        setHasConsentError(true)
-        // Uncheck consumption and production
-        updateTypeMutation.mutate({ has_consumption: false, has_production: false })
+      // Check if it's a consent error from Enedis (only in server mode)
+      if (!isClientMode) {
+        const errorMessage = error?.response?.data?.error?.message || error?.message || ''
+        if (errorMessage.includes('ERRE001150') || errorMessage.includes('No consent')) {
+          setHasConsentError(true)
+          // Uncheck consumption and production
+          updateTypeMutation.mutate({ has_consumption: false, has_production: false })
+        }
       }
     },
   })
@@ -597,54 +606,62 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                   </button>
                 </>
               )}
-              <button
-                onClick={() => toggleActiveMutation.mutate(!(pdl.is_active ?? true))}
-                disabled={toggleActiveMutation.isPending}
-                className={`px-3 py-2 rounded flex items-center gap-1.5 text-sm font-medium ${
-                  pdl.is_active ?? true
-                    ? 'hover:bg-orange-100 dark:hover:bg-orange-900/30 text-orange-600 dark:text-orange-400'
-                    : 'hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400'
-                }`}
-                title={pdl.is_active ?? true ? 'Désactiver ce PDL' : 'Activer ce PDL'}
-                data-tour="pdl-toggle-btn"
-              >
-                {pdl.is_active ?? true ? <EyeOff size={16} /> : <Eye size={16} />}
-                <span>{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
-              </button>
-              <button
-                onClick={() => setShowDeleteWarning(true)}
-                className="px-3 py-2 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex items-center gap-1.5 text-sm"
-                title="Supprimer"
-                data-tour="pdl-delete-btn"
-              >
-                <Trash2 size={16} />
-                <span>Supprimer</span>
-              </button>
+              {/* Hide toggle active button in client mode */}
+              {!isClientMode && (
+                <button
+                  onClick={() => toggleActiveMutation.mutate(!(pdl.is_active ?? true))}
+                  disabled={toggleActiveMutation.isPending}
+                  className={`px-3 py-2 rounded flex items-center gap-1.5 text-sm font-medium ${
+                    pdl.is_active ?? true
+                      ? 'hover:bg-orange-100 dark:hover:bg-orange-900/30 text-orange-600 dark:text-orange-400'
+                      : 'hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400'
+                  }`}
+                  title={pdl.is_active ?? true ? 'Désactiver ce PDL' : 'Activer ce PDL'}
+                  data-tour="pdl-toggle-btn"
+                >
+                  {pdl.is_active ?? true ? <EyeOff size={16} /> : <Eye size={16} />}
+                  <span>{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
+                </button>
+              )}
+              {/* Hide delete button in client mode */}
+              {!isClientMode && (
+                <button
+                  onClick={() => setShowDeleteWarning(true)}
+                  className="px-3 py-2 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex items-center gap-1.5 text-sm"
+                  title="Supprimer"
+                  data-tour="pdl-delete-btn"
+                >
+                  <Trash2 size={16} />
+                  <span>Supprimer</span>
+                </button>
+              )}
             </div>
 
             {/* Mobile: Show menu button (or Activer + Supprimer in compact mode) */}
             <div className="md:hidden relative" ref={mobileMenuRef}>
               {compact ? (
-                /* Compact mode: show Activer + Supprimer buttons */
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => toggleActiveMutation.mutate(!(pdl.is_active ?? true))}
-                    disabled={toggleActiveMutation.isPending}
-                    className="px-3 py-2 rounded flex items-center gap-1.5 text-sm font-medium hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400"
-                    title="Activer ce PDL"
-                  >
-                    <Eye size={16} />
-                    <span>Activer</span>
-                  </button>
-                  <button
-                    onClick={() => setShowDeleteWarning(true)}
-                    className="px-3 py-2 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex items-center gap-1.5 text-sm"
-                    title="Supprimer"
-                  >
-                    <Trash2 size={16} />
-                    <span>Supprimer</span>
-                  </button>
-                </div>
+                // Compact mode: show Activer + Supprimer buttons (hidden in client mode)
+                !isClientMode ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => toggleActiveMutation.mutate(!(pdl.is_active ?? true))}
+                      disabled={toggleActiveMutation.isPending}
+                      className="px-3 py-2 rounded flex items-center gap-1.5 text-sm font-medium hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400"
+                      title="Activer ce PDL"
+                    >
+                      <Eye size={16} />
+                      <span>Activer</span>
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteWarning(true)}
+                      className="px-3 py-2 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded flex items-center gap-1.5 text-sm"
+                      title="Supprimer"
+                    >
+                      <Trash2 size={16} />
+                      <span>Supprimer</span>
+                    </button>
+                  </div>
+                ) : null
               ) : (
                 <>
                   <button
@@ -679,32 +696,37 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                         <RefreshCw size={16} className="flex-shrink-0" />
                         <span>Synchroniser</span>
                       </button>
-                      <button
-                        onClick={() => {
-                          toggleActiveMutation.mutate(!(pdl.is_active ?? true))
-                          setShowMobileMenu(false)
-                        }}
-                        disabled={toggleActiveMutation.isPending}
-                        className={`w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-left ${
-                          pdl.is_active ?? true
-                            ? 'text-orange-600 dark:text-orange-400'
-                            : 'text-green-600 dark:text-green-400'
-                        }`}
-                      >
-                        {pdl.is_active ?? true ? <EyeOff size={16} className="flex-shrink-0" /> : <Eye size={16} className="flex-shrink-0" />}
-                        <span>{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
-                      </button>
-                      <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
-                      <button
-                        onClick={() => {
-                          setShowDeleteWarning(true)
-                          setShowMobileMenu(false)
-                        }}
-                        className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-red-600 dark:text-red-400 text-left"
-                      >
-                        <Trash2 size={16} className="flex-shrink-0" />
-                        <span>Supprimer</span>
-                      </button>
+                      {/* Hide toggle active and delete buttons in client mode */}
+                      {!isClientMode && (
+                        <>
+                          <button
+                            onClick={() => {
+                              toggleActiveMutation.mutate(!(pdl.is_active ?? true))
+                              setShowMobileMenu(false)
+                            }}
+                            disabled={toggleActiveMutation.isPending}
+                            className={`w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-left ${
+                              pdl.is_active ?? true
+                                ? 'text-orange-600 dark:text-orange-400'
+                                : 'text-green-600 dark:text-green-400'
+                            }`}
+                          >
+                            {pdl.is_active ?? true ? <EyeOff size={16} className="flex-shrink-0" /> : <Eye size={16} className="flex-shrink-0" />}
+                            <span>{pdl.is_active ?? true ? 'Désactiver' : 'Activer'}</span>
+                          </button>
+                          <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                          <button
+                            onClick={() => {
+                              setShowDeleteWarning(true)
+                              setShowMobileMenu(false)
+                            }}
+                            className="w-full px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm text-red-600 dark:text-red-400 text-left"
+                          >
+                            <Trash2 size={16} className="flex-shrink-0" />
+                            <span>Supprimer</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </>
@@ -1183,10 +1205,14 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
               </div>
               <div className="flex-1">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                  Synchroniser avec Enedis ?
+                  {isClientMode ? 'Synchroniser avec la passerelle ?' : 'Synchroniser avec Enedis ?'}
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Cette action va récupérer les données depuis Enedis et <strong>écrasera toutes vos modifications locales</strong> (puissance souscrite, heures creuses, type de PDL).
+                  {isClientMode ? (
+                    <>Cette action va récupérer les informations du PDL depuis la passerelle MyElectricalData (contrat, puissance, heures creuses).</>
+                  ) : (
+                    <>Cette action va récupérer les données depuis Enedis et <strong>écrasera toutes vos modifications locales</strong> (puissance souscrite, heures creuses, type de PDL).</>
+                  )}
                 </p>
               </div>
             </div>

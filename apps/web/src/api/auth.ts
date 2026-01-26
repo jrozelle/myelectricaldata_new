@@ -10,6 +10,18 @@ export const authApi = {
     return apiClient.post<TokenResponse>('accounts/login', data)
   },
 
+  /**
+   * Auto-login for client mode (local installation).
+   * Creates a session cookie for the local user without credentials.
+   */
+  autoLogin: async () => {
+    try {
+      return await apiClient.post<User>('accounts/auto-login')
+    } catch {
+      return { success: false, data: null, error: { message: 'Auto-login failed' } }
+    }
+  },
+
   getMe: async () => {
     try {
       return await apiClient.get<User>('accounts/me')

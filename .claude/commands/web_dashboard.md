@@ -20,3 +20,5 @@
 ## Description rapide
 
 Page principale où les utilisateurs peuvent **gérer leurs Points De Livraison (PDL)** et accéder à leurs données Enedis.
+
+**Note** : Cette page existe dans les deux modes (serveur et client). Voir la documentation pour les différences.

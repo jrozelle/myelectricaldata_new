@@ -1,341 +1,332 @@
----
-sidebar_position: 2
-title: MQTT
----
-
 # Intégration MQTT
 
-Le client local peut publier vos données de consommation et production sur un broker MQTT, permettant l'intégration avec n'importe quel système domotique compatible.
+## Vue d'ensemble
+
+L'intégration MQTT permet de publier vos données vers n'importe quel broker MQTT compatible. Idéal pour l'intégration avec des systèmes domotiques, Node-RED, ou d'autres applications IoT.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        INTÉGRATION MQTT                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  MyElectricalData Client          Broker MQTT                               │
+│  ━━━━━━━━━━━━━━━━━━━━━━           ━━━━━━━━━━━━                              │
+│                                                                             │
+│  ┌─────────────┐                  ┌─────────────────────────┐               │
+│  │ PostgreSQL  │                  │  Topics                 │               │
+│  │             │                  │                         │               │
+│  │ consumption │───────────────▶  │  med/pdl/consumption    │               │
+│  │ production  │  PUBLISH         │  med/pdl/production     │               │
+│  │ tempo       │                  │  med/tempo/today        │               │
+│  │ ecowatt     │                  │  med/ecowatt/current    │               │
+│  └─────────────┘                  └─────────────────────────┘               │
+│                                          │                                  │
+│                                          ▼                                  │
+│                                   ┌─────────────┐                           │
+│                                   │ Subscribers │                           │
+│                                   │ HA/NR/...   │                           │
+│                                   └─────────────┘                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Prérequis
+
+1. Broker MQTT accessible (Mosquitto, EMQX, HiveMQ, etc.)
+2. Accès réseau entre le client MyElectricalData et le broker
+
+### Brokers recommandés
+
+| Broker | Type | Notes |
+|--------|------|-------|
+| **Mosquitto** | Open-source | Léger, idéal pour Raspberry Pi |
+| **EMQX** | Open-source | Scalable, UI admin |
+| **HiveMQ** | Commercial | Cloud ou self-hosted |
+
+---
 
 ## Configuration
 
-### Configuration de base
+### Via l'interface web
 
-```yaml
-mqtt:
-  enabled: true
-  host: "localhost"
-  port: 1883
-  username: "mqtt_user"
-  password: "mqtt_password"
-  topic_prefix: "myelectricaldata"
-  qos: 1
-  retain: true
-```
+1. Aller dans **Exporter** > **MQTT**
+2. Renseigner :
+   - **Broker** : `mqtt://localhost:1883` ou `mqtt://user:pass@host:1883`
+   - **Topic prefix** : `myelectricaldata` (optionnel)
+   - **QoS** : 1 (recommandé)
+   - **Retain** : Activé (recommandé)
+3. Cliquer sur **Tester la connexion**
+4. Si OK, activer l'export et **Sauvegarder**
 
-### Avec TLS/SSL
-
-```yaml
-mqtt:
-  enabled: true
-  host: "mqtt.example.com"
-  port: 8883
-  username: "mqtt_user"
-  password: "mqtt_password"
-
-  tls: true
-  ca_cert: "/config/certs/ca.crt"
-  client_cert: "/config/certs/client.crt"
-  client_key: "/config/certs/client.key"
-```
-
-### Variables d'environnement
+### Via variables d'environnement
 
 ```bash
-MQTT_ENABLED=true
-MQTT_HOST=localhost
-MQTT_PORT=1883
-MQTT_USERNAME=mqtt_user
-MQTT_PASSWORD=mqtt_password
+# .env.client
+
+# Broker sans authentification
+MQTT_BROKER=mqtt://localhost:1883
+
+# Broker avec authentification
+MQTT_BROKER=mqtt://user:password@mosquitto:1883
+
+# Broker TLS
+MQTT_BROKER=mqtts://broker.example.com:8883
+
+# Configuration
 MQTT_TOPIC_PREFIX=myelectricaldata
 MQTT_QOS=1
 MQTT_RETAIN=true
-MQTT_TLS=false
+MQTT_ENABLED=true
 ```
 
-## Structure des topics
+---
 
-### Topics de données
+## Topics publiés
 
-```
-{prefix}/{pdl}/consumption/daily           # Consommation journalière
-{prefix}/{pdl}/consumption/daily/hc        # Heures creuses
-{prefix}/{pdl}/consumption/daily/hp        # Heures pleines
-{prefix}/{pdl}/consumption/month           # Consommation mensuelle
-{prefix}/{pdl}/consumption/year            # Consommation annuelle
-{prefix}/{pdl}/consumption/detailed        # Données 30 min (JSON)
-{prefix}/{pdl}/max_power                   # Puissance max quotidienne
-{prefix}/{pdl}/production/daily            # Production journalière
-{prefix}/{pdl}/production/month            # Production mensuelle
-{prefix}/{pdl}/production/year             # Production annuelle
-{prefix}/{pdl}/production/detailed         # Données 30 min (JSON)
-{prefix}/status                            # Statut du client
-```
-
-### Exemple avec le préfixe par défaut
+### Structure des topics
 
 ```
-myelectricaldata/12345678901234/consumption/daily
-myelectricaldata/12345678901234/production/daily
-myelectricaldata/status
+{prefix}/{pdl}/consumption/daily
+{prefix}/{pdl}/consumption/monthly
+{prefix}/{pdl}/production/daily
+{prefix}/tempo/today
+{prefix}/tempo/tomorrow
+{prefix}/ecowatt/current
+{prefix}/ecowatt/forecast
 ```
 
-## Formats de messages
+### Consommation
 
-### Format simple (valeur uniquement)
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `med/{pdl}/consumption/daily` | `{"value": 15.2, "unit": "kWh", "date": "2024-01-15"}` | Conso journalière |
+| `med/{pdl}/consumption/yesterday` | `{"value": 14.8, "unit": "kWh", "date": "2024-01-14"}` | Conso veille |
+| `med/{pdl}/consumption/monthly` | `{"value": 245.6, "unit": "kWh", "month": "2024-01"}` | Conso mensuelle |
 
-```yaml
-mqtt:
-  format: "simple"
-```
+### Production
 
-Messages publiés :
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `med/{pdl}/production/daily` | `{"value": 8.5, "unit": "kWh", "date": "2024-01-15"}` | Prod journalière |
+| `med/{pdl}/production/monthly` | `{"value": 120.3, "unit": "kWh", "month": "2024-01"}` | Prod mensuelle |
 
-```
-myelectricaldata/12345678901234/consumption/daily → 15.234
-myelectricaldata/12345678901234/max_power → 6.5
-```
+### Tempo
 
-### Format JSON (recommandé)
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `med/tempo/today` | `{"color": "BLEU", "date": "2024-01-15"}` | Couleur du jour |
+| `med/tempo/tomorrow` | `{"color": "BLANC", "date": "2024-01-16"}` | Couleur demain |
+| `med/tempo/remaining` | `{"blue": 280, "white": 40, "red": 20}` | Jours restants |
 
-```yaml
-mqtt:
-  format: "json"
-```
+### EcoWatt
 
-Messages publiés :
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `med/ecowatt/current` | `{"level": 1, "message": "Consommation normale"}` | Niveau actuel |
+| `med/ecowatt/forecast` | `[{"hour": 0, "level": 1}, ...]` | Prévisions 24h |
+
+---
+
+## Format des messages
+
+### Payload JSON
+
+Tous les messages sont publiés en JSON :
 
 ```json
-// Topic: myelectricaldata/12345678901234/consumption/daily
 {
-  "value": 15.234,
+  "value": 15.2,
   "unit": "kWh",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "pdl": "12345678901234",
-  "date": "2024-01-15",
-  "tariff": "HC/HP",
-  "hc": 8.5,
-  "hp": 6.734
-}
-```
-
-```json
-// Topic: myelectricaldata/12345678901234/consumption/detailed
-{
   "date": "2024-01-15",
   "pdl": "12345678901234",
-  "interval": "30min",
-  "data": [
-    {"time": "00:00", "value": 0.234},
-    {"time": "00:30", "value": 0.198},
-    {"time": "01:00", "value": 0.187},
-    // ... 48 valeurs pour la journée
-  ]
+  "quality": "CORRIGE",
+  "timestamp": "2024-01-15T06:00:00+01:00"
 }
 ```
+
+### Home Assistant Discovery
+
+L'exportateur supporte MQTT Discovery pour Home Assistant :
 
 ```json
-// Topic: myelectricaldata/status
+// Topic: homeassistant/sensor/med_12345678901234_consumption/config
 {
-  "status": "ok",
-  "last_sync": "2024-01-15T10:30:00Z",
-  "next_sync": "2024-01-15T11:30:00Z",
-  "pdl_count": 1,
-  "errors": []
+  "name": "Consommation journalière",
+  "unique_id": "med_12345678901234_consumption_daily",
+  "state_topic": "myelectricaldata/12345678901234/consumption/daily",
+  "value_template": "{{ value_json.value }}",
+  "unit_of_measurement": "kWh",
+  "device_class": "energy",
+  "state_class": "total_increasing",
+  "device": {
+    "identifiers": ["med_12345678901234"],
+    "name": "MyElectricalData - Maison",
+    "manufacturer": "MyElectricalData"
+  }
 }
 ```
 
-## Topics de commande
-
-Le client écoute également des topics pour recevoir des commandes :
-
-```
-{prefix}/command/sync          # Forcer une synchronisation
-{prefix}/command/reload        # Recharger la configuration
-```
-
-### Forcer une synchronisation
+Activer dans la configuration :
 
 ```bash
-mosquitto_pub -h localhost -t "myelectricaldata/command/sync" -m ""
+MQTT_HA_DISCOVERY=true
+MQTT_HA_DISCOVERY_PREFIX=homeassistant
 ```
 
-## Exemples d'utilisation
+---
 
-### Mosquitto (ligne de commande)
+## Intégration Node-RED
 
-```bash
-# S'abonner à toutes les données
-mosquitto_sub -h localhost -u user -P password -t "myelectricaldata/#" -v
-
-# S'abonner à la consommation d'un PDL
-mosquitto_sub -h localhost -t "myelectricaldata/12345678901234/consumption/#" -v
-
-# Publier une commande de sync
-mosquitto_pub -h localhost -t "myelectricaldata/command/sync" -m ""
-```
-
-### Node-RED
+### Exemple de flow
 
 ```json
 [
   {
-    "id": "mqtt_linky",
+    "id": "mqtt-in",
     "type": "mqtt in",
     "topic": "myelectricaldata/+/consumption/daily",
     "qos": "1",
-    "datatype": "json",
-    "broker": "mqtt_broker"
+    "datatype": "json"
   },
   {
-    "id": "process_data",
+    "id": "function",
     "type": "function",
-    "func": "msg.payload = {\n  pdl: msg.topic.split('/')[1],\n  consumption: msg.payload.value,\n  timestamp: msg.payload.timestamp\n};\nreturn msg;",
-    "wires": [["output"]]
+    "func": "msg.payload.pdl = msg.topic.split('/')[1];\nreturn msg;"
+  },
+  {
+    "id": "influxdb-out",
+    "type": "influxdb out",
+    "measurement": "consumption"
   }
 ]
 ```
 
-### Python (paho-mqtt)
+### Monitoring avec Node-RED
 
-```python
-import json
-import paho.mqtt.client as mqtt
+```javascript
+// Fonction pour calculer le coût
+const consumption = msg.payload.value;
+const tempoColor = global.get('tempo_color') || 'BLEU';
 
-def on_message(client, userdata, msg):
-    topic = msg.topic
-    payload = json.loads(msg.payload.decode())
+const prices = {
+  BLEU: { hp: 0.1609, hc: 0.1296 },
+  BLANC: { hp: 0.1894, hc: 0.1486 },
+  ROUGE: { hp: 0.7324, hc: 0.1568 }
+};
 
-    if "consumption/daily" in topic:
-        pdl = topic.split("/")[1]
-        print(f"PDL {pdl}: {payload['value']} kWh")
+const price = prices[tempoColor].hp; // Simplification
+msg.payload.cost = consumption * price;
 
-client = mqtt.Client()
-client.username_pw_set("user", "password")
-client.on_message = on_message
-
-client.connect("localhost", 1883)
-client.subscribe("myelectricaldata/#")
-client.loop_forever()
+return msg;
 ```
 
-### Home Assistant (configuration manuelle)
+---
 
-Si vous n'utilisez pas MQTT Discovery :
+## QoS et Retain
 
-```yaml
-# configuration.yaml
-mqtt:
-  sensor:
-    - name: "Consommation Linky"
-      state_topic: "myelectricaldata/12345678901234/consumption/daily"
-      value_template: "{{ value_json.value }}"
-      unit_of_measurement: "kWh"
-      device_class: energy
-      state_class: total_increasing
-
-    - name: "Production Solaire"
-      state_topic: "myelectricaldata/12345678901234/production/daily"
-      value_template: "{{ value_json.value }}"
-      unit_of_measurement: "kWh"
-      device_class: energy
-      state_class: total_increasing
-```
-
-## Brokers MQTT populaires
-
-### Mosquitto (Docker)
-
-```yaml
-# docker-compose.yml
-services:
-  mosquitto:
-    image: eclipse-mosquitto:2
-    ports:
-      - "1883:1883"
-      - "9001:9001"
-    volumes:
-      - ./mosquitto/config:/mosquitto/config
-      - ./mosquitto/data:/mosquitto/data
-      - ./mosquitto/log:/mosquitto/log
-```
-
-```conf
-# mosquitto/config/mosquitto.conf
-listener 1883
-allow_anonymous false
-password_file /mosquitto/config/passwd
-```
-
-### EMQX
-
-```yaml
-services:
-  emqx:
-    image: emqx/emqx:latest
-    ports:
-      - "1883:1883"
-      - "8083:8083"
-      - "18083:18083"
-    environment:
-      - EMQX_ALLOW_ANONYMOUS=false
-```
-
-### Home Assistant Mosquitto Add-on
-
-1. **Paramètres** → **Modules complémentaires**
-2. Installez **Mosquitto broker**
-3. Configurez un utilisateur dans **Configuration**
-4. Utilisez `core-mosquitto` comme hôte dans le client local
-
-## Qualité de Service (QoS)
+### Niveaux de QoS
 
 | QoS | Description | Recommandation |
 |-----|-------------|----------------|
-| 0 | Au plus une fois (fire and forget) | Non recommandé |
-| 1 | Au moins une fois (confirmé) | **Recommandé** |
-| 2 | Exactement une fois (garanti) | Overhead important |
+| 0 | At most once | Non recommandé (perte possible) |
+| **1** | At least once | **Recommandé** (défaut) |
+| 2 | Exactly once | Surcharge réseau |
 
-## Rétention des messages
+### Retain
 
-Avec `retain: true`, le broker conserve le dernier message de chaque topic. Les nouveaux abonnés reçoivent immédiatement les dernières valeurs.
+Avec `retain=true`, le dernier message est conservé par le broker. Les nouveaux subscribers reçoivent immédiatement la dernière valeur connue.
 
-```yaml
-mqtt:
-  retain: true  # Recommandé pour les valeurs de consommation
+```bash
+# Recommandé pour MyElectricalData
+MQTT_RETAIN=true
 ```
+
+---
+
+## Sécurité
+
+### Authentification
+
+```bash
+# Utilisateur/mot de passe
+MQTT_BROKER=mqtt://user:password@broker:1883
+```
+
+### TLS/SSL
+
+```bash
+# Connexion chiffrée
+MQTT_BROKER=mqtts://broker.example.com:8883
+
+# Avec certificat client (optionnel)
+MQTT_CA_CERT=/path/to/ca.crt
+MQTT_CLIENT_CERT=/path/to/client.crt
+MQTT_CLIENT_KEY=/path/to/client.key
+```
+
+---
 
 ## Dépannage
 
-### Impossible de se connecter
+### Erreur "Connection refused"
 
-```bash
-# Tester la connexion
-mosquitto_pub -h localhost -p 1883 -u user -P password -t "test" -m "hello"
+- Vérifier que le broker est démarré : `docker logs mosquitto`
+- Vérifier le port (1883 par défaut, 8883 pour TLS)
+- Si le broker est sur l'hôte Docker, utiliser `host.docker.internal`
 
-# Vérifier les logs du broker
-docker logs mosquitto
-```
+### Erreur "Not authorized"
+
+- Vérifier les credentials dans l'URL
+- Vérifier les ACL du broker (permissions par topic)
+- Consulter les logs du broker
 
 ### Messages non reçus
 
-1. Vérifiez que le topic correspond exactement
-2. Vérifiez le QoS des abonnements
-3. Activez les logs debug :
-   ```yaml
-   logging:
-     level: DEBUG
-   ```
+- Vérifier le topic exact (attention aux `/` en début/fin)
+- Utiliser un client MQTT pour débugger :
+  ```bash
+  mosquitto_sub -h localhost -t "myelectricaldata/#" -v
+  ```
 
-### Authentification échouée
+### Test avec Mosquitto
 
 ```bash
-# Créer un utilisateur Mosquitto
-docker exec mosquitto mosquitto_passwd -c /mosquitto/config/passwd username
+# Écouter tous les messages MyElectricalData
+mosquitto_sub -h localhost -t "myelectricaldata/#" -v
+
+# Publier un message de test
+mosquitto_pub -h localhost -t "myelectricaldata/test" -m "Hello"
 ```
 
-## Ressources
+---
 
-- [Mosquitto Documentation](https://mosquitto.org/documentation/)
-- [MQTT Specification](https://mqtt.org/mqtt-specification/)
-- [Home Assistant MQTT](https://www.home-assistant.io/integrations/mqtt/)
+## Code source
+
+L'exportateur MQTT est implémenté dans :
+
+```
+apps/api/src/services/exporters/mqtt.py
+```
+
+### Exemple de publication
+
+```python
+import aiomqtt
+
+class MQTTExporter:
+    async def publish(self, topic: str, payload: dict):
+        async with aiomqtt.Client(
+            hostname=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+        ) as client:
+            await client.publish(
+                topic=f"{self.prefix}/{topic}",
+                payload=json.dumps(payload),
+                qos=self.qos,
+                retain=self.retain,
+            )
+```

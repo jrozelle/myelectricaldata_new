@@ -14,6 +14,8 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
   const [testResult, setTestResult] = useState<any>(null)
   const [testError, setTestError] = useState<string | null>(null)
 
+  // Fetch contract and address from API (works in both server and client mode)
+  // In client mode, the backend proxies requests to MyElectricalData gateway
   const { data: contractData, isLoading: contractLoading } = useQuery({
     queryKey: ['contract', usagePointId],
     queryFn: () => enedisApi.getContract(usagePointId, useCache),
@@ -133,22 +135,25 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
 
           {!isLoading && (
             <>
+              {/* Contract and Address Data */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {addressData?.success && addressData.data ? (
                   <div className="card">
                     <div className="flex items-center gap-2 mb-3">
-                      <Home className="text-primary-600" size={20} />
+                      <Home className="text-primary-600 dark:text-primary-400" size={20} />
                       <h3 className="font-semibold">Adresse</h3>
                     </div>
                     <div className="space-y-2 text-sm">
                     {(() => {
                       const data = addressData.data as any
                       const usagePoint = data?.customer?.usage_points?.[0]?.usage_point
-                      const addresses = usagePoint?.usage_point_addresses
 
-                      if (!addresses) {
+                      // If data structure doesn't match expected format, show raw JSON
+                      if (!usagePoint) {
                         return <pre className="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-auto max-h-64">{JSON.stringify(addressData.data, null, 2)}</pre>
                       }
+
+                      const addresses = usagePoint?.usage_point_addresses
 
                       return (
                         <>
@@ -170,31 +175,31 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
                               <span>{usagePoint.meter_type}</span>
                             </div>
                           )}
-                          {addresses.street && (
+                          {addresses?.street && (
                             <div>
                               <span className="font-medium text-gray-500 dark:text-gray-400">Rue : </span>
                               <span>{addresses.street}</span>
                             </div>
                           )}
-                          {addresses.postal_code && (
+                          {addresses?.postal_code && (
                             <div>
                               <span className="font-medium text-gray-500 dark:text-gray-400">Code postal : </span>
                               <span>{addresses.postal_code}</span>
                             </div>
                           )}
-                          {addresses.city && (
+                          {addresses?.city && (
                             <div>
                               <span className="font-medium text-gray-500 dark:text-gray-400">Ville : </span>
                               <span>{addresses.city}</span>
                             </div>
                           )}
-                          {addresses.insee_code && (
+                          {addresses?.insee_code && (
                             <div>
                               <span className="font-medium text-gray-500 dark:text-gray-400">Code INSEE : </span>
                               <span>{addresses.insee_code}</span>
                             </div>
                           )}
-                          {addresses.country && (
+                          {addresses?.country && (
                             <div>
                               <span className="font-medium text-gray-500 dark:text-gray-400">Pays : </span>
                               <span>{addresses.country}</span>
@@ -205,12 +210,18 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
                     })()}
                     </div>
                   </div>
+                ) : addressData && !addressData.success ? (
+                  <div className="card bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
+                    <p className="text-red-800 dark:text-red-200 text-sm">
+                      Erreur lors du chargement de l'adresse : {addressData?.error?.message}
+                    </p>
+                  </div>
                 ) : null}
 
                 {contractData?.success && contractData.data ? (
                   <div className="card">
                     <div className="flex items-center gap-2 mb-3">
-                      <FileText className="text-primary-600" size={20} />
+                      <FileText className="text-primary-600 dark:text-primary-400" size={20} />
                       <h3 className="font-semibold">Contrat</h3>
                     </div>
                     <div className="space-y-2 text-sm">
@@ -218,6 +229,7 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
                       const data = contractData.data as any
                       const contract = data?.customer?.usage_points?.[0]?.contracts
 
+                      // If data structure doesn't match expected format, show raw JSON
                       if (!contract) {
                         return <pre className="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-auto max-h-64">{JSON.stringify(contractData.data, null, 2)}</pre>
                       }
@@ -277,30 +289,20 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
                     })()}
                     </div>
                   </div>
+                ) : contractData && !contractData.success ? (
+                  <div className="card bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
+                    <p className="text-red-800 dark:text-red-200 text-sm">
+                      Erreur lors du chargement du contrat : {contractData?.error?.message}
+                    </p>
+                  </div>
                 ) : null}
               </div>
-
-              {!contractData?.success && (
-                <div className="card bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
-                  <p className="text-red-800 dark:text-red-200 text-sm">
-                    Erreur lors du chargement du contrat : {contractData?.error?.message}
-                  </p>
-                </div>
-              )}
-
-              {!addressData?.success && (
-                <div className="card bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
-                  <p className="text-red-800 dark:text-red-200 text-sm">
-                    Erreur lors du chargement de l'adresse : {addressData?.error?.message}
-                  </p>
-                </div>
-              )}
 
               {/* Test Section */}
               <div className="card bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
                 <div className="flex items-center gap-2 mb-4">
-                  <BarChart3 className="text-blue-600" size={20} />
-                  <h3 className="font-semibold">Tester les endpoints Enedis</h3>
+                  <BarChart3 className="text-blue-600 dark:text-blue-400" size={20} />
+                  <h3 className="font-semibold">Tester les endpoints</h3>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -330,7 +332,7 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
                     className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
                   >
                     <Sun size={16} />
-                    Journalière (30j)
+                    Production jour. (30j)
                   </button>
 
                   <button
@@ -339,7 +341,7 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
                     className="btn btn-secondary text-sm flex items-center gap-2 justify-start"
                   >
                     <Sun size={16} />
-                    Détaillée (7j)
+                    Production dét. (7j)
                   </button>
 
                   {/* Puissance */}
