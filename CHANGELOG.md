@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.9.1](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.9.0...1.9.1) (2026-01-28)
+
+### Refactoring
+
+* update button styles from gradient to primary and adjust export button widths across multiple components ([3756638](https://github.com/MyElectricalData/myelectricaldata_new/commit/375663880e2faad88a6687645cc4a8eb0217af90))
+
 ## [1.9.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.8.0...1.9.0) (2026-01-26)
 
 ### Features
