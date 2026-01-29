@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.10.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.9.1...1.10.0) (2026-01-29)
+
+### Features
+
+* Update various pages and components for improved functionality and user experience ([ea84072](https://github.com/MyElectricalData/myelectricaldata_new/commit/ea840720d0d0a7effd6f1c5de668a7167e5088f9))
+
 ## [1.9.1](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.9.0...1.9.1) (2026-01-28)
 
 ### Refactoring
