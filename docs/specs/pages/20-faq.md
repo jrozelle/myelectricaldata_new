@@ -3,7 +3,7 @@ name: faq
 id: faq
 path: /faq
 description: Foire Aux Questions pour aider les utilisateurs
-mode_client: false
+mode_client: true
 mode_server: true
 menu: FAQ
 ---

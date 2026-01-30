@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { parseOffpeakHours, isOffpeakTime } from '@/utils/offpeakHours'
+import { useDatePreferencesStore } from '@/stores/datePreferencesStore'
 import type { ConsumptionAPIResponse, MaxPowerAPIResponse, DetailAPIResponse } from '../types/consumption.types'
 
 interface UseConsumptionCalcsProps {
@@ -24,6 +25,7 @@ export function useConsumptionCalcs({
 }: UseConsumptionCalcsProps) {
   const queryClient = useQueryClient()
   const [selectedPowerYear, setSelectedPowerYear] = useState(0)
+  const { preset, customDate } = useDatePreferencesStore()
 
   // Process consumption data for charts
   const chartData = useMemo(() => {
@@ -204,23 +206,236 @@ export function useConsumptionCalcs({
       return row
     })
 
-    // Create years array for AnnualCurve multi-select
-    const yearsByPeriod = periods.map(period => {
-      const periodMonths = periodMonthlyData[period.label] || {}
-      const byMonth = Object.entries(periodMonths)
+    // Create years array for AnnualCurve multi-select (années calendaires)
+    const calendarYears = [...new Set(
+      readings.map((r: any) => {
+        const dateStr = r.date?.split('T')[0] || r.date
+        return dateStr?.substring(0, 4)
+      }).filter(Boolean)
+    )].sort().reverse() as string[]
+
+    const yearsByPeriod = calendarYears.slice(0, 4).map(year => {
+      const yearStart = new Date(`${year}-01-01`)
+      const yearEnd = new Date(`${year}-12-31`)
+
+      // Agréger les données mensuelles pour cette année calendaire
+      const monthlyMap: Record<string, number> = {}
+
+      readings.forEach((reading: any) => {
+        const rawValue = parseFloat(reading.value || 0)
+        const dateStr = reading.date?.split('T')[0] || reading.date
+        if (!dateStr || !dateStr.startsWith(year) || isNaN(rawValue)) return
+
+        const value = rawValue * intervalMultiplier
+        const month = dateStr.substring(0, 7)
+        monthlyMap[month] = (monthlyMap[month] || 0) + value
+      })
+
+      const byMonth = Object.entries(monthlyMap)
         .map(([month, value]) => ({
           month,
-          monthLabel: new Date(month + '-01').toLocaleDateString('fr-FR', { year: 'numeric', month: 'short' }),
+          monthLabel: new Date(month + '-01').toLocaleDateString('fr-FR', { month: 'short' }),
           consumption: Math.round(value),
           consommation: Math.round(value),
         }))
+        .filter(m => m.consumption > 0)
         .sort((a, b) => a.month.localeCompare(b.month))
 
       return {
-        label: period.label,
+        label: year,
+        startDate: yearStart,
+        endDate: yearEnd,
         byMonth
       }
-    }).reverse()
+    }).filter((y, idx) => {
+      // Toujours garder l'année la plus récente (en cours)
+      if (idx === 0) return y.byMonth.length > 0
+      // Les autres années doivent avoir au moins 2 mois de données
+      return y.byMonth.length >= 2
+    })
+
+    // Retirer le premier mois de l'année la plus ancienne (donnée souvent incomplète)
+    if (yearsByPeriod.length > 1) {
+      const oldest = yearsByPeriod[yearsByPeriod.length - 1]
+      if (oldest.byMonth.length > 1) {
+        oldest.byMonth = oldest.byMonth.slice(1)
+      }
+    }
+
+    // --- Calcul basé sur les préférences utilisateur (preset) ---
+    // Chaque bloc = une période + la même plage sur l'année précédente (comparaison)
+    // Ex. calendaire 1er jan : Bloc 1 = [1 jan 2026 → ajd] vs [1 jan 2025 → même jour 2025]
+    const getPresetReference = (): { day: number; month: number } | null => {
+      switch (preset) {
+        case 'rolling':
+          return null
+        case 'calendar':
+          return { day: 1, month: 1 }
+        case 'tempo':
+          return { day: 1, month: 9 }
+        case 'custom':
+          return customDate ? { day: customDate.day, month: customDate.month } : null
+        default:
+          return null
+      }
+    }
+
+    const presetRef = getPresetReference()
+
+    // Chaque comparaison contient : période courante + même plage N-1
+    interface PresetComparison {
+      label: string
+      current: { startDate: Date; endDate: Date }
+      previous: { startDate: Date; endDate: Date }
+    }
+
+    const buildPresetComparisons = (): PresetComparison[] => {
+      if (!presetRef) return []
+
+      const refDay = presetRef.day
+      const refMonth = presetRef.month // 1-indexed
+
+      // Trouver le début de la période courante
+      const refThisYear = new Date(mostRecentDate.getFullYear(), refMonth - 1, refDay, 12, 0, 0, 0)
+      let currentPeriodStart: Date
+      if (refThisYear <= mostRecentDate) {
+        currentPeriodStart = refThisYear
+      } else {
+        currentPeriodStart = new Date(mostRecentDate.getFullYear() - 1, refMonth - 1, refDay, 12, 0, 0, 0)
+      }
+
+      const result: PresetComparison[] = []
+      for (let i = 0; i < 3; i++) {
+        const pStart = new Date(currentPeriodStart.getFullYear() - i, refMonth - 1, refDay, 12, 0, 0, 0)
+        const pEnd = new Date(pStart.getFullYear() + 1, refMonth - 1, refDay - 1, 12, 0, 0, 0)
+        const effectiveEnd = pEnd > mostRecentDate ? mostRecentDate : pEnd
+
+        // Période précédente = même plage, 1 an avant
+        const prevStart = new Date(pStart.getFullYear() - 1, pStart.getMonth(), pStart.getDate(), 12, 0, 0, 0)
+        const prevEnd = new Date(effectiveEnd.getFullYear() - 1, effectiveEnd.getMonth(), effectiveEnd.getDate(), 12, 0, 0, 0)
+
+        const label = preset === 'calendar'
+          ? String(pStart.getFullYear())
+          : `${pStart.getFullYear()}-${pStart.getFullYear() + 1}`
+
+        result.push({
+          label,
+          current: { startDate: pStart, endDate: effectiveEnd },
+          previous: { startDate: prevStart, endDate: prevEnd }
+        })
+      }
+
+      return result
+    }
+
+    const presetComparisons = buildPresetComparisons()
+
+    // Fonction utilitaire : agréger les readings sur une plage de dates
+    const aggregateReadings = (start: Date, end: Date): number => {
+      let total = 0
+      readings.forEach((reading: any) => {
+        const rawValue = parseFloat(reading.value || 0)
+        const dateStr = reading.date?.split('T')[0] || reading.date
+        if (!dateStr || isNaN(rawValue)) return
+        const readingDate = new Date(dateStr + 'T12:00:00')
+        if (readingDate >= start && readingDate <= end) {
+          total += rawValue * intervalMultiplier
+        }
+      })
+      return total
+    }
+
+    // Fonction utilitaire : agréger par mois sur une plage
+    const aggregateMonthly = (start: Date, end: Date) => {
+      const monthlyMap: Record<string, number> = {}
+      readings.forEach((reading: any) => {
+        const rawValue = parseFloat(reading.value || 0)
+        const dateStr = reading.date?.split('T')[0] || reading.date
+        if (!dateStr || isNaN(rawValue)) return
+        const readingDate = new Date(dateStr + 'T12:00:00')
+        if (readingDate >= start && readingDate <= end) {
+          const value = rawValue * intervalMultiplier
+          const month = dateStr.substring(0, 7)
+          monthlyMap[month] = (monthlyMap[month] || 0) + value
+        }
+      })
+      return Object.entries(monthlyMap)
+        .map(([month, value]) => ({
+          month,
+          monthLabel: new Date(month + '-01').toLocaleDateString('fr-FR', { month: 'short' }),
+          consumption: Math.round(value),
+          consommation: Math.round(value),
+        }))
+        .filter(m => m.consumption > 0)
+        .sort((a, b) => a.month.localeCompare(b.month))
+    }
+
+    // byYearPreset : tableau de blocs, chaque bloc = { current, previous }
+    // Le composant YearlyStatCards reçoit byYear qui est un tableau plat.
+    // On garde la structure plate mais on ajoute les infos de comparaison.
+    const byYearPresetRaw = presetComparisons.map(comp => {
+      const currentTotal = aggregateReadings(comp.current.startDate, comp.current.endDate)
+      const previousTotal = aggregateReadings(comp.previous.startDate, comp.previous.endDate)
+
+      return {
+        year: comp.label,
+        consumption: Math.round(currentTotal),
+        consommation: Math.round(currentTotal),
+        startDate: comp.current.startDate,
+        endDate: comp.current.endDate,
+        previousConsommation: Math.round(previousTotal),
+        previousStartDate: comp.previous.startDate,
+        previousEndDate: comp.previous.endDate,
+      }
+    }).filter(p => p.consommation > 0)
+
+    // Pas de comparaison N-1 sur le dernier bloc (données précédentes forcément incomplètes/absentes)
+    const byYearPreset = byYearPresetRaw.map((entry, idx) => {
+      if (idx === byYearPresetRaw.length - 1) {
+        return { ...entry, previousConsommation: 0 }
+      }
+      return entry
+    })
+
+    // yearsByPreset : pour chaque comparaison, on génère 2 entrées (courante + précédente)
+    // pour que AnnualCurve les superpose sur le même graphique
+    const yearsByPreset = presetComparisons.flatMap(comp => {
+      const currentMonths = aggregateMonthly(comp.current.startDate, comp.current.endDate)
+      const prevLabel = preset === 'calendar'
+        ? String(comp.current.startDate.getFullYear() - 1)
+        : `${comp.current.startDate.getFullYear() - 1}-${comp.current.startDate.getFullYear()}`
+      const previousMonths = aggregateMonthly(comp.previous.startDate, comp.previous.endDate)
+
+      const entries = []
+
+      if (currentMonths.length >= 2) {
+        entries.push({
+          label: comp.label,
+          startDate: comp.current.startDate,
+          endDate: comp.current.endDate,
+          byMonth: currentMonths
+        })
+      }
+
+      if (previousMonths.length >= 2) {
+        entries.push({
+          label: prevLabel,
+          startDate: comp.previous.startDate,
+          endDate: comp.previous.endDate,
+          byMonth: previousMonths
+        })
+      }
+
+      return entries
+    })
+
+    // Dédupliquer les entrées de yearsByPreset (une période peut être "previous" d'un bloc et "current" d'un autre)
+    const seenLabels = new Set<string>()
+    const yearsByPresetDeduped = yearsByPreset.filter(entry => {
+      if (seenLabels.has(entry.label)) return false
+      seenLabels.add(entry.label)
+      return true
+    })
 
     return {
       byYear,
@@ -229,9 +444,11 @@ export function useConsumptionCalcs({
       total: Math.round(totalConsumption),
       years,
       yearsByPeriod,
+      byYearPreset,
+      yearsByPreset: yearsByPresetDeduped,
       unit,
     }
-  }, [consumptionData])
+  }, [consumptionData, preset, customDate])
 
   // Process max power data by year
   const powerByYearData = useMemo(() => {
@@ -241,38 +458,22 @@ export function useConsumptionCalcs({
 
     const readings = maxPowerData.meter_reading.interval_reading
 
-    // Get the most recent date in the data
-    let mostRecentDate = new Date(0)
-    readings.forEach((reading: any) => {
-      const dateStr = reading.date?.split('T')[0] || reading.date
-      if (dateStr) {
-        const readingDate = new Date(dateStr)
-        if (readingDate > mostRecentDate) {
-          mostRecentDate = readingDate
-        }
-      }
-    })
+    // Extraire les années calendaires uniques (triées du plus récent au plus ancien)
+    const calendarYears = [...new Set(
+      readings.map((r: any) => {
+        const dateStr = r.date?.split('T')[0] || r.date
+        return dateStr?.substring(0, 4)
+      }).filter(Boolean)
+    )].sort().reverse() as string[]
 
-    // Define 3 years of 365-day periods
-    const period1End = mostRecentDate
-    const period1Start = new Date(mostRecentDate.getTime() - 365 * 24 * 60 * 60 * 1000)
-    const period2End = new Date(mostRecentDate.getTime() - 365 * 24 * 60 * 60 * 1000)
-    const period2Start = new Date(mostRecentDate.getTime() - 730 * 24 * 60 * 60 * 1000)
-    const period3End = new Date(mostRecentDate.getTime() - 730 * 24 * 60 * 60 * 1000)
-    const period3Start = new Date(mostRecentDate.getTime() - 1095 * 24 * 60 * 60 * 1000)
+    // Grouper les lectures par année calendaire
+    const yearDataMap: Record<string, any[]> = {}
 
-    const periods = [
-      { label: String(period1End.getFullYear()), startDate: period1Start, endDate: period1End, data: [] as any[] },
-      { label: String(period2End.getFullYear()), startDate: period2Start, endDate: period2End, data: [] as any[] },
-      { label: String(period3End.getFullYear()), startDate: period3Start, endDate: period3End, data: [] as any[] },
-    ]
-
-    // Group readings by period
     readings.forEach((reading: any) => {
       const dateStr = reading.date?.split('T')[0] || reading.date
       if (!dateStr) return
 
-      const readingDate = new Date(dateStr)
+      const year = dateStr.substring(0, 4)
       const power = parseFloat(reading.value || 0) / 1000 // Convert W to kW
 
       // Extract time from date field
@@ -283,30 +484,31 @@ export function useConsumptionCalcs({
         time = reading.date.split(' ')[1]?.substring(0, 5) || ''
       }
 
-      periods.forEach(period => {
-        if (readingDate >= period.startDate && readingDate <= period.endDate) {
-          period.data.push({
-            date: dateStr,
-            power: power,
-            time: time,
-            year: period.label
-          })
-        }
+      if (!yearDataMap[year]) yearDataMap[year] = []
+      yearDataMap[year].push({
+        date: dateStr,
+        power,
+        time,
+        year
       })
     })
 
-    // Sort data by date within each period
-    periods.forEach(period => {
-      period.data.sort((a, b) => a.date.localeCompare(b.date))
+    // Construire les périodes par année calendaire
+    return calendarYears.slice(0, 4).map(year => ({
+      label: year,
+      startDate: new Date(`${year}-01-01`),
+      endDate: new Date(`${year}-12-31`),
+      data: (yearDataMap[year] || []).sort((a: any, b: any) => a.date.localeCompare(b.date))
+    })).filter((y, idx) => {
+      if (idx === 0) return y.data.length > 0
+      return y.data.length >= 10
     })
-
-    return periods.reverse()
   }, [maxPowerData])
 
-  // Set default year when power data loads
+  // Set default year when power data loads (index 0 = plus récent)
   useEffect(() => {
     if (powerByYearData.length > 0) {
-      setSelectedPowerYear(powerByYearData.length - 1)
+      setSelectedPowerYear(0)
     }
   }, [powerByYearData.length])
 
@@ -487,14 +689,11 @@ export function useConsumptionCalcs({
 
     const mostRecentDate = new Date(Math.max(...uniqueReadings.map(r => r.date.getTime())))
 
-    // Define 3 rolling 365-day periods
+    // Define 3 rolling 365-day periods (aligned with byYear calculation)
     const periods = []
     for (let i = 0; i < 3; i++) {
-      const periodEnd = new Date(mostRecentDate)
-      periodEnd.setDate(mostRecentDate.getDate() - (i * 365))
-
-      const periodStart = new Date(periodEnd)
-      periodStart.setDate(periodEnd.getDate() - 364)
+      const periodEnd = new Date(mostRecentDate.getTime() - i * 365 * 24 * 60 * 60 * 1000)
+      const periodStart = new Date(periodEnd.getTime() - 365 * 24 * 60 * 60 * 1000)
 
       periods.push({
         start: periodStart,
@@ -512,6 +711,8 @@ export function useConsumptionCalcs({
 
       return {
         year: period.label,
+        startDate: period.start,
+        endDate: period.end,
         hcKwh,
         hpKwh,
         totalKwh
@@ -659,6 +860,8 @@ export function useConsumptionCalcs({
 
       return {
         year: period.label,
+        startDate: period.start,
+        endDate: period.end,
         months,
         dataAvailable: uniqueDays, // Number of days with data
         totalDays: 365

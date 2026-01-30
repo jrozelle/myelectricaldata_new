@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea } from 'recharts'
-import { Download, ZoomOut } from 'lucide-react'
+import { Download, ZoomOut, Calendar } from 'lucide-react'
 import { toast } from '@/stores/notificationStore'
 import { ModernButton } from './ModernButton'
 
@@ -13,6 +13,8 @@ interface MonthlyData {
 
 interface YearData {
   year: string
+  startDate: Date
+  endDate: Date
   months: MonthlyData[]
   dataAvailable?: number
   totalDays?: number
@@ -170,11 +172,12 @@ export function MonthlyHcHp({ monthlyHcHpByYear, selectedPDLDetails, isDarkMode 
           {monthlyHcHpByYear.map((yearData, idx) => {
             const isSelected = selectedYears.has(idx)
             const color = graphColors[idx % graphColors.length]
+            const showDetail = monthlyHcHpByYear.length < 3
             return (
               <button
                 key={yearData.year}
                 onClick={() => toggleYearSelection(idx)}
-                className={`flex-1 min-w-[80px] px-4 py-2 text-base font-semibold rounded-lg border-2 transition-all duration-200 ${
+                className={`flex-1 min-w-[${showDetail ? '140' : '80'}px] px-4 py-2 rounded-lg border-2 transition-all duration-200 ${
                   isSelected
                     ? 'shadow-md'
                     : 'text-gray-400 hover:text-gray-200 border-gray-700 hover:border-gray-600'
@@ -185,7 +188,21 @@ export function MonthlyHcHp({ monthlyHcHpByYear, selectedPDLDetails, isDarkMode 
                   color: color,
                 } : undefined}
               >
-                {yearData.year}
+                {showDetail ? (
+                  <>
+                    <span className="text-base font-semibold">
+                      12 mois ({yearData.startDate.getFullYear()}-{yearData.endDate.getFullYear()})
+                    </span>
+                    <span className={`flex items-center justify-center gap-1 text-xs mt-0.5 ${
+                      isSelected ? 'opacity-70' : 'text-gray-500'
+                    }`}>
+                      <Calendar size={10} />
+                      {yearData.startDate.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })} → {yearData.endDate.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-base font-semibold">{yearData.year}</span>
+                )}
               </button>
             )
           })}
@@ -268,8 +285,11 @@ export function MonthlyHcHp({ monthlyHcHpByYear, selectedPDLDetails, isDarkMode 
             />
             <Legend />
             {/* Dynamically create bars for each selected year */}
-            {selectedYearsData.map((yearData, _yearIndex) => {
-              // Define colors for HC and HP for each year with transparency for overlay effect
+            {selectedYearsData.map((yearData) => {
+              // Couleur alignée avec l'onglet (index direct, pas inversé)
+              const tabIndex = monthlyHcHpByYear.findIndex(y => y.year === yearData.year)
+
+              // Couleurs HC et HP pour chaque année avec transparence
               const hcColors = [
                 'rgba(59, 130, 246, 0.7)',   // blue
                 'rgba(147, 197, 253, 0.7)',  // light blue
@@ -288,12 +308,12 @@ export function MonthlyHcHp({ monthlyHcHpByYear, selectedPDLDetails, isDarkMode 
                   <Bar
                     dataKey={`hc_${yearData.year}`}
                     name={`HC ${yearData.year}`}
-                    fill={hcColors[_yearIndex % hcColors.length]}
+                    fill={hcColors[tabIndex % hcColors.length]}
                   />
                   <Bar
                     dataKey={`hp_${yearData.year}`}
                     name={`HP ${yearData.year}`}
-                    fill={hpColors[_yearIndex % hpColors.length]}
+                    fill={hpColors[tabIndex % hpColors.length]}
                   />
                 </React.Fragment>
               )

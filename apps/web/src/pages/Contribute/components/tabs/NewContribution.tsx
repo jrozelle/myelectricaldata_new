@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, FileJson, X } from 'lucide-react'
 import { energyApi, type EnergyProvider, type ContributionData } from '@/api/energy'
 import { toast } from '@/stores/notificationStore'
+import { SingleDatePicker } from '@/components/SingleDatePicker'
 import PowerVariantForm from '../forms/PowerVariantForm'
 import { type PowerVariant } from '../../types'
 import { formatPrice } from '../../utils'
@@ -21,6 +22,7 @@ interface NewContributionProps {
     powerVariants: PowerVariant[]
     priceSheetUrl: string
     screenshotUrl: string
+    validFrom: string
   }
   onFormStateChange: (key: string, value: unknown) => void
 }
@@ -91,6 +93,7 @@ export default function NewContribution({
     onFormStateChange('providerName', '')
     onFormStateChange('providerWebsite', '')
     onFormStateChange('selectedProviderId', '')
+    onFormStateChange('validFrom', new Date().toISOString().split('T')[0])
     setEditingContributionId(null)
   }
 
@@ -119,7 +122,7 @@ export default function NewContribution({
       power_variants: formState.powerVariants,
       price_sheet_url: formState.priceSheetUrl,
       screenshot_url: formState.screenshotUrl || undefined,
-      valid_from: new Date().toISOString().split('T')[0], // Date du jour (YYYY-MM-DD)
+      valid_from: formState.validFrom || new Date().toISOString().split('T')[0],
     }
 
     if (formState.contributionType === 'NEW_PROVIDER') {
@@ -502,6 +505,21 @@ export default function NewContribution({
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Date de mise en service */}
+          {/* Date de mise en service */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <SingleDatePicker
+              value={formState.validFrom || new Date().toISOString().split('T')[0]}
+              onChange={(date) => onFormStateChange('validFrom', date)}
+              label="Date de mise en service du tarif"
+              required
+              minDate="2020-01-01"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              Par défaut : la date du jour. Modifiez si le tarif est entré en vigueur à une date antérieure.
+            </p>
           </div>
 
           {/* Submit */}

@@ -5,6 +5,7 @@ import { energyApi, type EnergyProvider, type ContributionData, type EnergyOffer
 import { toast } from '@/stores/notificationStore'
 import { LoadingOverlay } from '@/components/LoadingOverlay'
 import { usePermissions } from '@/hooks/usePermissions'
+import { SingleDatePicker } from '@/components/SingleDatePicker'
 
 export default function AllOffers() {
   const queryClient = useQueryClient()
@@ -45,12 +46,16 @@ export default function AllOffers() {
   const [isAddingOffer, setIsAddingOffer] = useState(false)
   const [newOfferType, setNewOfferType] = useState('')
 
+  // Date de mise en service pour les formulaires d'ajout (nouveau fournisseur / nouvelle offre)
+  const [newOfferValidFrom, setNewOfferValidFrom] = useState(() => new Date().toISOString().split('T')[0])
+
   // Édition des noms d'offres (clé = nom original clean, valeur = nouveau nom)
   const [editedOfferNames, setEditedOfferNames] = useState<Record<string, string>>({})
 
-  // Nouveaux groupes d'offres à créer (nom du groupe + puissances avec tarifs)
+  // Nouveaux groupes d'offres à créer (nom du groupe + date de validité + puissances avec tarifs)
   const [newGroups, setNewGroups] = useState<Array<{
     name: string
+    validFrom: string  // Date de mise en service (YYYY-MM-DD)
     powers: Array<{
       power: number
       fields: Record<string, string>
@@ -59,6 +64,9 @@ export default function AllOffers() {
 
   // Modal du récapitulatif
   const [showRecapModal, setShowRecapModal] = useState(false)
+
+  // Afficher l'historique des tarifs
+  const [showHistory, setShowHistory] = useState(false)
 
   // Fetch providers
   const { data: providersData } = useQuery({
@@ -72,11 +80,11 @@ export default function AllOffers() {
     },
   })
 
-  // Fetch all offers
+  // Fetch all offers (avec option historique)
   const { data: offersData } = useQuery({
-    queryKey: ['energy-offers'],
+    queryKey: ['energy-offers', showHistory],
     queryFn: async () => {
-      const response = await energyApi.getOffers()
+      const response = await energyApi.getOffers(undefined, showHistory)
       if (response.success && Array.isArray(response.data)) {
         return response.data as EnergyOffer[]
       }
@@ -490,7 +498,7 @@ export default function AllOffers() {
                 hp_price: parsePrice(power.fields.hp_price, undefined),
               },
               price_sheet_url: priceSheetUrl,
-              valid_from: new Date().toISOString().split('T')[0],
+              valid_from: group.validFrom || new Date().toISOString().split('T')[0],
             }
             const response = await energyApi.submitContribution(contributionData)
             if (response.success) {
@@ -964,6 +972,26 @@ export default function AllOffers() {
             })}
           </div>
 
+          {/* Toggle historique des tarifs */}
+          <div className="mt-4 flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showHistory}
+                onChange={(e) => setShowHistory(e.target.checked)}
+                className="w-4 h-4 text-primary-600 border-gray-300 dark:border-gray-600 rounded focus:ring-primary-500 cursor-pointer"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                Afficher l'historique des tarifs
+              </span>
+            </label>
+            {showHistory && (
+              <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded">
+                Tarifs expirés inclus
+              </span>
+            )}
+          </div>
+
           {/* Bouton/Champ ajouter un nouveau fournisseur (uniquement en mode édition) */}
           {isEditMode && !isAddingProvider && (
             <button
@@ -1174,7 +1202,7 @@ export default function AllOffers() {
                             if (isEditMode && isEmpty) {
                               // Ajouter un nouveau groupe vide si aucun n'existe encore
                               if (newGroups.length === 0) {
-                                setNewGroups([{ name: '', powers: [{ power: 0, fields: {} }] }])
+                                setNewGroups([{ name: '', validFrom: new Date().toISOString().split('T')[0], powers: [{ power: 0, fields: {} }] }])
                               }
                             }
                           }}
@@ -1520,6 +1548,20 @@ export default function AllOffers() {
                 />
               </div>
 
+              {/* Date de mise en service */}
+              <div className="mb-4">
+                <SingleDatePicker
+                  value={newOfferValidFrom}
+                  onChange={setNewOfferValidFrom}
+                  label="Date de mise en service du tarif"
+                  required
+                  minDate="2020-01-01"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Date à partir de laquelle ce tarif est en vigueur
+                </p>
+              </div>
+
               {/* Validation pour nouveau fournisseur */}
               {isAddingProvider && !newProviderName.trim() && (
                 <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
@@ -1546,6 +1588,7 @@ export default function AllOffers() {
                     }
                     setNewPowersData([])
                     setPriceSheetUrl('')
+                    setNewOfferValidFrom(new Date().toISOString().split('T')[0])
                   }}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 rounded-lg transition-colors"
                 >
@@ -1589,7 +1632,7 @@ export default function AllOffers() {
                             hp_price: newPower.fields.hp_price ? parseFloat(newPower.fields.hp_price) : undefined,
                           },
                           price_sheet_url: priceSheetUrl,
-                          valid_from: new Date().toISOString().split('T')[0],
+                          valid_from: newOfferValidFrom || new Date().toISOString().split('T')[0],
                         }
                         const response = await energyApi.submitContribution(contributionData)
                         if (response.success) successCount++
@@ -1617,6 +1660,7 @@ export default function AllOffers() {
                       }
                       setNewPowersData([])
                       setPriceSheetUrl('')
+                      setNewOfferValidFrom(new Date().toISOString().split('T')[0])
                     }
                     if (errorCount > 0) {
                       toast.error(`${errorCount} erreur(s) lors de l'envoi`)
@@ -1659,7 +1703,7 @@ export default function AllOffers() {
                   Créez un nouveau groupe d'offres pour proposer des tarifs
                 </p>
                 <button
-                  onClick={() => setNewGroups(prev => [...prev, { name: '', powers: [{ power: 0, fields: {} }] }])}
+                  onClick={() => setNewGroups(prev => [...prev, { name: '', validFrom: new Date().toISOString().split('T')[0], powers: [{ power: 0, fields: {} }] }])}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-all"
                 >
                   <Package size={18} />
@@ -1681,6 +1725,13 @@ export default function AllOffers() {
                     onChange={(e) => setNewGroups(prev => prev.map((g, i) => i === groupIndex ? { ...g, name: e.target.value } : g))}
                     placeholder="Nom de l'offre (ex: Vert Fixe, Stable...)"
                     className="flex-1 max-w-md px-3 py-1.5 text-sm font-semibold rounded-lg border-2 border-blue-300 dark:border-blue-600 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                  {/* Date de mise en service */}
+                  <SingleDatePicker
+                    value={group.validFrom}
+                    onChange={(date) => setNewGroups(prev => prev.map((g, i) => i === groupIndex ? { ...g, validFrom: date } : g))}
+                    minDate="2020-01-01"
+                    required
                   />
                   <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 rounded">Nouveau groupe</span>
                   <button
@@ -2016,7 +2067,7 @@ export default function AllOffers() {
             {/* Bouton pour créer un autre groupe d'offres */}
             {newGroups.length > 0 && (
               <button
-                onClick={() => setNewGroups(prev => [...prev, { name: '', powers: [{ power: 0, fields: {} }] }])}
+                onClick={() => setNewGroups(prev => [...prev, { name: '', validFrom: new Date().toISOString().split('T')[0], powers: [{ power: 0, fields: {} }] }])}
                 className="w-full bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-dashed border-blue-300 dark:border-blue-700 hover:border-blue-400 dark:hover:border-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all flex items-center justify-center gap-2"
               >
                 <Package size={18} className="text-blue-600 dark:text-blue-400" />
@@ -2143,6 +2194,16 @@ export default function AllOffers() {
             const editedName = editedOfferNames[groupName]
             const isNameModified = editedName !== undefined && editedName !== groupName
 
+            // Calculer la date de validité du groupe (la plus récente parmi les offres)
+            const groupValidFrom = offersInGroup.reduce((latest, offer) => {
+              if (!offer.valid_from) return latest
+              if (!latest) return offer.valid_from
+              return new Date(offer.valid_from) > new Date(latest) ? offer.valid_from : latest
+            }, null as string | null)
+
+            // Vérifier si le groupe contient des offres expirées
+            const hasExpiredOffers = offersInGroup.some(offer => offer.valid_to)
+
             return (
               <div key={groupName} className="space-y-2">
                 {/* En-tête du groupe avec nom éditable */}
@@ -2166,6 +2227,22 @@ export default function AllOffers() {
                     <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded">Nom modifié</span>
                   )}
                   <span className="text-xs text-gray-500 dark:text-gray-400">{offersInGroup.length} puissance(s)</span>
+                  {/* Spacer pour pousser la date à droite */}
+                  <div className="flex-1" />
+                  {/* Badge date de validité du groupe - Style proéminent */}
+                  {groupValidFrom && (
+                    <span
+                      className={`text-sm font-medium px-3 py-1 rounded-lg ${
+                        hasExpiredOffers
+                          ? 'text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700'
+                          : 'text-primary-700 dark:text-primary-300 bg-primary-100 dark:bg-primary-900/40 border border-primary-300 dark:border-primary-700'
+                      }`}
+                      title={`Tarif en vigueur depuis le ${new Date(groupValidFrom).toLocaleDateString('fr-FR')}`}
+                    >
+                      {hasExpiredOffers ? 'Expiré le ' : 'Depuis le '}
+                      {new Date(groupValidFrom).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                    </span>
+                  )}
                 </div>
 
                 {/* Offres du groupe */}
@@ -2197,7 +2274,7 @@ export default function AllOffers() {
                             className="grid items-center gap-x-2 gap-y-1"
                             style={{ gridTemplateColumns: gridCols }}
                           >
-                            {/* Col 1: Puissance */}
+                            {/* Col 1: Puissance + Badges */}
                             <div className="flex flex-col items-start gap-1">
                               <span className={`text-sm font-medium px-2 py-1 rounded ${isMarkedForRemoval ? 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 line-through' : 'text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700'}`}>
                                 {power || '-'}
@@ -2543,6 +2620,13 @@ export default function AllOffers() {
                   placeholder="Nom de l'offre (ex: Vert Fixe, Stable...)"
                   className="flex-1 max-w-md px-3 py-1.5 text-sm font-semibold rounded-lg border-2 border-blue-300 dark:border-blue-600 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
+                {/* Date de mise en service */}
+                <SingleDatePicker
+                  value={group.validFrom}
+                  onChange={(date) => setNewGroups(prev => prev.map((g, i) => i === groupIndex ? { ...g, validFrom: date } : g))}
+                  minDate="2020-01-01"
+                  required
+                />
                 <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 rounded">Nouveau groupe</span>
                 <button
                   onClick={() => setNewGroups(prev => prev.filter((_, i) => i !== groupIndex))}
@@ -2836,7 +2920,7 @@ export default function AllOffers() {
           {/* Bouton pour créer un nouveau groupe d'offres (uniquement en mode édition) */}
           {isEditMode && (
             <button
-              onClick={() => setNewGroups(prev => [...prev, { name: '', powers: [{ power: 0, fields: {} }] }])}
+              onClick={() => setNewGroups(prev => [...prev, { name: '', validFrom: new Date().toISOString().split('T')[0], powers: [{ power: 0, fields: {} }] }])}
               className="w-full rounded-lg p-3 border-2 border-dashed border-primary-300 dark:border-primary-700 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 hover:border-primary-400 dark:hover:border-primary-600 transition-all flex items-center justify-center gap-2"
             >
               <Package size={18} />

@@ -31,7 +31,8 @@ Fichier : `apps/web/src/pages/Contribute/components/tabs/AllOffers.tsx`
 | Creation nouveau fournisseur       | FAIT   |
 | Suppression de fournisseur         | FAIT   |
 | Ajout nouvelle offre               | FAIT   |
-| Ajouter une gestion date par offre | TODO   |
+| Gestion date par offre             | FAIT   |
+| Toggle historique des tarifs       | FAIT   |
 
 ## Details implementation
 
@@ -464,12 +465,64 @@ Permet de proposer l'ajout d'un nouveau type d'offre pour un fournisseur existan
 - Toast de succes/erreur
 - Reset du formulaire apres succes
 
-## Ajouter une gestion de date par offre (TODO)
+## Gestion de date par offre (FAIT)
 
-- Chaque offre doit posséder une date de validité (début) et l'afficher.
-  - Il est donc nécéssaire d'ajouter une date pour chaque nouvelle offres proposée.
-- La fin d'une offre est opérer quand la même offre est remplacer par une offre équivalente avec une date plus récentes.
-- Les anciennes offres ne sont supprimée, elles sont juste désactiver (pour l'historique).
+Chaque groupe d'offres (meme nom commercial) possede une date de validite qui permet de gerer l'historique des tarifs.
+
+### Regles metier
+
+| Regle | Description |
+|-------|-------------|
+| Identite d'offre | `provider_id` + `offer_type` (meme fournisseur + type = meme offre) |
+| Desactivation | Automatique a l'approbation d'une nouvelle contribution |
+| Historique | Les anciennes offres sont desactivees (`valid_to` defini), jamais supprimees |
+| Niveau de date | Par groupe d'offres (nom commercial), pas par puissance |
+
+### Fonctionnement
+
+1. **Formulaire de contribution** : Champ "Date de mise en service" (DatePicker) avec date du jour par defaut
+2. **Approbation** : Quand une contribution est approuvee, les offres existantes du meme fournisseur/type sont automatiquement desactivees (`valid_to` = date de la nouvelle offre)
+3. **Affichage** : Badge avec la date de validite dans l'en-tete du groupe d'offres (a cote du compteur de puissances)
+4. **Toggle historique** : Checkbox pour afficher les tarifs expires dans la liste
+
+### UI
+
+**Badge date** : Affiche a droite de l'en-tete du groupe, style prominent
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Tarif Bleu        9 puissance(s)                 [ Depuis le 01/01/2026 ]│
+├──────────────────────────────────────────────────────────────────────────┤
+│ 3 kVA    Abo. [11,73] €/mois    Base [0,1952] €/kWh                     │
+│ 6 kVA    Abo. [15,47] €/mois    Base [0,1952] €/kWh                     │
+│ ...                                                                      │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Style actif** (offre en vigueur) : fond bleu/primary
+
+```tsx
+<span className="text-sm font-medium px-3 py-1 rounded-lg text-primary-700 bg-primary-100 border border-primary-300">
+  Depuis le {date}
+</span>
+```
+
+**Style expire** (offre avec `valid_to`) : fond ambre
+
+```tsx
+<span className="text-sm font-medium px-3 py-1 rounded-lg text-amber-700 bg-amber-100 border border-amber-300">
+  Expire le {date}
+</span>
+```
+
+**Toggle historique** : Checkbox dans la section des filtres
+
+```tsx
+<label className="flex items-center gap-2 cursor-pointer">
+  <input type="checkbox" checked={showHistory} onChange={...} />
+  <span>Afficher l'historique des tarifs</span>
+</label>
+```
 
 ## Flux utilisateur
 

@@ -7,6 +7,7 @@ interface YearlyStatCardsProps {
     unit?: string
   }
   consumptionData: any
+  title?: string
 }
 
 // Card colors - dark background with colored borders (matching Production style)
@@ -29,7 +30,7 @@ const cardColors = [
   },
 ]
 
-export function YearlyStatCards({ chartData, consumptionData }: YearlyStatCardsProps) {
+export function YearlyStatCards({ chartData, consumptionData, title }: YearlyStatCardsProps) {
   const handleExportYear = (yearData: any) => {
     const intervalLength = consumptionData?.meter_reading?.reading_type?.interval_length || 'P1D'
     const unit = consumptionData?.meter_reading?.reading_type?.unit || 'W'
@@ -107,7 +108,7 @@ export function YearlyStatCards({ chartData, consumptionData }: YearlyStatCardsP
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Consommation par année
+          {title || 'Consommation par année'}
         </h3>
         <button
           onClick={handleExportAll}
@@ -140,10 +141,18 @@ export function YearlyStatCards({ chartData, consumptionData }: YearlyStatCardsP
             })
 
             // Calculate year-over-year comparison
+            // Priorité : previousConsommation (preset avec comparaison exacte) > byYear[index+1] (glissant)
+            const previousConsommation = yearData.previousConsommation as number | undefined
             const previousYear = chartData.byYear[index + 1]
-            const yoyChange = previousYear
-              ? ((yearData.consommation - previousYear.consommation) / previousYear.consommation) * 100
+            const comparisonValue = previousConsommation != null && previousConsommation > 0
+              ? previousConsommation
+              : previousYear?.consommation
+            const yoyChange = comparisonValue
+              ? ((yearData.consommation - comparisonValue) / comparisonValue) * 100
               : null
+
+            // Label du titre : utiliser year si c'est un label preset (ex: "2024-2025"), sinon "12 mois"
+            const cardLabel = yearData.year
 
             return (
               <div
@@ -155,7 +164,7 @@ export function YearlyStatCards({ chartData, consumptionData }: YearlyStatCardsP
                     <div className="flex items-center gap-2">
                       <Zap size={18} className={colors.icon} />
                       <p className={`text-lg font-bold text-gray-900 dark:${colors.icon}`}>
-                        12 mois ({yearData.startDate.getFullYear()}-{yearData.endDate.getFullYear()})
+                        {cardLabel}
                       </p>
                     </div>
                     <button
@@ -194,7 +203,7 @@ export function YearlyStatCards({ chartData, consumptionData }: YearlyStatCardsP
                         {yoyChange > 0 ? '+' : ''}{yoyChange.toFixed(1)}%
                       </span>
                       <span className="text-gray-500 dark:text-gray-400">
-                        vs année précédente
+                        vs même période N-1
                       </span>
                     </div>
                   )}

@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Home, LogOut, Moon, Sun, Heart, Shield, BookOpen, Calculator, Users, Menu, X, Calendar, ChevronLeft, ChevronRight, HelpCircle, UserCircle, Zap, TrendingUp, Trash2, Scale, ChevronDown, Euro, Activity, Database, Radio } from 'lucide-react'
+import { Home, LogOut, Moon, Sun, Heart, Shield, BookOpen, Calculator, Users, Menu, X, Calendar, ChevronLeft, ChevronRight, HelpCircle, UserCircle, Zap, TrendingUp, Trash2, Scale, ChevronDown, Euro, Activity, Database, Radio, ExternalLink } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppMode } from '@/hooks/useAppMode'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -521,6 +521,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <BookOpen size={20} className="flex-shrink-0" />
               {!sidebarCollapsed && <span className="font-medium">Documentation API</span>}
             </Link>
+
+            {/* Liens documentation externe */}
+            <a
+              href={isClientMode
+                ? 'https://myelectricaldata.github.io/myelectricaldata_new/local-client/'
+                : 'https://myelectricaldata.github.io/myelectricaldata_new/server-mode/'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+              title={sidebarCollapsed ? 'Documentation' : ''}
+            >
+              <ExternalLink size={20} className="flex-shrink-0" />
+              {!sidebarCollapsed && (
+                <span className="font-medium">
+                  {isClientMode ? 'Docs Client' : 'Docs Serveur'}
+                </span>
+              )}
+            </a>
           </div>
 
           {/* User Actions with separator */}
@@ -887,6 +905,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <BookOpen size={20} />
               <span className="font-medium">Documentation API</span>
             </Link>
+
+            {/* Lien documentation externe */}
+            <a
+              href={isClientMode
+                ? 'https://myelectricaldata.github.io/myelectricaldata_new/local-client/'
+                : 'https://myelectricaldata.github.io/myelectricaldata_new/server-mode/'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <ExternalLink size={20} />
+              <span className="font-medium">
+                {isClientMode ? 'Docs Client' : 'Docs Serveur'}
+              </span>
+            </a>
           </div>
 
           {/* Logout button - Server mode only */}

@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { PieChart, Pie, Cell, Tooltip } from 'recharts'
-import { Download, Info, Moon, Sun } from 'lucide-react'
+import { Download, Info, Moon, Sun, Calendar } from 'lucide-react'
 import { toast } from '@/stores/notificationStore'
 import { ModernButton } from './ModernButton'
 
 interface HcHpData {
   year: string
+  startDate: Date
+  endDate: Date
   hcKwh: number
   hpKwh: number
   totalKwh: number
@@ -64,16 +66,15 @@ export function HcHpDistribution({ hcHpByYear, selectedPDLDetails }: HcHpDistrib
         {/* Tabs on the left */}
         <div className="flex gap-2 flex-1 overflow-x-auto overflow-y-hidden py-3 px-2 no-scrollbar">
           {hcHpByYear.map((yearData, index) => {
-            // Extract the year from the end date
-            const endYear = yearData.year.split(' - ')[1]?.split(' ').pop() || yearData.year
             const color = graphColors[index % graphColors.length]
             const isActive = selectedHcHpPeriod === index
+            const showDetail = hcHpByYear.length < 3
 
             return (
               <button
                 key={yearData.year}
                 onClick={() => setSelectedHcHpPeriod(index)}
-                className={`flex-1 min-w-[80px] px-4 py-2 text-base font-semibold rounded-lg border-2 transition-all duration-200 ${
+                className={`flex-1 min-w-[${showDetail ? '140' : '80'}px] px-4 py-2 rounded-lg border-2 transition-all duration-200 ${
                   isActive
                     ? 'shadow-md'
                     : 'text-gray-400 hover:text-gray-200 border-gray-700 hover:border-gray-600'
@@ -84,7 +85,23 @@ export function HcHpDistribution({ hcHpByYear, selectedPDLDetails }: HcHpDistrib
                   color: color,
                 } : undefined}
               >
-                {endYear}
+                {showDetail ? (
+                  <>
+                    <span className="text-base font-semibold">
+                      12 mois ({yearData.startDate.getFullYear()}-{yearData.endDate.getFullYear()})
+                    </span>
+                    <span className={`flex items-center justify-center gap-1 text-xs mt-0.5 ${
+                      isActive ? 'opacity-70' : 'text-gray-500'
+                    }`}>
+                      <Calendar size={10} />
+                      {yearData.startDate.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })} → {yearData.endDate.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-base font-semibold">
+                    {yearData.endDate.getFullYear()}
+                  </span>
+                )}
               </button>
             )
           })}

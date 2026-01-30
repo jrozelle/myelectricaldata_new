@@ -29,6 +29,44 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
         return None
 
 
+async def deactivate_previous_offers(
+    db: AsyncSession,
+    provider_id: str,
+    offer_type: str,
+    valid_from: datetime
+) -> int:
+    """Désactive les offres précédentes avec même provider_id + offer_type.
+
+    Quand une nouvelle offre est approuvée, les anciennes offres du même
+    fournisseur et type sont désactivées en définissant leur valid_to.
+    Les offres ne sont jamais supprimées pour conserver l'historique.
+
+    Args:
+        db: Session de base de données
+        provider_id: ID du fournisseur
+        offer_type: Type d'offre (BASE, HC_HP, TEMPO, etc.)
+        valid_from: Date de début de la nouvelle offre (devient valid_to des anciennes)
+
+    Returns:
+        Nombre d'offres désactivées
+    """
+    query = select(EnergyOffer).where(
+        EnergyOffer.provider_id == provider_id,
+        EnergyOffer.offer_type == offer_type,
+        EnergyOffer.valid_to.is_(None),  # Seulement les offres actives (sans date de fin)
+    )
+    result = await db.execute(query)
+    previous_offers = result.scalars().all()
+
+    count = 0
+    for offer in previous_offers:
+        offer.valid_to = valid_from
+        count += 1
+        logger.info(f"[CONTRIBUTION] Désactivation offre: {offer.name} (id={offer.id}) - valid_to={valid_from}")
+
+    return count
+
+
 # Public endpoints - Get offer types (auto-discovery), providers and offers
 @router.get("/offer-types", response_model=APIResponse)
 async def list_offer_types() -> APIResponse:
@@ -787,6 +825,18 @@ async def approve_contribution(
         if not provider_id:
             return APIResponse(success=False, error=ErrorDetail(code="INVALID_DATA", message="Provider ID required"))
 
+        # Déterminer la date de validité de la nouvelle offre
+        valid_from_date = contribution.valid_from or datetime.now(UTC)
+
+        # Désactiver les offres existantes pour ce provider + offer_type
+        # Les anciennes offres ne sont jamais supprimées, elles sont désactivées pour l'historique
+        if contribution.contribution_type in ["NEW_OFFER", "NEW_PROVIDER"]:
+            deactivated_count = await deactivate_previous_offers(
+                db, provider_id, contribution.offer_type, valid_from_date
+            )
+            if deactivated_count > 0:
+                logger.info(f"[CONTRIBUTION] Désactivé {deactivated_count} offres précédentes pour {provider_id}/{contribution.offer_type}")
+
         # Create or update offer(s)
         # New format: create one offer per power variant
         # Legacy format: create a single offer with pricing_data
@@ -832,7 +882,7 @@ async def approve_contribution(
                         peak_day_price=pricing_common.get("peak_day_price"),
                         hc_schedules=contribution.hc_schedules,
                         power_kva=power_kva,
-                        valid_from=contribution.valid_from or datetime.now(UTC),
+                        valid_from=valid_from_date,
                         offer_url=contribution.price_sheet_url,
                         price_updated_at=datetime.now(UTC),
                     )
@@ -859,7 +909,7 @@ async def approve_contribution(
                     ejp_peak=pricing.get("ejp_peak"),
                     hc_schedules=contribution.hc_schedules,
                     power_kva=contribution.power_kva,
-                    valid_from=contribution.valid_from or datetime.now(UTC),
+                    valid_from=valid_from_date,
                     offer_url=contribution.price_sheet_url,
                     price_updated_at=datetime.now(UTC),
                 )

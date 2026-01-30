@@ -10,6 +10,7 @@ import { useIsDemo } from '@/hooks/useIsDemo'
 import { useUnifiedDataFetch } from '@/hooks/useUnifiedDataFetch'
 import { useQuery } from '@tanstack/react-query'
 import { pdlApi } from '@/api/pdl'
+import { useDatePreferencesStore, DATE_PRESET_LABELS, MONTH_LABELS } from '@/stores/datePreferencesStore'
 import type { PDL } from '@/types/api'
 
 // Import custom hooks
@@ -32,6 +33,7 @@ export default function ConsumptionKwh() {
   const { selectedPdl: selectedPDL, setSelectedPdl: setSelectedPDL } = usePdlStore()
   const { setIsLoading } = useDataFetchStore()
   const isDemo = useIsDemo()
+  const { preset, customDate } = useDatePreferencesStore()
   const demoAutoFetchDone = useRef(false)
   const lastAutoFetchPDL = useRef<string | null>(null)
 
@@ -188,6 +190,25 @@ export default function ConsumptionKwh() {
     hcHpCalculationTrigger,
     detailDateRange
   })
+
+  // Label descriptif pour les blocs basés sur les préférences utilisateur
+  const presetLabel = useMemo(() => {
+    const getRefDate = (): string => {
+      switch (preset) {
+        case 'calendar':
+          return `1er ${MONTH_LABELS[0].toLowerCase()}`
+        case 'tempo':
+          return `1er ${MONTH_LABELS[8].toLowerCase()}`
+        case 'custom':
+          return `${customDate.day} ${MONTH_LABELS[customDate.month - 1].toLowerCase()}`
+        default:
+          return ''
+      }
+    }
+    const refDate = getRefDate()
+    if (!refDate) return ''
+    return `Consommation à partir du ${refDate} (${DATE_PRESET_LABELS[preset]})`
+  }, [preset, customDate])
 
   useConsumptionFetch({
     selectedPDL,
@@ -579,11 +600,19 @@ export default function ConsumptionKwh() {
 
           {isStatsSectionExpanded && allLoadingComplete && (
             <div className="px-6 pb-6">
-              {/* Yearly Statistics Cards */}
-              <YearlyStatCards
-                chartData={chartData}
-                consumptionData={consumptionData}
-              />
+              {/* Yearly Statistics Cards - preset ou rolling */}
+              {preset !== 'rolling' && chartData.byYearPreset && chartData.byYearPreset.length > 0 ? (
+                <YearlyStatCards
+                  chartData={{ ...chartData, byYear: chartData.byYearPreset }}
+                  consumptionData={consumptionData}
+                  title={presetLabel}
+                />
+              ) : (
+                <YearlyStatCards
+                  chartData={chartData}
+                  consumptionData={consumptionData}
+                />
+              )}
 
               {/* HC/HP Distribution */}
               <HcHpDistribution
@@ -642,11 +671,19 @@ export default function ConsumptionKwh() {
                 isDarkMode={isDarkMode}
               />
 
-              {/* Annual Curve */}
-              <AnnualCurve
-                chartData={chartData}
-                isDarkMode={isDarkMode}
-              />
+              {/* Annual Curve - preset ou rolling */}
+              {preset !== 'rolling' && chartData.yearsByPreset && chartData.yearsByPreset.length > 0 ? (
+                <AnnualCurve
+                  chartData={{ ...chartData, yearsByPeriod: chartData.yearsByPreset }}
+                  isDarkMode={isDarkMode}
+                  title={presetLabel}
+                />
+              ) : (
+                <AnnualCurve
+                  chartData={chartData}
+                  isDarkMode={isDarkMode}
+                />
+              )}
             </div>
           )}
         </div>

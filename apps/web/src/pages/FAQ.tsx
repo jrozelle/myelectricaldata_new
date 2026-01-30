@@ -107,6 +107,10 @@ export default function FAQ() {
       answer: "Non, les données ne sont jamais en temps réel. Les compteurs Linky transmettent leurs données une fois par jour à Enedis, qui les traite et les met à disposition 24-48h plus tard. Pour un suivi en temps réel, vous devriez consulter directement votre compteur Linky ou utiliser un dispositif de monitoring local."
     },
     {
+      question: "Pourquoi les valeurs de consommation diffèrent entre le mode Client et le mode Serveur ?",
+      answer: "Si vous utilisez à la fois une installation locale (mode Client) et le serveur MyElectricalData (mode Serveur), vous pouvez constater de légers écarts dans les valeurs affichées (quelques dizaines à centaines de kWh sur une année).\n\nCela s'explique par une différence de traitement des données :\n- Le mode Serveur interroge directement l'API Enedis et normalise les horodatages des relevés (conversion fin d'intervalle → début d'intervalle)\n- Le mode Client récupère les données via la gateway MyElectricalData sans cette normalisation\n\nCe décalage d'horodatage (généralement 1 jour) entraîne des périodes de calcul légèrement différentes, ce qui inclut ou exclut une journée de consommation dans les totaux annuels.\n\nDe plus, la date de dernière synchronisation peut varier entre les deux modes, ajoutant un écart marginal supplémentaire.\n\nCe comportement est normal et n'affecte pas la fiabilité des données."
+    },
+    {
       question: "Comment révoquer l'accès de MyElectricalData ?",
       answer: "Pour révoquer l'accès :\n1. Allez dans votre espace client Enedis\n2. Section 'Mes données' > 'Gérer mes autorisations'\n3. Trouvez 'MyElectricalData' dans la liste\n4. Cliquez sur 'Révoquer l'autorisation'\n5. Confirmez\n\nVous pouvez également supprimer votre compte directement dans les paramètres de MyElectricalData."
     }

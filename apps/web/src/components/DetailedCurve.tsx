@@ -615,128 +615,117 @@ export function DetailedCurve({
 
   return (
     <div>
-      {/* Date selector - hidden on small screens (mobile), visible on sm and up */}
-      <div className="hidden sm:block mb-4 bg-gradient-to-r from-primary-50 to-blue-50 dark:from-primary-900/20 dark:to-blue-900/20 rounded-xl border border-primary-200 dark:border-primary-800 p-4">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Calendar className="text-primary-600 dark:text-primary-400 flex-shrink-0" size={24} />
-            <label className="text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">
-              Sélectionner une date :
-            </label>
-          </div>
+      {/* Date selector + buttons - hidden on small screens (mobile), visible on sm and up */}
+      <div className="hidden sm:flex sm:items-center sm:gap-3 mb-4">
+        {/* Date display button */}
+        <div className="relative flex-1">
+          <button
+            onClick={() => setShowDatePicker(!showDatePicker)}
+            className="w-full px-4 py-3 rounded-xl border-2 border-primary-300 dark:border-primary-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200 cursor-pointer hover:border-primary-400 dark:hover:border-primary-600 text-center"
+          >
+            {(() => {
+              if (!detailByDayData[selectedDetailDay]) return 'Sélectionner...'
+              const selectedDate = new Date(detailByDayData[selectedDetailDay].date + 'T00:00:00')
+              return selectedDate.toLocaleDateString('fr-FR', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
+              })
+            })()}
+          </button>
 
-          {/* Date display button */}
-          <div className="relative flex-1">
-            <button
-              onClick={() => setShowDatePicker(!showDatePicker)}
-              className="w-full px-4 py-3 rounded-xl border-2 border-primary-300 dark:border-primary-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200 cursor-pointer hover:border-primary-400 dark:hover:border-primary-600 text-center"
-            >
-              {(() => {
-                // Only check if data exists - detailDateRange can be null if data comes from cache
-                if (!detailByDayData[selectedDetailDay]) return 'Sélectionner...'
-                const selectedDate = new Date(detailByDayData[selectedDetailDay].date + 'T00:00:00')
-                return selectedDate.toLocaleDateString('fr-FR', {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric'
-                })
-              })()}
-            </button>
-
-            {/* Custom date picker dropdown */}
-            {showDatePicker && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowDatePicker(false)}
-                />
-                <div className="absolute left-0 z-50 mt-2 w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl border-2 border-primary-300 dark:border-primary-700 p-6">
-                  {renderCalendar()}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Quick access buttons */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:flex lg:items-center lg:gap-3 lg:flex-shrink-0">
-            <ModernButton
-              variant="secondary"
-              size="md"
-              onClick={() => {
-                // "Hier" = le jour le plus récent (index 0 car trié du plus récent au plus ancien)
-                setSelectedDetailDay(0)
-                toast.success("Retour à la veille")
-              }}
-              className="w-full sm:w-auto"
-            >
-              Hier
-            </ModernButton>
-            <ModernButton
-              variant="secondary"
-              size="md"
-              onClick={() => {
-                // Calculer la date d'il y a 7 jours (utilise heure locale pour la perspective utilisateur)
-                const now = new Date()
-                const targetDate = new Date(
-                  now.getFullYear(),
-                  now.getMonth(),
-                  now.getDate() - 8, // -1 pour hier, -7 pour semaine dernière = -8
-                  12, 0, 0, 0  // Utiliser midi pour éviter les problèmes DST
-                )
-                const targetDateStr = targetDate.getFullYear() + '-' +
-                  String(targetDate.getMonth() + 1).padStart(2, '0') + '-' +
-                  String(targetDate.getDate()).padStart(2, '0')
-
-                // Chercher cette date dans les données
-                const targetIndex = detailByDayData.findIndex(d => d.date === targetDateStr)
-                if (targetIndex !== -1) {
-                  setSelectedDetailDay(targetIndex)
-                  toast.success("Semaine dernière sélectionnée")
-                } else {
-                  toast.error("Données non disponibles pour cette date")
-                }
-              }}
-              className="w-full sm:w-auto"
-            >
-              Semaine dernière
-            </ModernButton>
-            <ModernButton
-              variant="secondary"
-              size="md"
-              onClick={() => {
-                // Calculer la date d'il y a 1 an (utilise heure locale pour la perspective utilisateur)
-                const now = new Date()
-                const targetDate = new Date(
-                  now.getFullYear() - 1,
-                  now.getMonth(),
-                  now.getDate() - 1, // -1 pour partir d'hier
-                  12, 0, 0, 0  // Utiliser midi pour éviter les problèmes DST
-                )
-                const targetDateStr = targetDate.getFullYear() + '-' +
-                  String(targetDate.getMonth() + 1).padStart(2, '0') + '-' +
-                  String(targetDate.getDate()).padStart(2, '0')
-
-                // Chercher cette date dans les données
-                const targetIndex = detailByDayData.findIndex(d => d.date === targetDateStr)
-                if (targetIndex !== -1) {
-                  setSelectedDetailDay(targetIndex)
-                  toast.success("Il y a un an sélectionné")
-                } else {
-                  toast.error("Données non disponibles pour cette date")
-                }
-              }}
-              className="w-full sm:w-auto"
-            >
-              Il y a un an
-            </ModernButton>
-          </div>
+          {/* Custom date picker dropdown */}
+          {showDatePicker && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowDatePicker(false)}
+              />
+              <div className="absolute left-0 z-50 mt-2 w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl border-2 border-primary-300 dark:border-primary-700 p-6">
+                {renderCalendar()}
+              </div>
+            </>
+          )}
         </div>
+
+        {/* Quick access buttons */}
+        <ModernButton
+          variant="secondary"
+          size="md"
+          onClick={() => {
+            setSelectedDetailDay(0)
+            toast.success("Retour à la veille")
+          }}
+        >
+          Hier
+        </ModernButton>
+        <ModernButton
+          variant="secondary"
+          size="md"
+          onClick={() => {
+            const now = new Date()
+            const targetDate = new Date(
+              now.getFullYear(),
+              now.getMonth(),
+              now.getDate() - 8,
+              12, 0, 0, 0
+            )
+            const targetDateStr = targetDate.getFullYear() + '-' +
+              String(targetDate.getMonth() + 1).padStart(2, '0') + '-' +
+              String(targetDate.getDate()).padStart(2, '0')
+
+            const targetIndex = detailByDayData.findIndex(d => d.date === targetDateStr)
+            if (targetIndex !== -1) {
+              setSelectedDetailDay(targetIndex)
+              toast.success("Semaine dernière sélectionnée")
+            } else {
+              toast.error("Données non disponibles pour cette date")
+            }
+          }}
+        >
+          Semaine dernière
+        </ModernButton>
+        <ModernButton
+          variant="secondary"
+          size="md"
+          onClick={() => {
+            const now = new Date()
+            const targetDate = new Date(
+              now.getFullYear() - 1,
+              now.getMonth(),
+              now.getDate() - 1,
+              12, 0, 0, 0
+            )
+            const targetDateStr = targetDate.getFullYear() + '-' +
+              String(targetDate.getMonth() + 1).padStart(2, '0') + '-' +
+              String(targetDate.getDate()).padStart(2, '0')
+
+            const targetIndex = detailByDayData.findIndex(d => d.date === targetDateStr)
+            if (targetIndex !== -1) {
+              setSelectedDetailDay(targetIndex)
+              toast.success("Il y a un an sélectionné")
+            } else {
+              toast.error("Données non disponibles pour cette date")
+            }
+          }}
+        >
+          Il y a un an
+        </ModernButton>
+        <ModernButton
+          variant="primary"
+          size="md"
+          icon={Download}
+          iconPosition="left"
+          onClick={handleExport}
+        >
+          Export JSON
+        </ModernButton>
       </div>
 
       {/* Day selector tabs with carousel navigation */}
-      <div ref={carouselContainerRef} className="hidden lg:flex lg:flex-row lg:items-center lg:justify-between gap-2 mb-4">
-        {/* Left side: navigation and tabs */}
+      <div ref={carouselContainerRef} className="hidden lg:flex lg:items-center gap-2 mb-4">
+        {/* Navigation and day tabs - full width */}
         <div className="flex items-center gap-2 flex-1 overflow-hidden py-3 px-2">
           {/* Left button */}
           <button
@@ -782,13 +771,13 @@ export function DetailedCurve({
                   <button
                     key={dayData.date}
                     onClick={() => setSelectedDetailDay(idx)}
-                    className={`flex-1 min-w-0 px-4 py-3 font-medium transition-colors rounded-lg ${
+                    className={`flex-1 min-w-0 px-3 py-2 font-medium transition-colors rounded-lg ${
                       selectedDetailDay === idx
                         ? 'text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/20'
                         : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/30'
                     }`}
                   >
-                    <div className="flex flex-col items-center gap-1">
+                    <div className="flex flex-col items-center gap-0.5">
                       <span className="text-sm whitespace-nowrap">{dayLabel}</span>
                       <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
                         {dayData.totalEnergyKwh.toFixed(2)} kWh
@@ -832,92 +821,6 @@ export function DetailedCurve({
             )}
           </button>
         </div>
-
-        {/* Right side: Comparison and Export buttons */}
-        <div className="flex items-center gap-2 justify-end flex-wrap">
-          <button
-            onClick={() => yearComparisonAvailable && setShowDetailYearComparison(!showDetailYearComparison)}
-            disabled={!yearComparisonAvailable}
-            title={!yearComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-              !yearComparisonAvailable
-                ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
-                : showDetailYearComparison
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
-                : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
-            }`}
-          >
-            <CalendarRange size={16} className="flex-shrink-0" />
-            <span>Année -1</span>
-          </button>
-          <button
-            onClick={() => weekComparisonAvailable && setShowDetailWeekComparison(!showDetailWeekComparison)}
-            disabled={!weekComparisonAvailable}
-            title={!weekComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-              !weekComparisonAvailable
-                ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
-                : showDetailWeekComparison
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
-                : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
-            }`}
-          >
-            <CalendarDays size={16} className="flex-shrink-0" />
-            <span>Semaine -1</span>
-          </button>
-          <ModernButton
-            variant="primary"
-            size="sm"
-            icon={Download}
-            iconPosition="left"
-            onClick={handleExport}
-          >
-            Export JSON
-          </ModernButton>
-        </div>
-      </div>
-
-      {/* Smaller screens: Comparison and Export buttons - centered */}
-      <div className="lg:hidden flex items-center gap-2 justify-center flex-wrap mb-4">
-        <button
-          onClick={() => yearComparisonAvailable && setShowDetailYearComparison(!showDetailYearComparison)}
-          disabled={!yearComparisonAvailable}
-          title={!yearComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
-          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-            !yearComparisonAvailable
-              ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
-              : showDetailYearComparison
-              ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
-              : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
-          }`}
-        >
-          <CalendarRange size={16} className="flex-shrink-0" />
-          <span>Année -1</span>
-        </button>
-        <button
-          onClick={() => weekComparisonAvailable && setShowDetailWeekComparison(!showDetailWeekComparison)}
-          disabled={!weekComparisonAvailable}
-          title={!weekComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
-          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
-            !weekComparisonAvailable
-              ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
-              : showDetailWeekComparison
-              ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-md'
-              : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600'
-          }`}
-        >
-          <CalendarDays size={16} className="flex-shrink-0" />
-          <span>Semaine -1</span>
-        </button>
-        <ModernButton
-          variant="primary"
-          size="sm"
-          icon={Download}
-          iconPosition="left"
-          onClick={handleExport}
-        >
-          Export JSON
-        </ModernButton>
       </div>
 
       {/* Graph */}
@@ -925,8 +828,43 @@ export function DetailedCurve({
         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600 min-h-[500px]">
           {detailByDayData.length > 0 && detailByDayData[selectedDetailDay] ? (
             <>
-              <div className="mb-2 text-sm text-gray-600 dark:text-gray-400">
-                {detailByDayData[selectedDetailDay].data.length} points de mesure pour cette journée
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {detailByDayData[selectedDetailDay].data.length} points de mesure pour cette journée
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Comparer :</span>
+                  <button
+                    onClick={() => yearComparisonAvailable && setShowDetailYearComparison(!showDetailYearComparison)}
+                    disabled={!yearComparisonAvailable}
+                    title={!yearComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-200 border-2 ${
+                      !yearComparisonAvailable
+                        ? 'text-gray-400 dark:text-gray-600 border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
+                        : showDetailYearComparison
+                        ? 'bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400'
+                        : 'text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:border-amber-400 hover:text-amber-600 dark:hover:text-amber-400'
+                    }`}
+                  >
+                    <CalendarRange size={12} className="flex-shrink-0" />
+                    <span>Année -1</span>
+                  </button>
+                  <button
+                    onClick={() => weekComparisonAvailable && setShowDetailWeekComparison(!showDetailWeekComparison)}
+                    disabled={!weekComparisonAvailable}
+                    title={!weekComparisonAvailable ? 'Données non disponibles pour cette période' : ''}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-200 border-2 ${
+                      !weekComparisonAvailable
+                        ? 'text-gray-400 dark:text-gray-600 border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-50'
+                        : showDetailWeekComparison
+                        ? 'bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                        : 'text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400'
+                    }`}
+                  >
+                    <CalendarDays size={12} className="flex-shrink-0" />
+                    <span>Semaine -1</span>
+                  </button>
+                </div>
               </div>
               {/* Warning message if viewing yesterday (J-1) and incomplete data */}
               {(() => {
@@ -1095,6 +1033,7 @@ export function DetailedCurve({
             </div>
           </div>
         )}
+
       </div>
     </div>
   )

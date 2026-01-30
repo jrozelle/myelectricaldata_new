@@ -14,25 +14,28 @@ Page permettant aux utilisateurs de **gérer leurs paramètres de compte** et le
 
 ## Features
 
-| Feature                       | Statut |
-| ----------------------------- | ------ |
-| Statistiques utilisation API  | FAIT   |
-| Informations du compte        | FAIT   |
-| Identifiants API              | FAIT   |
-| Modification mot de passe     | FAIT   |
-| Selection theme               | FAIT   |
-| Token API (JWT)               | FAIT   |
-| Deconnexion                   | FAIT   |
-| Suppression compte            | FAIT   |
+| Feature                                         | Statut |
+| ----------------------------------------------- | ------ |
+| Statistiques utilisation API                    | FAIT   |
+| Informations du compte                          | FAIT   |
+| Identifiants API                                | FAIT   |
+| Modification mot de passe                       | FAIT   |
+| Selection theme                                 | FAIT   |
+| Token API (JWT)                                 | FAIT   |
+| Deconnexion                                     | FAIT   |
+| Suppression compte                              | FAIT   |
+| Personnalisation de la plage de date par défaut | FAIT   |
 
 ## Fichiers
 
-| Type    | Fichier                              |
-| ------- | ------------------------------------ |
-| Page    | `apps/web/src/pages/Settings.tsx`    |
-| API     | `apps/web/src/api/accounts.ts`       |
-| Hooks   | `apps/web/src/hooks/useAuth.ts`      |
-| Backend | `apps/api/src/routers/accounts.py`   |
+| Type    | Fichier                                       |
+| ------- | --------------------------------------------- |
+| Page    | `apps/web/src/pages/Settings.tsx`             |
+| API     | `apps/web/src/api/accounts.ts`                |
+| Hooks   | `apps/web/src/hooks/useAuth.ts`               |
+| Store   | `apps/web/src/stores/datePreferencesStore.ts` |
+| Hook    | `apps/web/src/hooks/useDefaultDateRange.ts`   |
+| Backend | `apps/api/src/routers/accounts.py`            |
 
 ## Details implementation
 
@@ -93,3 +96,33 @@ Page permettant aux utilisateurs de **gérer leurs paramètres de compte** et le
 - Le token d'API a une durée de vie limitée (généralement 24h) et ne doit jamais être partagé
 - La suppression du compte est irréversible et nécessite une confirmation
 - Le thème est persistant et stocké dans le localStorage
+
+### Personnalisation de la plage de date par défaut (FAIT)
+
+Section permettant à l'utilisateur de choisir la plage de dates utilisée par défaut sur les pages avec un sélecteur de date (Consommation, Production, Bilan, etc.).
+
+**Presets disponibles :**
+
+| Preset          | Description                                        |
+| --------------- | -------------------------------------------------- |
+| Année glissante | De la même date il y a un an jusqu'à hier (défaut) |
+| Année en cours  | Du 1er janvier de l'année en cours jusqu'à hier    |
+| 6 derniers mois | Les 6 derniers mois jusqu'à hier                   |
+| 3 derniers mois | Les 3 derniers mois jusqu'à hier                   |
+| Ce mois-ci      | Du 1er du mois en cours jusqu'à hier               |
+| Cette semaine   | Du lundi de cette semaine jusqu'à hier             |
+
+**Implémentation technique :**
+
+- Store Zustand avec persist : `datePreferencesStore.ts`
+- Hook utilitaire : `useDefaultDateRange.ts`
+- Calcul dynamique des dates selon le preset sélectionné
+- Aperçu en temps réel de la plage calculée
+- Persistance dans localStorage
+
+**Pages utilisant cette préférence :**
+
+- Consommation kWh (`ConsumptionKwh/index.tsx`)
+- Consommation Euro (`ConsumptionEuro/index.tsx`)
+- Production (`Production/index.tsx`)
+- Bilan (`Balance/index.tsx`)

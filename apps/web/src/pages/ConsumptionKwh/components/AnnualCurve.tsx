@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea } from 'recharts'
-import { Download, ZoomOut } from 'lucide-react'
+import { Download, ZoomOut, Calendar } from 'lucide-react'
 import { toast } from '@/stores/notificationStore'
 import { ModernButton } from './ModernButton'
 
@@ -13,6 +13,8 @@ interface MonthData {
 
 interface YearData {
   label: string
+  startDate?: Date
+  endDate?: Date
   byMonth: MonthData[]
 }
 
@@ -22,6 +24,7 @@ interface AnnualCurveProps {
     yearsByPeriod?: YearData[]
   }
   isDarkMode: boolean
+  title?: string
 }
 
 // Graph colors - same as used in the chart lines
@@ -35,7 +38,7 @@ const hexToRgba = (hex: string, alpha: number) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-export function AnnualCurve({ chartData, isDarkMode }: AnnualCurveProps) {
+export function AnnualCurve({ chartData, isDarkMode, title }: AnnualCurveProps) {
   // If we have yearsByPeriod array from chartData, use it, otherwise create a single year
   const yearsData: YearData[] = chartData.yearsByPeriod || [{
     label: 'Année courante',
@@ -43,10 +46,14 @@ export function AnnualCurve({ chartData, isDarkMode }: AnnualCurveProps) {
   }]
 
   // Track selected years with a Set (allows multiple selections)
-  // Default to the most recent year (last index after reverse)
-  const [selectedYears, setSelectedYears] = useState<Set<number>>(
-    new Set([yearsData.length > 0 ? yearsData.length - 1 : 0])
-  )
+  const [selectedYears, setSelectedYears] = useState<Set<number>>(new Set([0]))
+
+  // Sélectionner toutes les années quand les données arrivent
+  useEffect(() => {
+    if (yearsData.length > 0) {
+      setSelectedYears(new Set(Array.from({ length: yearsData.length }, (_, i) => i)))
+    }
+  }, [yearsData.length])
 
   // Zoom state
   const [refAreaLeft, setRefAreaLeft] = useState<string>('')
@@ -151,8 +158,6 @@ export function AnnualCurve({ chartData, isDarkMode }: AnnualCurveProps) {
     .filter((yearData): yearData is YearData => yearData !== undefined && yearData.byMonth !== undefined)
     .sort((a, b) => b.label.localeCompare(a.label))
 
-  const colors = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4']
-
   // Get display data based on zoom
   const displayData = zoomDomain
     ? chartDataMerged.slice(zoomDomain.left, zoomDomain.right + 1)
@@ -161,17 +166,18 @@ export function AnnualCurve({ chartData, isDarkMode }: AnnualCurveProps) {
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-        Courbe de consommation annuelle
+        {title || 'Courbe de consommation annuelle'}
       </h3>
 
       {/* Tabs and buttons - responsive layout */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         {/* Tabs on the left - Allow multiple selection */}
         <div className="flex gap-2 flex-1 overflow-x-auto overflow-y-hidden py-3 px-2 no-scrollbar">
-          {[...yearsData].reverse().map((yearData, idx) => {
-            const originalIndex = yearsData.length - 1 - idx
+          {yearsData.map((yearData, idx) => {
+            const originalIndex = idx
             const isSelected = selectedYears.has(originalIndex)
             const color = graphColors[idx % graphColors.length]
+            const rangeLabel = yearData.label
             return (
               <button
                 key={yearData.label}
@@ -187,7 +193,7 @@ export function AnnualCurve({ chartData, isDarkMode }: AnnualCurveProps) {
                   color: color,
                 } : undefined}
               >
-                {yearData.label}
+                {rangeLabel}
               </button>
             )
           })}
@@ -248,33 +254,38 @@ export function AnnualCurve({ chartData, isDarkMode }: AnnualCurveProps) {
               }}
             />
             <Tooltip
-              cursor={{ stroke: colors[0], strokeWidth: 2 }}
+              cursor={{ stroke: graphColors[0], strokeWidth: 2 }}
               contentStyle={{
                 backgroundColor: '#1F2937',
                 border: '1px solid #374151',
                 borderRadius: '8px',
                 color: '#F9FAFB'
               }}
-              formatter={(value: number) => [
+              formatter={(value: number, name: string) => [
                 `${(value / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kWh`,
-                'Consommation'
+                name
               ]}
             />
             <Legend />
 
             {/* Dynamically create lines for each selected year */}
-            {selectedYearsData.map((yearData, index) => (
-              <Line
-                key={yearData.label}
-                type="monotone"
-                dataKey={`consumption_${yearData.label}`}
-                stroke={colors[index % colors.length]}
-                strokeWidth={2}
-                dot={{ fill: colors[index % colors.length], r: 4 }}
-                activeDot={{ r: 6 }}
-                name={yearData.label}
-              />
-            ))}
+            {selectedYearsData.map((yearData) => {
+              // Couleur alignée avec l'onglet
+              const originalIndex = yearsData.findIndex(y => y.label === yearData.label)
+              const color = graphColors[originalIndex % graphColors.length]
+              return (
+                <Line
+                  key={yearData.label}
+                  type="monotone"
+                  dataKey={`consumption_${yearData.label}`}
+                  stroke={color}
+                  strokeWidth={2}
+                  dot={{ fill: color, r: 4 }}
+                  activeDot={{ r: 6 }}
+                  name={yearData.label}
+                />
+              )
+            })}
 
             {/* Selection area for zooming */}
             {refAreaLeft && refAreaRight && (
@@ -299,7 +310,7 @@ export function AnnualCurve({ chartData, isDarkMode }: AnnualCurveProps) {
 
       <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
         <p className="text-sm text-blue-800 dark:text-blue-200">
-          <strong>ℹ️ Note :</strong> Cette courbe présente votre consommation mensuelle sur des périodes glissantes de 365 jours. Vous pouvez sélectionner plusieurs périodes pour les comparer.
+          <strong>ℹ️ Note :</strong> Cette courbe présente votre consommation mensuelle par année calendaire. Vous pouvez sélectionner plusieurs années pour les comparer.
         </p>
       </div>
     </div>

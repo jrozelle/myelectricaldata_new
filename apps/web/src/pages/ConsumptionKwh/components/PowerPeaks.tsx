@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ReferenceArea } from 'recharts'
-import { Download, ZoomOut } from 'lucide-react'
+import { Download, ZoomOut, Calendar } from 'lucide-react'
 import { toast } from '@/stores/notificationStore'
 import { ModernButton } from './ModernButton'
 
 interface PowerData {
   label: string
+  startDate: Date
+  endDate: Date
   data: Array<{
     date: string
     power: number
@@ -37,9 +39,9 @@ export function PowerPeaks({
   isDarkMode
 }: PowerPeaksProps) {
   // Track selected years with a Set (allows multiple selections)
-  // Default to the most recent year (last index in the array)
+  // Default to the most recent year (index 0 = plus récent)
   const [selectedYears, setSelectedYears] = useState<Set<number>>(
-    new Set([powerByYearData.length > 0 ? powerByYearData.length - 1 : 0])
+    new Set([0])
   )
 
   // Zoom state
@@ -146,8 +148,6 @@ export function PowerPeaks({
     .map(index => powerByYearData[index])
     .sort((a, b) => b.label.localeCompare(a.label))
 
-  const colors = ['#EF4444', '#F59E0B', '#10B981', '#8B5CF6', '#EC4899', '#06B6D4']
-
   // Get display data based on zoom
   const displayData = zoomDomain
     ? chartData.slice(zoomDomain.left, zoomDomain.right + 1)
@@ -159,14 +159,13 @@ export function PowerPeaks({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         {/* Tabs on the left - Allow multiple selection */}
         <div className="flex gap-2 flex-1 overflow-x-auto overflow-y-hidden py-3 px-2 no-scrollbar">
-          {[...powerByYearData].reverse().map((data, idx) => {
-            const originalIndex = powerByYearData.length - 1 - idx
-            const isSelected = selectedYears.has(originalIndex)
+          {powerByYearData.map((data, idx) => {
+            const isSelected = selectedYears.has(idx)
             const color = graphColors[idx % graphColors.length]
             return (
               <button
                 key={data.label}
-                onClick={() => toggleYearSelection(originalIndex)}
+                onClick={() => toggleYearSelection(idx)}
                 className={`flex-1 min-w-[100px] px-4 py-2 text-base font-semibold rounded-lg border-2 transition-all duration-200 ${
                   isSelected
                     ? 'shadow-md'
@@ -239,7 +238,7 @@ export function PowerPeaks({
               domain={[0, 'auto']}
             />
             <Tooltip
-              cursor={{ stroke: colors[0], strokeWidth: 2 }}
+              cursor={{ stroke: graphColors[0], strokeWidth: 2 }}
               contentStyle={{
                 backgroundColor: '#1F2937',
                 border: '1px solid #374151',
@@ -247,10 +246,10 @@ export function PowerPeaks({
                 color: '#F9FAFB'
               }}
               formatter={(value: number, name: string, props: any) => {
-                // Extract year from the dataKey (e.g., "power_2025")
-                const year = name.replace('Puissance max ', '')
-                const timeKey = `time_${year}`
-                const yearKey = `year_${year}`
+                // Extraire le label depuis le dataKey (e.g., "power_2025" -> "2025")
+                const yearLabel = props.dataKey?.replace('power_', '') || ''
+                const timeKey = `time_${yearLabel}`
+                const yearKey = `year_${yearLabel}`
                 const time = props.payload?.[timeKey]
                 const actualYear = props.payload?.[yearKey]
                 if (time && actualYear) {
@@ -282,18 +281,23 @@ export function PowerPeaks({
             )}
 
             {/* Dynamically create lines for each selected year */}
-            {selectedYearsData.map((yearData, index) => (
-              <Line
-                key={yearData.label}
-                type="monotone"
-                dataKey={`power_${yearData.label}`}
-                stroke={colors[index % colors.length]}
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 6 }}
-                name={`Puissance max ${yearData.label}`}
-              />
-            ))}
+            {selectedYearsData.map((yearData) => {
+              // Couleur alignée avec l'onglet
+              const originalIndex = powerByYearData.findIndex(d => d.label === yearData.label)
+              const color = graphColors[originalIndex % graphColors.length]
+              return (
+                <Line
+                  key={yearData.label}
+                  type="monotone"
+                  dataKey={`power_${yearData.label}`}
+                  stroke={color}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 6 }}
+                  name={yearData.label}
+                />
+              )
+            })}
 
             {/* Selection area for zooming */}
             {refAreaLeft && refAreaRight && (

@@ -256,8 +256,11 @@ export const energyApi = {
     return apiClient.get<{ scrapers: string[], total: number }>('admin/scrapers')
   },
 
-  getOffers: async (providerId?: string) => {
-    return apiClient.get<EnergyOffer[]>('energy/offers', providerId ? { provider_id: providerId } : {})
+  getOffers: async (providerId?: string, includeHistory?: boolean) => {
+    const params: Record<string, unknown> = {}
+    if (providerId) params.provider_id = providerId
+    if (includeHistory) params.include_history = true
+    return apiClient.get<EnergyOffer[]>('energy/offers', params)
   },
 
   // User endpoints
