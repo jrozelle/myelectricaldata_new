@@ -15,24 +15,25 @@ Fichier : `apps/web/src/pages/Contribute/components/tabs/AllOffers.tsx`
 
 ## Features
 
-| Feature                            | Statut |
-| ---------------------------------- | ------ |
-| Mode lecture/edition               | FAIT   |
-| Filtre par fournisseur             | FAIT   |
-| Filtre par type d'offre            | FAIT   |
-| Regroupement par nom d'offre       | FAIT   |
-| Edition du nom d'offre             | FAIT   |
-| Edition inline des offres          | FAIT   |
-| Suppression de puissance           | FAIT   |
-| Ajout de puissance                 | FAIT   |
-| Creation nouveau groupe            | FAIT   |
-| Recapitulatif avant soumission     | FAIT   |
-| Soumission des modifications       | FAIT   |
-| Creation nouveau fournisseur       | FAIT   |
-| Suppression de fournisseur         | FAIT   |
-| Ajout nouvelle offre               | FAIT   |
-| Gestion date par offre             | FAIT   |
-| Toggle historique des tarifs       | FAIT   |
+| Feature                        | Statut |
+| ------------------------------ | ------ |
+| Mode lecture/edition           | FAIT   |
+| Filtre par fournisseur         | FAIT   |
+| Filtre par type d'offre        | FAIT   |
+| Regroupement par nom d'offre   | FAIT   |
+| Edition du nom d'offre         | FAIT   |
+| Edition inline des offres      | FAIT   |
+| Suppression de puissance       | FAIT   |
+| Ajout de puissance             | FAIT   |
+| Creation nouveau groupe        | FAIT   |
+| Recapitulatif avant soumission | FAIT   |
+| Soumission des modifications   | FAIT   |
+| Creation nouveau fournisseur   | FAIT   |
+| Suppression de fournisseur     | FAIT   |
+| Ajout nouvelle offre           | FAIT   |
+| Gestion date par offre         | FAIT   |
+| Toggle historique des tarifs   | FAIT   |
+| Duplication des tarifs         | FAIT   |
 
 ## Details implementation
 
@@ -471,12 +472,12 @@ Chaque groupe d'offres (meme nom commercial) possede une date de validite qui pe
 
 ### Regles metier
 
-| Regle | Description |
-|-------|-------------|
-| Identite d'offre | `provider_id` + `offer_type` (meme fournisseur + type = meme offre) |
-| Desactivation | Automatique a l'approbation d'une nouvelle contribution |
-| Historique | Les anciennes offres sont desactivees (`valid_to` defini), jamais supprimees |
-| Niveau de date | Par groupe d'offres (nom commercial), pas par puissance |
+| Regle            | Description                                                                  |
+| ---------------- | ---------------------------------------------------------------------------- |
+| Identite d'offre | `provider_id` + `offer_type` (meme fournisseur + type = meme offre)          |
+| Desactivation    | Automatique a l'approbation d'une nouvelle contribution                      |
+| Historique       | Les anciennes offres sont desactivees (`valid_to` defini), jamais supprimees |
+| Niveau de date   | Par groupe d'offres (nom commercial), pas par puissance                      |
 
 ### Fonctionnement
 
@@ -524,6 +525,40 @@ Chaque groupe d'offres (meme nom commercial) possede une date de validite qui pe
 </label>
 ```
 
+### Duplication des tarifs (FAIT)
+
+Permet de copier tous les champs tarifaires (abonnement + prix kWh) d'une ligne de puissance vers la ligne suivante ou toutes les autres lignes du meme groupe.
+
+**Fonctionnement :**
+
+- Icone `CopyDown` (lucide-react) placee a cote de l'icone corbeille dans la colonne d'actions
+- Visible uniquement en mode edition
+- Clic ouvre un menu contextuel avec deux options :
+  - "Dupliquer vers la ligne suivante" : copie vers la puissance immediatement inferieure
+  - "Dupliquer vers toutes les lignes" : copie vers toutes les autres puissances du groupe
+- Les valeurs dupliquees sont marquees comme "modifiees" (highlight ambre)
+- Le bouton "ligne suivante" est desactive sur la derniere ligne du groupe
+- Le bouton "toutes les lignes" est desactive si le groupe n'a qu'une seule puissance
+- Toast de confirmation apres duplication
+
+**Champs copies selon le type d'offre :**
+
+- Toujours : `subscription_price` (abonnement)
+- BASE : `base_price`
+- BASE_WEEKEND : `base_price`, `base_price_weekend`
+- HC_HP / HC_NUIT_WEEKEND / HC_WEEKEND : `hc_price`, `hp_price`
+- TEMPO : `tempo_blue_hc`, `tempo_blue_hp`, `tempo_white_hc`, `tempo_white_hp`, `tempo_red_hc`, `tempo_red_hp`
+- EJP : `ejp_normal`, `ejp_peak`
+- ZEN_FLEX / SEASONAL : `hc_price_summer`, `hp_price_summer`, `hc_price_winter`, `hp_price_winter`
+- ZEN_WEEK_END : `base_price`, `base_price_weekend`
+- ZEN_WEEK_END_HP_HC : `hc_price`, `hp_price`, `hc_price_weekend`, `hp_price_weekend`
+
+**UI :**
+
+- Bouton : `text-primary-500 dark:text-primary-400 hover:bg-primary-50`
+- Menu dropdown : `bg-white dark:bg-gray-800 border shadow-lg rounded-lg z-50 w-64`
+- Fermeture au clic exterieur (useEffect sur document click)
+
 ## Flux utilisateur
 
 1. Consulter les offres en mode lecture (par defaut)
@@ -535,6 +570,7 @@ Chaque groupe d'offres (meme nom commercial) possede une date de validite qui pe
    - Cliquer sur "Proposer une nouvelle offre" pour ajouter un nouveau type d'offre au fournisseur
 5. Effectuer les modifications souhaitees :
    - Modifier les tarifs existants (champs inline)
+   - Dupliquer les tarifs d'une ligne vers la suivante ou toutes les lignes (icone CopyDown)
    - Marquer des puissances pour suppression (icone corbeille)
    - Ajouter une ou plusieurs puissances (bouton "Ajouter une puissance")
 6. Renseigner le lien vers la fiche tarifaire officielle (optionnel pour admin/moderateur)

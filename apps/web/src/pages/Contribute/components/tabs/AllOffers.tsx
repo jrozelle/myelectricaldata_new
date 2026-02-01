@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Package, Send, X, Link, AlertCircle, Plus, Trash2, Undo2, Eye, Pencil, Info, Building2 } from 'lucide-react'
+import { Package, Send, X, Link, AlertCircle, Plus, Trash2, Undo2, Eye, Pencil, Info, Building2, ArrowDownToLine } from 'lucide-react'
 import { energyApi, type EnergyProvider, type ContributionData, type EnergyOffer } from '@/api/energy'
 import { toast } from '@/stores/notificationStore'
 import { LoadingOverlay } from '@/components/LoadingOverlay'
@@ -67,6 +67,9 @@ export default function AllOffers() {
 
   // Afficher l'historique des tarifs
   const [showHistory, setShowHistory] = useState(false)
+
+  // Dropdown de duplication des tarifs
+  const [duplicateDropdownId, setDuplicateDropdownId] = useState<string | null>(null)
 
   // Fetch providers
   const { data: providersData } = useQuery({
@@ -200,6 +203,13 @@ export default function AllOffers() {
     setNewGroups([])
   }, [filterOfferType])
 
+  // Fermer le dropdown de duplication au clic exterieur
+  useEffect(() => {
+    if (!duplicateDropdownId) return
+    const handleClick = () => setDuplicateDropdownId(null)
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [duplicateDropdownId])
 
   // Helper pour vérifier si une offre a été modifiée
   const isOfferModified = (offer: EnergyOffer): boolean => {
@@ -237,6 +247,55 @@ export default function AllOffers() {
         [fieldKey]: value
       }
     }))
+  }
+
+  // Helper pour obtenir les cles de champs tarifaires selon le type d'offre
+  const getFieldKeysForOfferType = (offerType: string): string[] => {
+    switch (offerType) {
+      case 'BASE': return ['base_price']
+      case 'BASE_WEEKEND': return ['base_price', 'base_price_weekend']
+      case 'HC_HP': case 'HC_NUIT_WEEKEND': case 'HC_WEEKEND': return ['hc_price', 'hp_price']
+      case 'TEMPO': return ['tempo_blue_hc', 'tempo_blue_hp', 'tempo_white_hc', 'tempo_white_hp', 'tempo_red_hc', 'tempo_red_hp']
+      case 'EJP': return ['ejp_normal', 'ejp_peak']
+      case 'ZEN_FLEX': case 'SEASONAL': return ['hc_price_summer', 'hp_price_summer', 'hc_price_winter', 'hp_price_winter']
+      case 'ZEN_WEEK_END': return ['base_price', 'base_price_weekend']
+      case 'ZEN_WEEK_END_HP_HC': return ['hc_price', 'hp_price', 'hc_price_weekend', 'hp_price_weekend']
+      default: return []
+    }
+  }
+
+  // Dupliquer les champs tarifaires d'une offre vers la suivante ou toutes les lignes du groupe
+  const duplicateOfferFields = (
+    sourceOffer: EnergyOffer,
+    targetMode: 'next' | 'all',
+    offersInGroup: EnergyOffer[]
+  ) => {
+    const fieldsToCopy = ['subscription_price', ...getFieldKeysForOfferType(sourceOffer.offer_type)]
+    const sourceIndex = offersInGroup.findIndex(o => o.id === sourceOffer.id)
+
+    const targets = targetMode === 'next'
+      ? [offersInGroup[sourceIndex + 1]].filter(Boolean)
+      : offersInGroup.filter((_, i) => i !== sourceIndex)
+
+    if (targets.length === 0) return
+
+    setEditedOffers(prev => {
+      const updated = { ...prev }
+      for (const target of targets) {
+        updated[target.id] = { ...(updated[target.id] || {}) }
+        for (const field of fieldsToCopy) {
+          const sourceValue = prev[sourceOffer.id]?.[field]
+            ?? String((sourceOffer as unknown as Record<string, unknown>)[field] ?? '')
+          updated[target.id][field] = sourceValue
+        }
+      }
+      return updated
+    })
+
+    setDuplicateDropdownId(null)
+    toast.success(targetMode === 'next'
+      ? 'Tarifs dupliqués vers la ligne suivante'
+      : `Tarifs dupliqués vers ${targets.length} ligne(s)`)
   }
 
   // Helper pour formater la valeur
@@ -2267,7 +2326,7 @@ export default function AllOffers() {
                       {(() => {
                         const cols = getTariffColumns(offer.offer_type)
                         // Grille: [Puissance] [Abo] [Tarif1] [Tarif2?] [Delete?]
-                        const gridCols = `70px 1fr ${Array(cols).fill('1fr').join(' ')} ${isEditMode ? '40px' : ''}`
+                        const gridCols = `70px 1fr ${Array(cols).fill('1fr').join(' ')} ${isEditMode ? '70px' : ''}`
 
                         return (
                           <div
@@ -2344,9 +2403,9 @@ export default function AllOffers() {
                               </>
                             )}
 
-                            {/* Col Delete - uniquement en mode édition (première ligne) */}
+                            {/* Col Actions - uniquement en mode édition (première ligne) */}
                             {isEditMode && powerNum !== null && (
-                              <div className="flex justify-center">
+                              <div className="flex items-center gap-0.5 justify-center">
                                 {isMarkedForRemoval ? (
                                   <button
                                     onClick={() => setPowersToRemove(prev => prev.filter(p => p !== powerNum))}
@@ -2368,6 +2427,40 @@ export default function AllOffers() {
                                     <Trash2 size={16} />
                                   </button>
                                 )}
+                                {/* Bouton duplication des tarifs */}
+                                <div className="relative">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setDuplicateDropdownId(prev => prev === offer.id ? null : offer.id)
+                                    }}
+                                    className="p-1.5 text-primary-500 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded transition-colors"
+                                    title="Dupliquer les tarifs"
+                                  >
+                                    <ArrowDownToLine size={16} />
+                                  </button>
+                                  {duplicateDropdownId === offer.id && (
+                                    <div
+                                      className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 w-64"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <button
+                                        onClick={() => duplicateOfferFields(offer, 'next', offersInGroup)}
+                                        disabled={offersInGroup.indexOf(offer) === offersInGroup.length - 1}
+                                        className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      >
+                                        Dupliquer vers la ligne suivante
+                                      </button>
+                                      <button
+                                        onClick={() => duplicateOfferFields(offer, 'all', offersInGroup)}
+                                        disabled={offersInGroup.length <= 1}
+                                        className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      >
+                                        Dupliquer vers toutes les lignes
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
 
