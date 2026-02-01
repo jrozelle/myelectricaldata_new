@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea } from 'recharts'
-import { Download, ZoomOut, Calendar } from 'lucide-react'
+import { Download, ZoomOut } from 'lucide-react'
 import { toast } from '@/stores/notificationStore'
 import { ModernButton } from './ModernButton'
 
