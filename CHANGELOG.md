@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.11.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.10.0...1.11.0) (2026-02-01)
+
+### Features
+
+* add SingleDatePicker component and integrate date management in contribution forms ([fd287f9](https://github.com/MyElectricalData/myelectricaldata_new/commit/fd287f977da294513ba285511c440462383b19a2))
+* **web:** ameliorer le simulateur avec selecteur de periode et UX ([ebbd1f1](https://github.com/MyElectricalData/myelectricaldata_new/commit/ebbd1f14e3299c55637b88ed970d5b6297e9cc91))
+
+### Bug Fixes
+
+* correct typo in comments for existing secrets configuration ([57341bd](https://github.com/MyElectricalData/myelectricaldata_new/commit/57341bdfff1b3df97e8236ac55d4f1e98f78a363))
+* **web:** retirer les imports Calendar inutilises qui cassent le build ([7176945](https://github.com/MyElectricalData/myelectricaldata_new/commit/71769459f402a882bfdf76b1fc222cb09fce8cd4))
+
 ## [1.10.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.9.1...1.10.0) (2026-01-29)
 
 ### Features
