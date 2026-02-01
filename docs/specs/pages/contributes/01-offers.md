@@ -34,6 +34,7 @@ Fichier : `apps/web/src/pages/Contribute/components/tabs/AllOffers.tsx`
 | Gestion date par offre         | FAIT   |
 | Toggle historique des tarifs   | FAIT   |
 | Duplication des tarifs         | FAIT   |
+| Warning perte de modifications | FAIT   |
 
 ## Details implementation
 
@@ -558,6 +559,48 @@ Permet de copier tous les champs tarifaires (abonnement + prix kWh) d'une ligne 
 - Bouton : `text-primary-500 dark:text-primary-400 hover:bg-primary-50`
 - Menu dropdown : `bg-white dark:bg-gray-800 border shadow-lg rounded-lg z-50 w-64`
 - Fermeture au clic exterieur (useEffect sur document click)
+
+### Warning perte de modifications (FAIT)
+
+Quand l'utilisateur a des modifications en cours (tarifs edites, puissances ajoutees/supprimees, groupes crees, noms renommes) et clique sur une action qui ferait perdre ces modifications, une modale de confirmation s'affiche.
+
+**Actions protegees :**
+
+- Clic "Mode lecture" (quitter le mode edition)
+- Clic sur un autre fournisseur
+- Clic sur un autre type d'offre
+
+**Fonctionnement :**
+
+- Fonction `confirmOrExecute(action)` verifie `hasAnyModifications`
+- Si pas de modification en cours : action executee directement sans confirmation
+- Si modifications en cours : affiche une modale avec le nombre de modifications et un avertissement
+- 3 boutons dans la modale :
+  - **Annuler** : ferme la modale, modifications preservees
+  - **Soumettre** : ferme la modale et ouvre le recap de soumission (`showRecapModal`)
+  - **Continuer sans soumettre** : l'action est executee (modifications perdues)
+- Clic sur le backdrop : equivalent a "Annuler"
+
+**State :**
+
+```typescript
+const [confirmDialog, setConfirmDialog] = useState<{
+  title: string
+  message: string
+  onConfirm: () => void
+  onSubmit: () => void
+} | null>(null)
+```
+
+**UI :**
+
+- Style identique a `Admin/Offers.tsx` (pattern inline state)
+- Titre : `text-xl font-bold text-orange-600` (type warning)
+- Message : inclut le nombre de modifications et un conseil de soumission
+- Backdrop : `bg-black/50` ferme la modale au clic
+- Bouton "Annuler" : `bg-gray-100 dark:bg-gray-700`
+- Bouton "Soumettre" : `bg-primary-600 hover:bg-primary-700 text-white` avec icone `Send`
+- Bouton "Continuer sans soumettre" : `bg-orange-600 hover:bg-orange-700 text-white`
 
 ## Flux utilisateur
 

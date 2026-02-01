@@ -71,6 +71,14 @@ export default function AllOffers() {
   // Dropdown de duplication des tarifs
   const [duplicateDropdownId, setDuplicateDropdownId] = useState<string | null>(null)
 
+  // Modale de confirmation avant perte de modifications
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string
+    message: string
+    onConfirm: () => void
+    onSubmit: () => void
+  } | null>(null)
+
   // Fetch providers
   const { data: providersData } = useQuery({
     queryKey: ['energy-providers'],
@@ -237,6 +245,27 @@ export default function AllOffers() {
 
   // Vérifier s'il y a des modifications à afficher
   const hasAnyModifications = totalModificationsCount > 0
+
+  // Confirmation avant une action qui fait perdre les modifications en cours
+  // Si pas de modifications : execute directement. Sinon : ouvre la modale avec callback.
+  const confirmOrExecute = (action: () => void) => {
+    if (!hasAnyModifications) {
+      action()
+      return
+    }
+    setConfirmDialog({
+      title: 'Modifications non soumises',
+      message: `Vous avez ${totalModificationsCount} modification(s) en cours qui n'ont pas encore été soumises.\n\nSi vous continuez, ces modifications seront perdues.\n\nPour les conserver, soumettez-les d'abord.`,
+      onConfirm: () => {
+        setConfirmDialog(null)
+        action()
+      },
+      onSubmit: () => {
+        setConfirmDialog(null)
+        setShowRecapModal(true)
+      }
+    })
+  }
 
   // Helper pour mettre à jour un champ
   const updateField = (offerId: string, fieldKey: string, value: string) => {
@@ -910,13 +939,17 @@ export default function AllOffers() {
         <button
           onClick={() => {
             if (isEditMode) {
-              // Quitter le mode édition : reset des modifications
-              setEditedOffers({})
-              setPriceSheetUrl('')
-              setPowersToRemove([])
-              setNewPowersData([])
+              confirmOrExecute(() => {
+                // Quitter le mode édition : reset des modifications
+                setEditedOffers({})
+                setPriceSheetUrl('')
+                setPowersToRemove([])
+                setNewPowersData([])
+                setIsEditMode(false)
+              })
+              return
             }
-            setIsEditMode(!isEditMode)
+            setIsEditMode(true)
           }}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             isEditMode
@@ -978,8 +1011,8 @@ export default function AllOffers() {
                 >
                   <span
                     onClick={() => {
-                      if (!isMarkedForRemoval) {
-                        setFilterProvider(provider.id)
+                      if (!isMarkedForRemoval && provider.id !== filterProvider) {
+                        confirmOrExecute(() => setFilterProvider(provider.id))
                       }
                     }}
                     className={`flex-1 ${isMarkedForRemoval ? 'line-through cursor-not-allowed' : 'cursor-pointer'}`}
@@ -1256,14 +1289,16 @@ export default function AllOffers() {
                         <button
                           key={type}
                           onClick={() => {
-                            setFilterOfferType(type)
-                            // En mode édition, si le type est vide, créer directement un nouveau groupe
-                            if (isEditMode && isEmpty) {
-                              // Ajouter un nouveau groupe vide si aucun n'existe encore
-                              if (newGroups.length === 0) {
-                                setNewGroups([{ name: '', validFrom: new Date().toISOString().split('T')[0], powers: [{ power: 0, fields: {} }] }])
+                            if (type === filterOfferType) return
+                            confirmOrExecute(() => {
+                              setFilterOfferType(type)
+                              // En mode édition, si le type est vide, créer directement un nouveau groupe
+                              if (isEditMode && isEmpty) {
+                                if (newGroups.length === 0) {
+                                  setNewGroups([{ name: '', validFrom: new Date().toISOString().split('T')[0], powers: [{ power: 0, fields: {} }] }])
+                                }
                               }
-                            }
+                            })
                           }}
                           className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5 w-full ${
                             isSelected
@@ -3050,95 +3085,101 @@ export default function AllOffers() {
           {/* Modal */}
           <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header */}
-            <div className="sticky top-0 bg-gradient-to-r from-primary-600 to-primary-500 p-6 rounded-t-2xl">
+            <div className="sticky top-0 bg-primary-600 dark:bg-primary-700 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Send size={20} className="text-white" />
+                <h3 className="text-lg font-bold text-white">Récapitulatif</h3>
+                <span className="bg-white/20 text-white text-xs font-medium px-2 py-0.5 rounded-full">
+                  {totalModificationsCount} modification{totalModificationsCount > 1 ? 's' : ''}
+                </span>
+              </div>
               <button
                 onClick={() => setShowRecapModal(false)}
-                className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
                 aria-label="Fermer"
               >
-                <X size={20} className="text-white" />
+                <X size={18} className="text-white" />
               </button>
-              <div className="text-center">
-                <Send size={40} className="mx-auto mb-3 text-white" />
-                <h3 className="text-2xl font-bold text-white">Récapitulatif des modifications</h3>
-                <p className="text-white/80 mt-2">{totalModificationsCount} modification{totalModificationsCount > 1 ? 's' : ''} à soumettre</p>
-              </div>
             </div>
 
             {/* Contenu scrollable */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="space-y-4">
-                {/* Modifications de tarifs */}
-                {modifiedOffers.map(offer => {
-                  const edited = editedOffers[offer.id] || {}
-                  const changes = Object.entries(edited).filter(([key, value]) => {
-                    const originalValue = (offer as unknown as Record<string, unknown>)[key]
-                    const origNum = Number(originalValue)
-                    const newNum = Number(value)
-                    if (isNaN(origNum) && isNaN(newNum)) return false
-                    if (isNaN(origNum) || isNaN(newNum)) return true
-                    return Math.abs(origNum - newNum) > 0.00001
-                  })
-                  if (changes.length === 0) return null
-                  return (
-                    <div key={offer.id} className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                      <div className="font-semibold text-gray-900 dark:text-white mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
-                        {offer.name}
+                {/* Modifications de tarifs — regroupées par offre */}
+                {(() => {
+                  // Regrouper les offres modifiées par clean name
+                  const groups: Record<string, typeof modifiedOffers> = {}
+                  for (const offer of modifiedOffers) {
+                    const edited = editedOffers[offer.id] || {}
+                    const hasRealChanges = Object.entries(edited).some(([key, value]) => {
+                      const orig = Number((offer as unknown as Record<string, unknown>)[key])
+                      const next = Number(value)
+                      if (isNaN(orig) && isNaN(next)) return false
+                      if (isNaN(orig) || isNaN(next)) return true
+                      return Math.abs(orig - next) > 0.00001
+                    })
+                    if (!hasRealChanges) continue
+                    const cleanName = getCleanOfferName(offer.name)
+                    if (!groups[cleanName]) groups[cleanName] = []
+                    groups[cleanName].push(offer)
+                  }
+                  return Object.entries(groups).map(([groupName, offers]) => (
+                    <div key={groupName} className="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                      <div className="px-4 py-2.5 bg-gray-100 dark:bg-gray-800 font-semibold text-sm text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700">
+                        {groupName}
                       </div>
-                      <div className="space-y-2">
-                        {changes.map(([key, value]) => {
-                          const originalValue = (offer as unknown as Record<string, unknown>)[key]
-                          const origNum = Number(originalValue)
-                          const newNum = Number(value)
-                          const isSubscription = key === 'subscription_price'
+                      <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {offers.map(offer => {
+                          const edited = editedOffers[offer.id] || {}
+                          const changes = Object.entries(edited).filter(([key, value]) => {
+                            const orig = Number((offer as unknown as Record<string, unknown>)[key])
+                            const next = Number(value)
+                            if (isNaN(orig) && isNaN(next)) return false
+                            if (isNaN(orig) || isNaN(next)) return true
+                            return Math.abs(orig - next) > 0.00001
+                          })
+                          const power = getPower(offer.name)
                           return (
-                            <div key={key} className="flex items-center justify-between bg-white dark:bg-gray-800 rounded px-3 py-2">
-                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                {fieldLabels[key] || key}
-                              </span>
-                              <div className="flex items-center gap-3">
-                                <span className="text-sm text-red-500 line-through font-mono">
-                                  {isNaN(origNum) ? '-' : origNum.toFixed(isSubscription ? 2 : 4)}
-                                </span>
-                                <span className="text-gray-400">→</span>
-                                <span className="text-sm text-green-600 dark:text-green-400 font-bold font-mono">
-                                  {isNaN(newNum) ? '-' : newNum.toFixed(isSubscription ? 2 : 4)}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  {isSubscription ? '€/mois' : '€/kWh'}
-                                </span>
+                            <div key={offer.id} className="px-4 py-2">
+                              <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{power || offer.name}</div>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                {changes.map(([key, value]) => {
+                                  const orig = Number((offer as unknown as Record<string, unknown>)[key])
+                                  const next = Number(value)
+                                  const isSub = key === 'subscription_price'
+                                  return (
+                                    <span key={key} className="text-xs flex items-center gap-1">
+                                      <span className="text-gray-500 dark:text-gray-400">{fieldLabels[key] || key}</span>
+                                      <span className="text-red-500 line-through font-mono">{isNaN(orig) ? '-' : orig.toFixed(isSub ? 2 : 4)}</span>
+                                      <span className="text-gray-400">→</span>
+                                      <span className="text-green-600 dark:text-green-400 font-semibold font-mono">{isNaN(next) ? '-' : next.toFixed(isSub ? 2 : 4)}</span>
+                                    </span>
+                                  )
+                                })}
                               </div>
                             </div>
                           )
                         })}
                       </div>
                     </div>
-                  )
-                })}
+                  ))
+                })()}
 
                 {/* Fournisseurs à supprimer */}
                 {providersToRemove.length > 0 && (
-                  <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-200 dark:border-red-800">
-                    <div className="font-semibold text-red-800 dark:text-red-300 mb-3 pb-2 border-b border-red-200 dark:border-red-700 flex items-center gap-2">
-                      <Building2 size={16} />
-                      Fournisseurs à supprimer
-                      <span className="text-sm font-normal text-red-600 dark:text-red-400">
-                        ({providersToRemove.length})
-                      </span>
+                  <div className="bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 overflow-hidden">
+                    <div className="px-4 py-2.5 bg-red-100 dark:bg-red-900/40 font-semibold text-sm text-red-800 dark:text-red-300 border-b border-red-200 dark:border-red-700 flex items-center gap-2">
+                      <Trash2 size={14} />
+                      Suppression de fournisseurs
                     </div>
-                    <div className="space-y-2">
+                    <div className="divide-y divide-red-200 dark:divide-red-800">
                       {providersToRemove.map(providerId => {
                         const provider = sortedProviders.find(p => p.id === providerId)
                         const providerOffersCount = offersArray.filter(o => o.provider_id === providerId).length
                         return (
-                          <div key={providerId} className="flex items-center justify-between bg-white dark:bg-gray-800 rounded px-3 py-2 border border-red-200 dark:border-red-700">
-                            <span className="text-sm font-medium text-red-700 dark:text-red-300 flex items-center gap-2">
-                              <Trash2 size={14} />
-                              {provider?.name || 'Fournisseur inconnu'}
-                            </span>
-                            <span className="text-xs text-red-500 dark:text-red-400">
-                              {providerOffersCount} offre{providerOffersCount > 1 ? 's' : ''} seront supprimées
-                            </span>
+                          <div key={providerId} className="px-4 py-2 flex items-center justify-between">
+                            <span className="text-sm text-red-700 dark:text-red-300">{provider?.name || 'Fournisseur inconnu'}</span>
+                            <span className="text-xs text-red-500 dark:text-red-400">{providerOffersCount} offre{providerOffersCount > 1 ? 's' : ''}</span>
                           </div>
                         )
                       })}
@@ -3148,63 +3189,37 @@ export default function AllOffers() {
 
                 {/* Modifications de puissances */}
                 {(newPowersData.length > 0 || powersToRemove.length > 0) && (
-                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                    <div className="font-semibold text-gray-900 dark:text-white mb-3 pb-2 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-                      Modifications de puissances
+                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div className="px-4 py-2.5 bg-gray-100 dark:bg-gray-800 font-semibold text-sm text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700">
+                      Puissances
                       {sortedProviders.find(p => p.id === filterProvider) && (
-                        <span className="text-sm font-normal text-gray-500">
-                          ({sortedProviders.find(p => p.id === filterProvider)?.name} - {filterOfferType})
+                        <span className="text-xs font-normal text-gray-500 ml-2">
+                          {sortedProviders.find(p => p.id === filterProvider)?.name} — {filterOfferType}
                         </span>
                       )}
                     </div>
-                    <div className="space-y-2">
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
                       {powersToRemove.sort((a, b) => a - b).map(power => (
-                        <div key={`remove-${power}`} className="flex items-center justify-between bg-red-50 dark:bg-red-900/20 rounded px-3 py-2 border border-red-200 dark:border-red-800">
-                          <span className="text-sm font-medium text-red-700 dark:text-red-300 flex items-center gap-2">
-                            <Trash2 size={14} />
-                            Supprimer la puissance
-                          </span>
-                          <span className="text-sm font-bold text-red-600 dark:text-red-400">
-                            {power} kVA
-                          </span>
+                        <div key={`remove-${power}`} className="px-4 py-2 flex items-center justify-between text-red-600 dark:text-red-400">
+                          <span className="text-xs flex items-center gap-1"><Trash2 size={12} /> Supprimer</span>
+                          <span className="text-xs font-semibold">{power} kVA</span>
                         </div>
                       ))}
                       {newPowersData.map((newPower, index) => (
-                        <div key={`add-${index}`} className="bg-green-50 dark:bg-green-900/20 rounded px-3 py-2 border border-green-200 dark:border-green-800">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-green-700 dark:text-green-300 flex items-center gap-2">
-                              <Plus size={14} />
-                              Ajouter la puissance
-                            </span>
-                            <span className="text-sm font-bold text-green-600 dark:text-green-400">
-                              {newPower.power} kVA
-                            </span>
+                        <div key={`add-${index}`} className="px-4 py-2">
+                          <div className="flex items-center justify-between text-green-600 dark:text-green-400">
+                            <span className="text-xs flex items-center gap-1"><Plus size={12} /> Ajouter</span>
+                            <span className="text-xs font-semibold">{newPower.power} kVA</span>
                           </div>
-                          <div className="mt-2 pt-2 border-t border-green-200 dark:border-green-700 space-y-1">
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
                             {newPower.fields.subscription_price && (
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-green-600 dark:text-green-400">Abonnement :</span>
-                                <span className="font-semibold text-green-700 dark:text-green-300">{newPower.fields.subscription_price} €/mois</span>
-                              </div>
+                              <span className="text-xs text-gray-500">Abo: {newPower.fields.subscription_price} €/mois</span>
                             )}
-                            {newPower.fields.base_price && (
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-green-600 dark:text-green-400">Base :</span>
-                                <span className="font-semibold text-green-700 dark:text-green-300">{newPower.fields.base_price} €/kWh</span>
-                              </div>
-                            )}
-                            {newPower.fields.hc_price && (
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-blue-600 dark:text-blue-400">HC :</span>
-                                <span className="font-semibold text-blue-700 dark:text-blue-300">{newPower.fields.hc_price} €/kWh</span>
-                              </div>
-                            )}
-                            {newPower.fields.hp_price && (
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-red-600 dark:text-red-400">HP :</span>
-                                <span className="font-semibold text-red-700 dark:text-red-300">{newPower.fields.hp_price} €/kWh</span>
-                              </div>
-                            )}
+                            {Object.entries(newPower.fields)
+                              .filter(([k]) => k !== 'subscription_price' && newPower.fields[k as keyof typeof newPower.fields])
+                              .map(([k, v]) => (
+                                <span key={k} className="text-xs text-gray-500">{fieldLabels[k] || k}: {v} €/kWh</span>
+                              ))}
                           </div>
                         </div>
                       ))}
@@ -3214,19 +3229,19 @@ export default function AllOffers() {
 
                 {/* Noms de groupes modifiés */}
                 {hasModifiedGroupNames && (
-                  <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-700">
-                    <div className="font-medium text-amber-800 dark:text-amber-300 mb-3 pb-2 border-b border-amber-200 dark:border-amber-700 flex items-center gap-2">
-                      <Pencil size={16} />
-                      <span>Renommage de groupes d'offres</span>
+                  <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-700 overflow-hidden">
+                    <div className="px-4 py-2.5 bg-amber-100 dark:bg-amber-900/40 font-semibold text-sm text-amber-800 dark:text-amber-300 border-b border-amber-200 dark:border-amber-700 flex items-center gap-2">
+                      <Pencil size={14} />
+                      Renommages
                     </div>
-                    <div className="space-y-2">
+                    <div className="divide-y divide-amber-200 dark:divide-amber-700">
                       {Object.entries(editedOfferNames)
                         .filter(([originalName, newName]) => newName !== originalName && newName.trim() !== '')
                         .map(([originalName, newName]) => (
-                          <div key={`rename-${originalName}`} className="flex items-center justify-between bg-white dark:bg-gray-800 rounded px-3 py-2 border border-amber-200 dark:border-amber-700">
-                            <span className="text-sm text-red-500 line-through">{originalName}</span>
-                            <span className="text-gray-400 mx-2">→</span>
-                            <span className="text-sm font-semibold text-green-600 dark:text-green-400">{newName}</span>
+                          <div key={`rename-${originalName}`} className="px-4 py-2 flex items-center gap-2 text-xs">
+                            <span className="text-red-500 line-through">{originalName}</span>
+                            <span className="text-gray-400">→</span>
+                            <span className="font-semibold text-green-600 dark:text-green-400">{newName}</span>
                           </div>
                         ))}
                     </div>
@@ -3235,33 +3250,26 @@ export default function AllOffers() {
 
                 {/* Nouveaux groupes d'offres */}
                 {newGroups.length > 0 && (
-                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
-                    <div className="font-medium text-blue-800 dark:text-blue-300 mb-3 pb-2 border-b border-blue-200 dark:border-blue-700 flex items-center gap-2">
-                      <Package size={16} />
-                      <span>Nouveaux groupes d'offres ({newGroups.length})</span>
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 overflow-hidden">
+                    <div className="px-4 py-2.5 bg-blue-100 dark:bg-blue-900/40 font-semibold text-sm text-blue-800 dark:text-blue-300 border-b border-blue-200 dark:border-blue-700 flex items-center gap-2">
+                      <Package size={14} />
+                      Nouveaux groupes ({newGroups.length})
                     </div>
-                    <div className="space-y-3">
+                    <div className="divide-y divide-blue-200 dark:divide-blue-700">
                       {newGroups.map((group, index) => (
-                        <div key={`recap-group-${index}`} className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-blue-200 dark:border-blue-700">
-                          <div className="font-semibold text-blue-700 dark:text-blue-300 mb-2 flex items-center gap-2">
-                            <Plus size={14} />
+                        <div key={`recap-group-${index}`} className="px-4 py-2">
+                          <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">
                             {group.name || <span className="italic text-gray-400">Nom non défini</span>}
                           </div>
-                          <div className="space-y-1">
-                            {group.powers.map((power, powerIndex) => (
-                              <div key={`recap-group-${index}-power-${powerIndex}`} className="text-xs flex items-center justify-between bg-blue-50 dark:bg-blue-900/30 rounded px-2 py-1">
-                                <span className="text-blue-600 dark:text-blue-400">
-                                  {power.power || '?'} kVA
-                                </span>
-                                <span className="text-blue-700 dark:text-blue-300 font-medium">
-                                  {power.fields.subscription_price ? `${power.fields.subscription_price} €/mois` : '-'}
-                                  {power.fields.base_price && ` • Base: ${power.fields.base_price} €/kWh`}
-                                  {power.fields.hc_price && ` • HC: ${power.fields.hc_price}`}
-                                  {power.fields.hp_price && ` • HP: ${power.fields.hp_price}`}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
+                          {group.powers.map((power, powerIndex) => (
+                            <div key={`recap-group-${index}-power-${powerIndex}`} className="text-xs text-blue-600 dark:text-blue-400 flex flex-wrap gap-x-3">
+                              <span className="font-medium">{power.power || '?'} kVA</span>
+                              {power.fields.subscription_price && <span>Abo: {power.fields.subscription_price} €/mois</span>}
+                              {power.fields.base_price && <span>Base: {power.fields.base_price}</span>}
+                              {power.fields.hc_price && <span>HC: {power.fields.hc_price}</span>}
+                              {power.fields.hp_price && <span>HP: {power.fields.hp_price}</span>}
+                            </div>
+                          ))}
                         </div>
                       ))}
                     </div>
@@ -3317,7 +3325,26 @@ export default function AllOffers() {
             </div>
 
             {/* Footer avec boutons */}
-            <div className="sticky bottom-0 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4 flex gap-3">
+            <div className="sticky bottom-0 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4 space-y-3">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowRecapModal(false)}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                >
+                  Retour
+                </button>
+                <button
+                  onClick={() => {
+                    submitAllModifications()
+                    setShowRecapModal(false)
+                  }}
+                  disabled={submittingOffers || (!isPrivilegedUser && !priceSheetUrl) || (priceSheetUrl.length > 0 && !priceSheetUrl.startsWith('http')) || hasDuplicatePowers || hasIncompletePowers || hasIncompleteGroups || hasGroupDuplicatePowers}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
+              >
+                <Send size={18} />
+                {submittingOffers ? 'Envoi en cours...' : 'Soumettre'}
+              </button>
+              </div>
               <button
                 onClick={() => {
                   setEditedOffers({})
@@ -3329,22 +3356,48 @@ export default function AllOffers() {
                   setEditedOfferNames({})
                   setShowRecapModal(false)
                 }}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg transition-colors"
               >
                 <X size={18} />
                 Tout annuler
               </button>
-              <button
-                onClick={() => {
-                  submitAllModifications()
-                  setShowRecapModal(false)
-                }}
-                disabled={submittingOffers || (!isPrivilegedUser && !priceSheetUrl) || (priceSheetUrl.length > 0 && !priceSheetUrl.startsWith('http')) || hasDuplicatePowers || hasIncompletePowers || hasIncompleteGroups || hasGroupDuplicatePowers}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
-              >
-                <Send size={18} />
-                {submittingOffers ? 'Envoi en cours...' : 'Soumettre'}
-              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale de confirmation avant perte de modifications */}
+      {confirmDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setConfirmDialog(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6">
+              <h2 className="text-xl font-bold mb-4 text-orange-600 dark:text-orange-400">
+                {confirmDialog.title}
+              </h2>
+              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-line mb-6">
+                {confirmDialog.message}
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setConfirmDialog(null)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmDialog.onSubmit}
+                  className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg flex items-center gap-2"
+                >
+                  <Send size={16} />
+                  Soumettre
+                </button>
+                <button
+                  onClick={confirmDialog.onConfirm}
+                  className="px-4 py-2 text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 rounded-lg"
+                >
+                  Continuer sans soumettre
+                </button>
+              </div>
             </div>
           </div>
         </div>
