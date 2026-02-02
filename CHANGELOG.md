@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.17.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.16.0...1.17.0) (2026-02-02)
+
+### Features
+
+* améliorer la gestion des plages de dates pour les profils dans le simulateur ([1922ec6](https://github.com/MyElectricalData/myelectricaldata_new/commit/1922ec62eb117e1f22cfb9bde427847bd182b370))
+
 ## [1.16.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.15.0...1.16.0) (2026-02-02)
 
 ### Features
