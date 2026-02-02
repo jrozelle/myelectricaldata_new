@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.14.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.13.0...1.14.0) (2026-02-02)
+
+### Features
+
+* add AI mode for JSON import of offers ([5d1875c](https://github.com/MyElectricalData/myelectricaldata_new/commit/5d1875c63aae93e9298ab70e42080b86fe1ce358))
+
+### Bug Fixes
+
+* **contribute:** corriger les erreurs de build CI du mode IA ([0763519](https://github.com/MyElectricalData/myelectricaldata_new/commit/0763519dea06ff31cc9b973cfa429815c7aa909f))
+
 ## [1.13.0](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.12.0...1.13.0) (2026-02-01)
 
 ### Features
