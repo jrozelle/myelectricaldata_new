@@ -435,12 +435,16 @@ Génère un JSON contenant TOUTES les offres disponibles de ce fournisseur.
 
 {
   "provider_name": "${providerName}",
+  "data_source": "Description de la source (ex: capture d'écran site officiel, PDF téléchargé)",
+  "extraction_date": "YYYY-MM-DD",
   "offers": [
     {
       "offer_name": "Nom de l'offre (sans puissance ni type)",
       "offer_type": "TYPE",
       "valid_from": "YYYY-MM-DD",
-      "warning": "optionnel - si le type ne correspond pas exactement",
+      "valid_until": "YYYY-MM-DD (optionnel - si l'offre a une date de fin)",
+      "special_conditions": "optionnel - conditions particulières (ex: prix fixe jusqu'à telle date)",
+      "warning": "optionnel - si le type ne correspond pas exactement ou si incertitude",
       "deprecated": false,
       "power_variants": [
         {
@@ -467,17 +471,33 @@ Choisis le type le plus adapté pour chaque offre :
 - ZEN_WEEK_END_HP_HC : HC/HP semaine + HC/HP week-end → champs : "hc_price", "hp_price", "hc_price_weekend", "hp_price_weekend"
 ${currentOffersSection}
 
-## Règles
+## Règles générales
 
 - IMPORTANT : le champ "provider_name" à la racine du JSON DOIT être exactement "${providerName}"
 - IMPORTANT : tous les prix doivent être en TTC (Toutes Taxes Comprises)
-- Tous les prix en euros avec un point décimal (ex: 0.2516)
+- Utiliser le point comme séparateur décimal (0.187702, pas 0,187702)
+- Garder 6 décimales pour les prix kWh (ex: 0.187702 €/kWh)
+- Garder 2 décimales pour les abonnements (ex: 12.03 €/mois)
 - subscription_price = abonnement mensuel TTC en €/mois
 - Les prix kWh sont en €/kWh TTC
-- Inclure TOUTES les puissances proposées par le fournisseur pour chaque offre, sans te limiter à une liste prédéfinie. Les puissances courantes sont 3, 6, 9, 12, 15, 18, 24, 30, 36 kVA mais certains fournisseurs proposent d'autres valeurs (ex: 42, 48 kVA). Retourne chaque puissance trouvée.
 - offer_name ne doit PAS contenir la puissance ni le type d'offre
 - valid_from = date de début de validité de la grille tarifaire
-- Si tu extrais les données d'un PDF : attention, les grilles tarifaires sont souvent présentées en colonnes (puissances en lignes, prix en colonnes). Veille à bien associer chaque prix à la bonne puissance et au bon champ.
+
+## Paliers de prix
+
+ATTENTION : certains fournisseurs appliquent des prix différents selon les tranches de puissance (ex: 3-6 kVA, 7-20 kVA, ≥21 kVA).
+
+- Vérifie attentivement les changements de tarif entre chaque ligne du tableau
+- Les cellules fusionnées dans les tableaux indiquent souvent un même prix pour plusieurs puissances
+- Quand une cellule de prix est fusionnée sur plusieurs lignes, applique ce prix à TOUTES les puissances concernées
+- Quand le prix change (nouvelle cellule), applique le nouveau prix aux puissances suivantes
+
+## Puissances
+
+- Inclure TOUTES les puissances proposées par le fournisseur pour chaque offre
+- Les puissances courantes sont 3, 6, 9, 12, 15, 18, 24, 30, 36 kVA mais certains fournisseurs proposent d'autres valeurs (4, 5, 7, 8, 10, 11, etc. ou 42, 48, 64 kVA)
+- Retourne chaque puissance trouvée sur la source
+- Si certaines puissances listées dans les offres existantes ne sont pas visibles sur la source fournie, ajoute un warning au niveau de l'offre : "Puissance XX kVA non visible sur la source - tarif à confirmer"
 
 ## Source des données
 
@@ -486,13 +506,31 @@ Si l'utilisateur te fournit un document en pièce jointe :
 - **Image (capture d'écran)** : bonne alternative, la lecture visuelle est généralement fiable
 - **PDF** : attention, la structure interne des fichiers PDF rend la lecture difficile pour les IA (colonnes mélangées, tableaux mal interprétés). Si possible, demande à l'utilisateur une capture d'écran ou un lien HTML à la place.
 
-Dans TOUS les cas, les tarifs proposés DOIVENT être vérifiés par l'utilisateur avant validation. Ajoute un "warning" si tu n'es pas certain d'un tarif.
+Dans TOUS les cas, les tarifs proposés DOIVENT être vérifiés par l'utilisateur avant validation.
 
-## Warning
+## Erreurs courantes à éviter
 
-Si une offre du fournisseur ne correspond pas exactement à un type ci-dessus, choisis le type le plus proche ET ajoute un champ "warning" expliquant la différence. Par exemple :
+1. **HT vs TTC** : Ne pas confondre les prix HT et TTC. Toujours prendre la colonne TTC.
+2. **Tarif réglementé vs tarif fournisseur** : Les tableaux affichent souvent les deux côte à côte. Prendre uniquement les colonnes du fournisseur (ex: "Tarif Alpiq"), pas les colonnes "Tarifs réglementés".
+3. **HC et HP inversés** : Vérifier que les colonnes Heures Creuses et Heures Pleines ne sont pas inversées. HP est généralement plus cher que HC.
+4. **Cellules fusionnées** : Attention aux cellules fusionnées qui masquent les changements de palier. Une cellule fusionnée sur plusieurs lignes = même prix pour toutes ces puissances.
+5. **Colonnes tronquées** : Si certaines colonnes ne sont pas visibles sur la capture, ajouter un warning et ne pas inventer de valeurs.
+6. **Virgule vs point** : Les sources françaises utilisent la virgule (0,1877). Convertir en point dans le JSON (0.1877).
+
+## Warnings
+
+Ajoute un champ "warning" dans les cas suivants :
+- Offre qui ne correspond pas exactement à un type standard
+- Prix incertain ou partiellement visible
+- Colonnes tronquées sur la capture
+- Puissances manquantes par rapport aux offres existantes
+- Conditions spéciales de l'offre
+
+Exemples :
 - "warning": "Cette offre a des horaires HC spécifiques non standards"
 - "warning": "Offre avec remise variable non modélisable dans les types standards"
+- "warning": "Prix HP pour puissances 6-20 kVA non visibles sur la capture - valeurs présumées identiques à ≥21 kVA"
+- "warning": "Puissance 64 kVA non visible sur la source fournie"
 
 ## Sortie
 
@@ -537,9 +575,9 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
       }
 
       // 2. Structure de chaque offre
-      const validOfferKeys = ['offer_name', 'offer_type', 'valid_from', 'warning', 'deprecated', 'power_variants']
+      const validOfferKeys = ['offer_name', 'offer_type', 'valid_from', 'valid_until', 'special_conditions', 'warning', 'deprecated', 'power_variants']
       const allValidVariantKeys = ['power_kva', 'subscription_price', 'base_price', 'base_price_weekend', 'hc_price', 'hp_price', 'hc_price_weekend', 'hp_price_weekend', 'hc_price_summer', 'hp_price_summer', 'hc_price_winter', 'hp_price_winter', 'tempo_blue_hc', 'tempo_blue_hp', 'tempo_white_hc', 'tempo_white_hp', 'tempo_red_hc', 'tempo_red_hp', 'ejp_normal', 'ejp_peak']
-      const validRootKeys = ['provider_name', 'offers']
+      const validRootKeys = ['provider_name', 'data_source', 'extraction_date', 'offers']
       const unknownRootKeys = Object.keys(data).filter(k => !validRootKeys.includes(k))
       if (unknownRootKeys.length > 0) {
         validationErrors.push(`Clé(s) inconnue(s) à la racine : ${unknownRootKeys.join(', ')}`)
