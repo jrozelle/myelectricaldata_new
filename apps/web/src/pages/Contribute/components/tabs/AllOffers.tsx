@@ -106,6 +106,8 @@ export default function AllOffers() {
   }>>([])
   // Flag pour empêcher le reset de newPowersData lors d'un changement de filtre déclenché par l'import IA
   const skipFilterResetRef = useRef(false)
+  // Ref pour tracker le fournisseur précédent et éviter les resets parasites lors des refetch React Query
+  const prevProviderRef = useRef(filterProvider)
 
   // Fetch providers
   const { data: providersData } = useQuery({
@@ -198,7 +200,11 @@ export default function AllOffers() {
   }, [sortedProviders, filterProvider])
 
   // Reset le filtre de type d'offre et les propositions de puissances quand on change de fournisseur
+  // Ignore les refetch React Query (changement de référence offersArray sans changement de provider)
   useEffect(() => {
+    const providerChanged = filterProvider !== prevProviderRef.current
+    prevProviderRef.current = filterProvider
+
     if (!filterProvider || offersArray.length === 0) {
       setFilterOfferType('all')
       setPowersToRemove([])
@@ -209,6 +215,11 @@ export default function AllOffers() {
       setNewOfferType('')
       return
     }
+
+    // Si le fournisseur n'a pas changé (simple refetch) et qu'un type est déjà sélectionné,
+    // ne pas reset les filtres — sauf si le type est encore 'all' (chargement initial)
+    if (!providerChanged && filterOfferType !== 'all') return
+
     const providerOffers = offersArray.filter(o => o.provider_id === filterProvider)
     const types = [...new Set(providerOffers.map(o => o.offer_type))]
     const typeOrder = ['BASE', 'HC_HP', 'TEMPO', 'EJP', 'ZEN_FLEX', 'ZEN_WEEK_END', 'ZEN_WEEK_END_HP_HC']
@@ -231,7 +242,7 @@ export default function AllOffers() {
     setNewGroups([])
     setIsAddingOffer(false)
     setNewOfferType('')
-    setShowAIMode(false)
+    // Garder showAIMode actif au changement de fournisseur, mais réinitialiser le contenu
     setAiJsonInput('')
     setAiImportResult(null)
     setDeprecatedOffers([])
@@ -258,13 +269,16 @@ export default function AllOffers() {
     return () => document.removeEventListener('click', handleClick)
   }, [duplicateDropdownId])
 
-  // Helper pour vérifier si une offre a été modifiée
+  // Helper pour vérifier si une offre a été modifiée (comparaison numérique avec epsilon)
   const isOfferModified = (offer: EnergyOffer): boolean => {
     const edited = editedOffers[offer.id]
     if (!edited) return false
     return Object.entries(edited).some(([key, value]) => {
-      const originalValue = (offer as unknown as Record<string, unknown>)[key]
-      return String(originalValue ?? '') !== value
+      const orig = Number((offer as unknown as Record<string, unknown>)[key])
+      const next = Number(value)
+      if (isNaN(orig) && isNaN(next)) return false
+      if (isNaN(orig) || isNaN(next)) return true
+      return Math.abs(orig - next) > 0.00001
     })
   }
 
@@ -412,6 +426,7 @@ Génère un JSON contenant TOUTES les offres disponibles de ce fournisseur.
 ## Format JSON requis
 
 {
+  "provider_name": "${providerName}",
   "offers": [
     {
       "offer_name": "Nom de l'offre (sans puissance ni type)",
@@ -446,11 +461,12 @@ ${currentOffersSection}
 
 ## Règles
 
+- IMPORTANT : le champ "provider_name" à la racine du JSON DOIT être exactement "${providerName}"
 - IMPORTANT : tous les prix doivent être en TTC (Toutes Taxes Comprises)
 - Tous les prix en euros avec un point décimal (ex: 0.2516)
 - subscription_price = abonnement mensuel TTC en €/mois
 - Les prix kWh sont en €/kWh TTC
-- Inclure toutes les puissances disponibles (typiquement : 3, 6, 9, 12, 15, 18, 24, 30, 36 kVA)
+- Inclure TOUTES les puissances proposées par le fournisseur pour chaque offre, sans te limiter à une liste prédéfinie. Les puissances courantes sont 3, 6, 9, 12, 15, 18, 24, 30, 36 kVA mais certains fournisseurs proposent d'autres valeurs (ex: 42, 48 kVA). Retourne chaque puissance trouvée.
 - offer_name ne doit PAS contenir la puissance ni le type d'offre
 - valid_from = date de début de validité de la grille tarifaire
 - Si tu extrais les données d'un PDF : attention, les grilles tarifaires sont souvent présentées en colonnes (puissances en lignes, prix en colonnes). Veille à bien associer chaque prix à la bonne puissance et au bon champ.
@@ -492,6 +508,77 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
         setAiImportResult({
           success: false,
           message: 'Le JSON doit contenir un tableau "offers" non vide.',
+        })
+        return
+      }
+
+      // Validation complète : collecter toutes les erreurs d'un coup
+      const validationErrors: string[] = []
+
+      // 1. provider_name
+      const currentProvider = sortedProviders.find(p => p.id === filterProvider)
+      const expectedProviderName = currentProvider?.name || ''
+      if (!data.provider_name) {
+        validationErrors.push(`Champ "provider_name" manquant. Attendu : "${expectedProviderName}"`)
+      } else {
+        const jsonProvider = data.provider_name.trim().toLowerCase()
+        const expected = expectedProviderName.trim().toLowerCase()
+        if (jsonProvider !== expected) {
+          validationErrors.push(`Fournisseur "${data.provider_name}" ≠ fournisseur sélectionné "${expectedProviderName}"`)
+        }
+      }
+
+      // 2. Structure de chaque offre
+      const validOfferKeys = ['offer_name', 'offer_type', 'valid_from', 'warning', 'deprecated', 'power_variants']
+      const allValidVariantKeys = ['power_kva', 'subscription_price', 'base_price', 'base_price_weekend', 'hc_price', 'hp_price', 'hc_price_weekend', 'hp_price_weekend', 'hc_price_summer', 'hp_price_summer', 'hc_price_winter', 'hp_price_winter', 'tempo_blue_hc', 'tempo_blue_hp', 'tempo_white_hc', 'tempo_white_hp', 'tempo_red_hc', 'tempo_red_hp', 'ejp_normal', 'ejp_peak']
+      const validRootKeys = ['provider_name', 'offers']
+      const unknownRootKeys = Object.keys(data).filter(k => !validRootKeys.includes(k))
+      if (unknownRootKeys.length > 0) {
+        validationErrors.push(`Clé(s) inconnue(s) à la racine : ${unknownRootKeys.join(', ')}`)
+      }
+
+      for (let i = 0; i < data.offers.length; i++) {
+        const offer = data.offers[i]
+        const offerLabel = `Offre #${i + 1}${offer?.offer_name ? ` (${offer.offer_name})` : ''}`
+        if (typeof offer !== 'object' || offer === null) {
+          validationErrors.push(`${offerLabel} : n'est pas un objet valide`)
+          continue
+        }
+        if (!offer.offer_name || typeof offer.offer_name !== 'string') {
+          validationErrors.push(`${offerLabel} : "offer_name" manquant`)
+        }
+        if (!offer.offer_type || typeof offer.offer_type !== 'string') {
+          validationErrors.push(`${offerLabel} : "offer_type" manquant`)
+        }
+        if (offer.deprecated !== true && (!offer.power_variants || !Array.isArray(offer.power_variants))) {
+          validationErrors.push(`${offerLabel} : "power_variants" manquant ou invalide`)
+        }
+        const unknownOfferKeys = Object.keys(offer).filter(k => !validOfferKeys.includes(k))
+        if (unknownOfferKeys.length > 0) {
+          validationErrors.push(`${offerLabel} : clé(s) inconnue(s) : ${unknownOfferKeys.join(', ')}`)
+        }
+        if (offer.power_variants && Array.isArray(offer.power_variants)) {
+          for (let j = 0; j < offer.power_variants.length; j++) {
+            const v = offer.power_variants[j]
+            const variantLabel = `${offerLabel}, variante #${j + 1}`
+            if (!v.power_kva || typeof v.power_kva !== 'number') {
+              validationErrors.push(`${variantLabel} : "power_kva" manquant ou invalide`)
+            }
+            if (v.subscription_price === undefined || typeof v.subscription_price !== 'number') {
+              validationErrors.push(`${variantLabel} : "subscription_price" manquant ou invalide`)
+            }
+            const unknownKeys = Object.keys(v).filter(k => !allValidVariantKeys.includes(k))
+            if (unknownKeys.length > 0) {
+              validationErrors.push(`${variantLabel} : clé(s) inconnue(s) : ${unknownKeys.join(', ')}`)
+            }
+          }
+        }
+      }
+
+      if (validationErrors.length > 0) {
+        setAiImportResult({
+          success: false,
+          message: `Validation échouée (${validationErrors.length} erreur${validationErrors.length > 1 ? 's' : ''}) :\n${validationErrors.slice(0, 15).join('\n')}${validationErrors.length > 15 ? `\n... et ${validationErrors.length - 15} autre(s)` : ''}`,
         })
         return
       }
@@ -572,6 +659,32 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
         let matched = 0
         let added = 0
         const fieldKeys = getFieldKeysForOfferType(offer.offer_type)
+
+        // Vérifier les champs de prix sur la première variante
+        if (offer.power_variants.length > 0) {
+          const sampleVariant = offer.power_variants[0]
+          const allPriceFields = ['base_price', 'base_price_weekend', 'hc_price', 'hp_price', 'hc_price_weekend', 'hp_price_weekend', 'hc_price_summer', 'hp_price_summer', 'hc_price_winter', 'hp_price_winter', 'tempo_blue_hc', 'tempo_blue_hp', 'tempo_white_hc', 'tempo_white_hp', 'tempo_red_hc', 'tempo_red_hp', 'ejp_normal', 'ejp_peak']
+          const missingFields = fieldKeys.filter(k => sampleVariant[k] === undefined || sampleVariant[k] === null)
+          const unexpectedFields = allPriceFields.filter(k => !fieldKeys.includes(k) && sampleVariant[k] !== undefined && sampleVariant[k] !== null)
+
+          if (missingFields.length > 0 || unexpectedFields.length > 0) {
+            const warnings: string[] = []
+            if (missingFields.length > 0) {
+              warnings.push(`Champs manquants pour ${offer.offer_type} : ${missingFields.join(', ')}`)
+            }
+            if (unexpectedFields.length > 0) {
+              warnings.push(`Champs inattendus pour ${offer.offer_type} : ${unexpectedFields.join(', ')} (attendus : ${fieldKeys.join(', ')})`)
+            }
+            details.push({
+              offer_type: offer.offer_type,
+              offer_name: offer.offer_name || offer.offer_type,
+              matched: 0,
+              added: 0,
+              warning: warnings.join('. '),
+            })
+            continue
+          }
+        }
 
         for (const variant of offer.power_variants) {
           if (!variant.power_kva || !variant.subscription_price) continue
@@ -772,8 +885,9 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
     const currentProvider = sortedProviders.find(p => p.id === filterProvider)
 
     // Calcul des modifications liées à un fournisseur spécifique
+    // En mode 'all', on inclut toutes les offres du fournisseur (pas de filtre par type)
     const providerOffers = currentProvider ? offersArray.filter((offer) =>
-      offer.provider_id === currentProvider.id && offer.offer_type === filterOfferType
+      offer.provider_id === currentProvider.id && (filterOfferType === 'all' || offer.offer_type === filterOfferType)
     ) : []
 
     // Récupérer le nom de base des offres existantes (sans la puissance)
@@ -983,6 +1097,8 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
           setProvidersToRemove([])
           setDeprecatedOffers([])
           queryClient.invalidateQueries({ queryKey: ['my-contributions'] })
+          queryClient.invalidateQueries({ queryKey: ['energy-providers'] })
+          queryClient.invalidateQueries({ queryKey: ['energy-offers'] })
         }
         if (errors > 0) {
           toast.error(`${errors} erreur(s) lors de l'envoi`)
@@ -1052,7 +1168,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
     return providerOffers.map(offer => {
       const powerMatch = offer.name.match(/(\d+)\s*kVA/i)
       const power = powerMatch ? parseInt(powerMatch[1]) : (offer.power_kva || 0)
-      return { power, offer_type: offer.offer_type }
+      return { power, offer_type: offer.offer_type, offer_name: getCleanOfferName(offer.name) }
     }).filter(p => p.power > 0)
   }, [providerOffers])
 
@@ -1061,10 +1177,14 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
   const isPowerAlreadyUsed = (power: number, currentIndex?: number, offerType?: string, offerName?: string): boolean => {
     const effectiveType = offerType || filterOfferType
     // Vérifier dans les offres existantes (sauf celles marquées pour suppression)
-    // En mode 'all', on compare aussi par nom d'offre pour éviter les faux doublons entre offres différentes
-    const existsInOffers = existingPowers.some(ep =>
-      ep.power === power && ep.offer_type === effectiveType && !powersToRemove.includes(power)
-    )
+    // Compare power + offer_type + offer_name pour éviter les faux doublons entre offres différentes du même type
+    const existsInOffers = existingPowers.some(ep => {
+      if (ep.power !== power || ep.offer_type !== effectiveType) return false
+      if (powersToRemove.includes(power)) return false
+      // Si un offer_name est fourni, comparer aussi par nom d'offre
+      if (offerName && ep.offer_name && offerName !== ep.offer_name) return false
+      return true
+    })
     if (existsInOffers) return true
     // Vérifier dans les nouvelles puissances ajoutées (sauf l'index courant)
     // Même power + même offer_type + même offer_name = doublon
@@ -1262,57 +1382,62 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
             })()}
           </p>
         </div>
-        {/* Bouton Mode IA (visible en mode édition + fournisseur sélectionné) */}
-        {isEditMode && filterProvider && (
+        {/* Boutons mode */}
+        <div className="flex items-center gap-2">
+          {isEditMode && filterProvider && (
+            <button
+              onClick={() => {
+                setShowAIMode(!showAIMode)
+                setAiImportResult(null)
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                showAIMode
+                  ? 'bg-purple-600 text-white hover:bg-purple-700'
+                  : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-700'
+              }`}
+            >
+              <Sparkles size={16} />
+              Mode IA
+            </button>
+          )}
           <button
             onClick={() => {
-              setShowAIMode(!showAIMode)
-              setAiImportResult(null)
+              if (isEditMode) {
+                confirmOrExecute(() => {
+                  setEditedOffers({})
+                  setPriceSheetUrl('')
+                  setPowersToRemove([])
+                  setNewPowersData([])
+                  setShowAIMode(false)
+                  setAiJsonInput('')
+                  setAiImportResult(null)
+                  setDeprecatedOffers([])
+                  setIsEditMode(false)
+                })
+                return
+              }
+              setShowHistory(false)
+              setIsEditMode(true)
             }}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              showAIMode
-                ? 'bg-purple-600 text-white hover:bg-purple-700'
-                : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-700'
+              isEditMode
+                ? 'bg-primary-600 text-white hover:bg-primary-700'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
-            <Sparkles size={16} />
-            Mode IA
+            {isEditMode ? (
+              <>
+                <Eye size={16} />
+                Mode lecture
+              </>
+            ) : (
+              <>
+                <Pencil size={16} />
+                Proposer des modifications
+              </>
+            )}
           </button>
-        )}
-        {/* Bouton mode lecture/édition */}
-        <button
-          onClick={() => {
-            if (isEditMode) {
-              confirmOrExecute(() => {
-                // Quitter le mode édition : reset des modifications
-                setEditedOffers({})
-                setPriceSheetUrl('')
-                setPowersToRemove([])
-                setNewPowersData([])
-                setIsEditMode(false)
-              })
-              return
-            }
-            setIsEditMode(true)
-          }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            isEditMode
-              ? 'bg-primary-600 text-white hover:bg-primary-700'
-              : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-          }`}
-        >
-          {isEditMode ? (
-            <>
-              <Eye size={16} />
-              Mode lecture
-            </>
-          ) : (
-            <>
-              <Pencil size={16} />
-              Proposer des modifications
-            </>
-          )}
-        </button>
+        </div>
       </div>
 
       {/* Encadré d'information en mode édition */}
@@ -1408,8 +1533,8 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
             })}
           </div>
 
-          {/* Toggle historique des tarifs */}
-          <div className="mt-4 flex items-center gap-3">
+          {/* Toggle historique des tarifs (masqué en mode édition) */}
+          {!isEditMode && <div className="mt-4 flex items-center gap-3">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -1426,7 +1551,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                 Tarifs expirés inclus
               </span>
             )}
-          </div>
+          </div>}
 
           {/* Bouton/Champ ajouter un nouveau fournisseur (masqué en mode IA) */}
           {isEditMode && !isAddingProvider && !showAIMode && (
@@ -1518,7 +1643,26 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                     ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300'
                     : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
                 }`}>
-                  <p className="font-medium mb-1">{aiImportResult.success ? '✅' : '❌'} {aiImportResult.message}</p>
+                  {(() => {
+                    const lines = aiImportResult.message.split('\n')
+                    const title = lines[0]
+                    const errorLines = lines.slice(1)
+                    return (
+                      <>
+                        <p className="font-medium mb-1">{aiImportResult.success ? '✅' : '❌'} {title}</p>
+                        {errorLines.length > 0 && (
+                          <ul className="mt-2 space-y-1 list-none">
+                            {errorLines.map((line, idx) => (
+                              <li key={idx} className="text-xs flex items-start gap-1.5">
+                                <span className="text-red-400 mt-0.5 shrink-0">•</span>
+                                <span>{line}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    )
+                  })()}
                   {aiImportResult.details && aiImportResult.details.length > 0 && (
                     <ul className="mt-2 space-y-1">
                       {aiImportResult.details.map((d, i) => (
@@ -3788,93 +3932,132 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                     </div>
                   </div>
                 )}
+                {/* Warning si aucune modification significative */}
+                {(() => {
+                  const hasAnyContent =
+                    offersArray.some(o => o.provider_id === filterProvider && isOfferModified(o)) ||
+                    newPowersData.length > 0 ||
+                    powersToRemove.length > 0 ||
+                    providersToRemove.length > 0 ||
+                    deprecatedOffers.length > 0 ||
+                    newGroups.length > 0 ||
+                    hasModifiedGroupNames
+                  if (hasAnyContent) return null
+                  return (
+                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-700 p-4 flex items-start gap-3">
+                      <AlertCircle size={18} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                          Aucune modification significative détectée
+                        </p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          Les valeurs importées sont identiques aux tarifs actuels. Si vous avez utilisé le mode IA, vérifiez que les données de l'IA sont à jour.
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
 
-              {/* Champ lien vers la fiche tarifaire */}
-              <div className="mt-6 p-4 border-2 border-dashed border-primary-300 dark:border-primary-700 rounded-lg">
-                <label className="flex items-center gap-2 text-sm font-medium text-primary-700 dark:text-primary-300 mb-2">
-                  <Link size={16} />
-                  Lien vers la fiche tarifaire officielle
-                  {!isPrivilegedUser && <span className="text-red-500">*</span>}
-                  {isPrivilegedUser && <span className="text-gray-500 text-xs font-normal">(optionnel)</span>}
-                </label>
-                <input
-                  type="url"
-                  value={priceSheetUrl}
-                  onChange={(e) => setPriceSheetUrl(e.target.value)}
-                  placeholder="https://www.edf.fr/grille-tarifaire.pdf"
-                  className={`w-full px-4 py-2 rounded-lg border ${
-                    priceSheetUrl && !priceSheetUrl.startsWith('http')
-                      ? 'border-red-400 dark:border-red-600'
-                      : 'border-gray-300 dark:border-gray-600'
-                  } bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:outline-none`}
-                />
-                {!priceSheetUrl && !isPrivilegedUser && (
-                  <p className="mt-2 text-xs text-primary-600 dark:text-primary-400 flex items-center gap-1">
-                    <AlertCircle size={12} />
-                    Ce champ est obligatoire pour valider vos modifications
-                  </p>
-                )}
-              </div>
+              {/* Champ lien + erreurs + boutons : uniquement si des modifications existent */}
+              {totalModificationsCount > 0 && (
+                <>
+                  <div className="mt-6 p-4 border-2 border-dashed border-primary-300 dark:border-primary-700 rounded-lg">
+                    <label className="flex items-center gap-2 text-sm font-medium text-primary-700 dark:text-primary-300 mb-2">
+                      <Link size={16} />
+                      Lien vers la fiche tarifaire officielle
+                      {!isPrivilegedUser && <span className="text-red-500">*</span>}
+                      {isPrivilegedUser && <span className="text-gray-500 text-xs font-normal">(optionnel)</span>}
+                    </label>
+                    <input
+                      type="url"
+                      value={priceSheetUrl}
+                      onChange={(e) => setPriceSheetUrl(e.target.value)}
+                      placeholder="https://www.edf.fr/grille-tarifaire.pdf"
+                      className={`w-full px-4 py-2 rounded-lg border ${
+                        priceSheetUrl && !priceSheetUrl.startsWith('http')
+                          ? 'border-red-400 dark:border-red-600'
+                          : 'border-gray-300 dark:border-gray-600'
+                      } bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:outline-none`}
+                    />
+                    {!priceSheetUrl && !isPrivilegedUser && (
+                      <p className="mt-2 text-xs text-primary-600 dark:text-primary-400 flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        Ce champ est obligatoire pour valider vos modifications
+                      </p>
+                    )}
+                  </div>
 
-              {/* Messages d'erreur */}
-              {hasDuplicatePowers && (
-                <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                  <p className="text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
-                    <AlertCircle size={16} />
-                    Certaines puissances que vous souhaitez ajouter existent déjà.
-                  </p>
-                </div>
-              )}
+                  {hasDuplicatePowers && (
+                    <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                      <p className="text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
+                        <AlertCircle size={16} />
+                        Certaines puissances que vous souhaitez ajouter existent déjà.
+                      </p>
+                    </div>
+                  )}
 
-              {(hasIncompletePowers || hasIncompleteGroups) && !hasDuplicatePowers && !hasGroupDuplicatePowers && (
-                <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                  <p className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
-                    <AlertCircle size={16} />
-                    Veuillez renseigner tous les champs obligatoires.
-                  </p>
-                </div>
+                  {(hasIncompletePowers || hasIncompleteGroups) && !hasDuplicatePowers && !hasGroupDuplicatePowers && (
+                    <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <p className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                        <AlertCircle size={16} />
+                        Veuillez renseigner tous les champs obligatoires.
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
             {/* Footer avec boutons */}
             <div className="sticky bottom-0 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4 space-y-3">
-              <div className="flex gap-3">
+              {totalModificationsCount > 0 ? (
+                <>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowRecapModal(false)}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                    >
+                      Retour
+                    </button>
+                    <button
+                      onClick={() => {
+                        submitAllModifications()
+                        setShowRecapModal(false)
+                      }}
+                      disabled={submittingOffers || (!isPrivilegedUser && !priceSheetUrl) || (priceSheetUrl.length > 0 && !priceSheetUrl.startsWith('http')) || hasDuplicatePowers || hasIncompletePowers || hasIncompleteGroups || hasGroupDuplicatePowers}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
+                    >
+                      <Send size={18} />
+                      {submittingOffers ? 'Envoi en cours...' : 'Soumettre'}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditedOffers({})
+                      setPriceSheetUrl('')
+                      setPowersToRemove([])
+                      setNewPowersData([])
+                      setProvidersToRemove([])
+                      setNewGroups([])
+                      setEditedOfferNames({})
+                      setDeprecatedOffers([])
+                      setShowRecapModal(false)
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg transition-colors"
+                  >
+                    <X size={18} />
+                    Tout annuler
+                  </button>
+                </>
+              ) : (
                 <button
                   onClick={() => setShowRecapModal(false)}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
                 >
-                  Retour
+                  Fermer
                 </button>
-                <button
-                  onClick={() => {
-                    submitAllModifications()
-                    setShowRecapModal(false)
-                  }}
-                  disabled={submittingOffers || (!isPrivilegedUser && !priceSheetUrl) || (priceSheetUrl.length > 0 && !priceSheetUrl.startsWith('http')) || hasDuplicatePowers || hasIncompletePowers || hasIncompleteGroups || hasGroupDuplicatePowers}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
-              >
-                <Send size={18} />
-                {submittingOffers ? 'Envoi en cours...' : 'Soumettre'}
-              </button>
-              </div>
-              <button
-                onClick={() => {
-                  setEditedOffers({})
-                  setPriceSheetUrl('')
-                  setPowersToRemove([])
-                  setNewPowersData([])
-                  setProvidersToRemove([])
-                  setNewGroups([])
-                  setEditedOfferNames({})
-                  setDeprecatedOffers([])
-                  setShowRecapModal(false)
-                }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg transition-colors"
-              >
-                <X size={18} />
-                Tout annuler
-              </button>
+              )}
             </div>
           </div>
         </div>

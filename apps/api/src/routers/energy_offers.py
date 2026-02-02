@@ -1036,9 +1036,17 @@ async def approve_contribution(
                         )
             # Check if this is a deletion request (offer_name starts with [SUPPRESSION])
             elif contribution.offer_name and contribution.offer_name.startswith("[SUPPRESSION]"):
-                # Delete offer by provider_id, offer_type and power_kva
-                if contribution.existing_provider_id and contribution.offer_type and contribution.power_kva:
-                    # First try to find by power_kva field
+                offer_to_delete = None
+
+                # Méthode 1 : chercher par existing_offer_id (le plus fiable)
+                if contribution.existing_offer_id:
+                    offer_result = await db.execute(
+                        select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id)
+                    )
+                    offer_to_delete = offer_result.scalar_one_or_none()
+
+                # Méthode 2 : chercher par provider_id + offer_type + power_kva
+                if not offer_to_delete and contribution.existing_provider_id and contribution.offer_type and contribution.power_kva is not None:
                     delete_query = select(EnergyOffer).where(
                         EnergyOffer.provider_id == contribution.existing_provider_id,
                         EnergyOffer.offer_type == contribution.offer_type,
@@ -1047,32 +1055,30 @@ async def approve_contribution(
                     delete_result = await db.execute(delete_query)
                     offer_to_delete = delete_result.scalar_one_or_none()
 
-                    # If not found by power_kva, try to find by name pattern (for offers with NULL power_kva)
-                    if not offer_to_delete:
-                        # Search for offers matching the exact pattern "- X kVA" at the end of the name
-                        # This avoids matching "12 kVA" when searching for "2 kVA"
-                        power_pattern = f"- {contribution.power_kva} kVA"
-                        all_offers_query = select(EnergyOffer).where(
-                            EnergyOffer.provider_id == contribution.existing_provider_id,
-                            EnergyOffer.offer_type == contribution.offer_type,
-                            EnergyOffer.name.ilike(f"%{power_pattern}")
-                        )
-                        all_offers_result = await db.execute(all_offers_query)
-                        offers_found = all_offers_result.scalars().all()
-                        # Take the first match if any
-                        offer_to_delete = offers_found[0] if offers_found else None
+                # Méthode 3 : chercher par pattern de nom (pour les offres sans power_kva)
+                if not offer_to_delete and contribution.existing_provider_id and contribution.offer_type and contribution.power_kva is not None:
+                    power_pattern = f"- {contribution.power_kva} kVA"
+                    all_offers_query = select(EnergyOffer).where(
+                        EnergyOffer.provider_id == contribution.existing_provider_id,
+                        EnergyOffer.offer_type == contribution.offer_type,
+                        EnergyOffer.name.ilike(f"%{power_pattern}")
+                    )
+                    all_offers_result = await db.execute(all_offers_query)
+                    offers_found = all_offers_result.scalars().all()
+                    offer_to_delete = offers_found[0] if offers_found else None
 
-                    if offer_to_delete:
-                        await db.delete(offer_to_delete)
-                        logger.info(
-                            f"[CONTRIBUTION] Deleted offer: provider={contribution.existing_provider_id}, "
-                            f"type={contribution.offer_type}, power={contribution.power_kva} kVA, offer_id={offer_to_delete.id}"
-                        )
-                    else:
-                        logger.warning(
-                            f"[CONTRIBUTION] Offer to delete not found: provider={contribution.existing_provider_id}, "
-                            f"type={contribution.offer_type}, power={contribution.power_kva} kVA"
-                        )
+                if offer_to_delete:
+                    await db.delete(offer_to_delete)
+                    logger.info(
+                        f"[CONTRIBUTION] Deleted offer: provider={contribution.existing_provider_id}, "
+                        f"type={contribution.offer_type}, power={contribution.power_kva} kVA, offer_id={offer_to_delete.id}"
+                    )
+                else:
+                    logger.warning(
+                        f"[CONTRIBUTION] Offer to delete not found: provider={contribution.existing_provider_id}, "
+                        f"type={contribution.offer_type}, power={contribution.power_kva} kVA, "
+                        f"existing_offer_id={contribution.existing_offer_id}"
+                    )
             elif contribution.existing_offer_id:
                 # Update existing offer
                 offer_result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id))
@@ -1294,9 +1300,17 @@ async def bulk_approve_contributions(
 
                 # Check if this is a deletion request (offer_name starts with [SUPPRESSION])
                 elif contribution.offer_name and contribution.offer_name.startswith("[SUPPRESSION]"):
-                    # Delete offer by provider_id, offer_type and power_kva
-                    if contribution.existing_provider_id and contribution.offer_type and contribution.power_kva:
-                        # First try to find by power_kva field
+                    offer_to_delete = None
+
+                    # Méthode 1 : chercher par existing_offer_id (le plus fiable)
+                    if contribution.existing_offer_id:
+                        offer_result = await db.execute(
+                            select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id)
+                        )
+                        offer_to_delete = offer_result.scalar_one_or_none()
+
+                    # Méthode 2 : chercher par provider_id + offer_type + power_kva
+                    if not offer_to_delete and contribution.existing_provider_id and contribution.offer_type and contribution.power_kva is not None:
                         delete_query = select(EnergyOffer).where(
                             EnergyOffer.provider_id == contribution.existing_provider_id,
                             EnergyOffer.offer_type == contribution.offer_type,
@@ -1305,34 +1319,30 @@ async def bulk_approve_contributions(
                         delete_result = await db.execute(delete_query)
                         offer_to_delete = delete_result.scalar_one_or_none()
 
-                        # If not found by power_kva, try to find by name pattern (e.g. "- 2 kVA" at end of name)
-                        # This handles offers created via contributions that may not have power_kva set
-                        if not offer_to_delete:
-                            # Use exact pattern "- X kVA" at end to avoid matching "12 kVA" when searching for "2 kVA"
-                            power_pattern = f"- {contribution.power_kva} kVA"
-                            all_offers_query = select(EnergyOffer).where(
-                                EnergyOffer.provider_id == contribution.existing_provider_id,
-                                EnergyOffer.offer_type == contribution.offer_type,
-                                EnergyOffer.name.ilike(f"%{power_pattern}")
-                            )
-                            all_offers_result = await db.execute(all_offers_query)
-                            offers_found = all_offers_result.scalars().all()
-                            # Take the first match if any
-                            offer_to_delete = offers_found[0] if offers_found else None
-                            if offer_to_delete:
-                                logger.info(f"[BULK APPROVE] Found offer by name pattern: {offer_to_delete.name}")
+                    # Méthode 3 : chercher par pattern de nom
+                    if not offer_to_delete and contribution.existing_provider_id and contribution.offer_type and contribution.power_kva is not None:
+                        power_pattern = f"- {contribution.power_kva} kVA"
+                        all_offers_query = select(EnergyOffer).where(
+                            EnergyOffer.provider_id == contribution.existing_provider_id,
+                            EnergyOffer.offer_type == contribution.offer_type,
+                            EnergyOffer.name.ilike(f"%{power_pattern}")
+                        )
+                        all_offers_result = await db.execute(all_offers_query)
+                        offers_found = all_offers_result.scalars().all()
+                        offer_to_delete = offers_found[0] if offers_found else None
 
-                        if offer_to_delete:
-                            await db.delete(offer_to_delete)
-                            logger.info(
-                                f"[BULK APPROVE] Deleted offer: provider={contribution.existing_provider_id}, "
-                                f"type={contribution.offer_type}, power={contribution.power_kva} kVA"
-                            )
-                        else:
-                            logger.warning(
-                                f"[BULK APPROVE] Offer not found for deletion: provider={contribution.existing_provider_id}, "
-                                f"type={contribution.offer_type}, power={contribution.power_kva} kVA"
-                            )
+                    if offer_to_delete:
+                        await db.delete(offer_to_delete)
+                        logger.info(
+                            f"[BULK APPROVE] Deleted offer: provider={contribution.existing_provider_id}, "
+                            f"type={contribution.offer_type}, power={contribution.power_kva} kVA, offer_id={offer_to_delete.id}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[BULK APPROVE] Offer not found for deletion: provider={contribution.existing_provider_id}, "
+                            f"type={contribution.offer_type}, power={contribution.power_kva} kVA, "
+                            f"existing_offer_id={contribution.existing_offer_id}"
+                        )
                 elif contribution.existing_offer_id:
                     # Update existing offer
                     offer_result = await db.execute(select(EnergyOffer).where(EnergyOffer.id == contribution.existing_offer_id))
