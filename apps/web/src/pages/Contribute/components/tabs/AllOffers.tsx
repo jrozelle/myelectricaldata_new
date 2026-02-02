@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Package, Send, X, Link, AlertCircle, Plus, Trash2, Undo2, Eye, Pencil, Info, Building2, ArrowDownToLine, Sparkles, Copy } from 'lucide-react'
+import { Package, Send, X, Link, AlertCircle, Plus, Trash2, Undo2, Eye, Pencil, Info, Building2, ArrowDownToLine, Sparkles, Copy, Zap } from 'lucide-react'
 import { energyApi, type EnergyProvider, type ContributionData, type EnergyOffer } from '@/api/energy'
 import { toast } from '@/stores/notificationStore'
 import { LoadingOverlay } from '@/components/LoadingOverlay'
@@ -27,7 +27,7 @@ export default function AllOffers() {
   const [priceSheetUrl, setPriceSheetUrl] = useState('')
 
   // State pour les propositions d'ajout/suppression de puissances
-  const [powersToRemove, setPowersToRemove] = useState<number[]>([])
+  const [powersToRemove, setPowersToRemove] = useState<{ power: number; groupName: string }[]>([])
   // Nouvelles puissances à ajouter avec leurs tarifs (liste)
   const [newPowersData, setNewPowersData] = useState<Array<{
     power: number
@@ -35,6 +35,7 @@ export default function AllOffers() {
     // Champs optionnels pour l'import IA multi-types
     offer_type?: string
     offer_name?: string
+    valid_from?: string
   }>>([])
 
   // Formulaire inline pour créer un nouveau fournisseur
@@ -109,7 +110,7 @@ export default function AllOffers() {
   // Ref pour tracker le fournisseur précédent et éviter les resets parasites lors des refetch React Query
   const prevProviderRef = useRef(filterProvider)
 
-  // Fetch providers
+  // Fetch providers (staleTime: 0 pour toujours refetch au montage — les offres peuvent changer après validation admin)
   const { data: providersData } = useQuery({
     queryKey: ['energy-providers'],
     queryFn: async () => {
@@ -119,9 +120,10 @@ export default function AllOffers() {
       }
       return []
     },
+    staleTime: 0,
   })
 
-  // Fetch all offers (avec option historique)
+  // Fetch all offers (staleTime: 0 pour toujours refetch au montage)
   const { data: offersData } = useQuery({
     queryKey: ['energy-offers', showHistory],
     queryFn: async () => {
@@ -131,6 +133,7 @@ export default function AllOffers() {
       }
       return []
     },
+    staleTime: 0,
   })
 
   // Normaliser offersData en tableau (protection contre les données corrompues du cache)
@@ -274,6 +277,11 @@ export default function AllOffers() {
     const edited = editedOffers[offer.id]
     if (!edited) return false
     return Object.entries(edited).some(([key, value]) => {
+      // valid_from est une date, comparaison en string (pas numérique)
+      if (key === 'valid_from') {
+        const origStr = String((offer as unknown as Record<string, unknown>)[key] || '')
+        return value !== origStr
+      }
       const orig = Number((offer as unknown as Record<string, unknown>)[key])
       const next = Number(value)
       if (isNaN(orig) && isNaN(next)) return false
@@ -594,7 +602,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
       }> = []
 
       const updatedOffers = { ...editedOffers }
-      const addedPowers: Array<{ power: number; fields: Record<string, string>; offer_type: string; offer_name: string }> = []
+      const addedPowers: Array<{ power: number; fields: Record<string, string>; offer_type: string; offer_name: string; valid_from?: string }> = []
       const newDeprecated: typeof deprecatedOffers = []
 
       for (const offer of data.offers) {
@@ -704,6 +712,10 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                 updatedOffers[existing.id][key] = String(variant[key])
               }
             }
+            // Stocker la date de validité importée depuis le JSON
+            if (offer.valid_from) {
+              updatedOffers[existing.id].valid_from = offer.valid_from
+            }
             matched++
           } else {
             // Puissance non existante : créer dans newPowersData avec offer_type
@@ -720,6 +732,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
               fields,
               offer_type: offer.offer_type,
               offer_name: offer.offer_name || offer.offer_type,
+              valid_from: offer.valid_from,
             })
             added++
           }
@@ -864,6 +877,175 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
     )
   }
 
+  // Helper pour rendre une ligne de nouvelle puissance
+  const renderNewPowerRow = (newPower: typeof newPowersData[0], index: number) => {
+    const isDuplicate = isPowerAlreadyUsed(newPower.power, index, newPower.offer_type, newPower.offer_name)
+    const isIncomplete = !isNewPowerComplete(newPower)
+    const hasError = isDuplicate || isIncomplete
+    const effectiveType = newPower.offer_type || filterOfferType
+    return (
+      <div
+        key={`new-power-${index}`}
+        className={`rounded-lg p-3 border transition-all ${
+          isDuplicate
+            ? 'bg-red-50 dark:bg-red-900/20 border-red-400 dark:border-red-600'
+            : isIncomplete
+              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-600'
+              : 'bg-green-50 dark:bg-green-900/20 border-green-400 dark:border-green-600'
+        }`}
+      >
+        <div className="flex flex-wrap items-center gap-4">
+          {/* Nom de l'offre */}
+          <div className="w-64 shrink-0">
+            <div className="flex items-center gap-2">
+              <Plus size={16} className={hasError ? (isDuplicate ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400') : 'text-green-600 dark:text-green-400'} />
+              <h4 className={`font-medium text-sm ${hasError ? (isDuplicate ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300') : 'text-green-700 dark:text-green-300'}`}>Nouvelle puissance</h4>
+              {newPower.offer_type && (
+                <span className="text-xs text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded shrink-0">{newPower.offer_type}</span>
+              )}
+              {isDuplicate ? (
+                <span className="text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded shrink-0">Existe déjà</span>
+              ) : isIncomplete ? (
+                <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded shrink-0">Incomplet</span>
+              ) : (
+                <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 rounded shrink-0">Nouveau</span>
+              )}
+            </div>
+          </div>
+
+          {/* Puissance */}
+          <div className="w-16 text-center shrink-0">
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={newPower.power}
+              onChange={(e) => {
+                const power = e.target.value ? parseInt(e.target.value) : 0
+                setNewPowersData(prev => prev.map((p, i) => i === index ? { ...p, power } : p))
+              }}
+              className={`w-full px-2 py-1 text-xs font-medium text-center border rounded bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
+                isDuplicate || !newPower.power || newPower.power <= 0
+                  ? 'border-red-400 dark:border-red-600 focus:ring-red-500'
+                  : 'border-green-300 dark:border-green-600 focus:ring-green-500'
+              }`}
+            />
+          </div>
+
+          {/* Abonnement (obligatoire) */}
+          <div className="shrink-0">
+            <div className="flex items-center gap-2 w-[200px]">
+              <span className="text-sm font-semibold w-10 shrink-0 text-right text-gray-600 dark:text-gray-400">Abo.<span className="text-red-500">*</span></span>
+              <input
+                type="number"
+                step="0.01"
+                value={newPower.fields.subscription_price ?? ''}
+                onChange={(e) => setNewPowersData(prev => prev.map((p, i) =>
+                  i === index ? { ...p, fields: { ...p.fields, subscription_price: e.target.value } } : p
+                ))}
+                placeholder="0.00"
+                className={`w-28 px-3 py-2 text-base font-bold border-2 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
+                  !newPower.fields.subscription_price || newPower.fields.subscription_price === ''
+                    ? 'border-amber-400 dark:border-amber-600 focus:ring-amber-500'
+                    : 'border-green-300 dark:border-green-600 focus:ring-green-500'
+                }`}
+              />
+              <span className="text-gray-500 dark:text-gray-400 text-sm w-12 shrink-0">€/mois</span>
+            </div>
+          </div>
+
+          {/* Tarifs selon le type d'offre */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1 justify-end pr-4 flex-1">
+            {effectiveType === 'BASE' && (
+              <div className="flex items-center gap-2 w-[200px]">
+                <span className="text-sm font-semibold w-10 shrink-0 text-right text-gray-600 dark:text-gray-400">Base<span className="text-red-500">*</span></span>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={newPower.fields.base_price ?? ''}
+                  onChange={(e) => setNewPowersData(prev => prev.map((p, i) =>
+                    i === index ? { ...p, fields: { ...p.fields, base_price: e.target.value } } : p
+                  ))}
+                  placeholder="0.0000"
+                  className={`w-28 px-3 py-2 text-base font-bold border-2 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
+                    !newPower.fields.base_price || newPower.fields.base_price === ''
+                      ? 'border-amber-400 dark:border-amber-600 focus:ring-amber-500'
+                      : 'border-green-300 dark:border-green-600 focus:ring-green-500'
+                  }`}
+                />
+                <span className="text-gray-500 dark:text-gray-400 text-sm w-12 shrink-0">€/kWh</span>
+              </div>
+            )}
+
+            {effectiveType === 'HC_HP' && (
+              <>
+                <div className="flex items-center gap-2 w-[200px]">
+                  <span className="text-sm font-semibold w-10 shrink-0 text-right text-blue-600 dark:text-blue-400">HC<span className="text-red-500">*</span></span>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={newPower.fields.hc_price ?? ''}
+                    onChange={(e) => setNewPowersData(prev => prev.map((p, i) =>
+                      i === index ? { ...p, fields: { ...p.fields, hc_price: e.target.value } } : p
+                    ))}
+                    placeholder="0.0000"
+                    className={`w-28 px-3 py-2 text-base font-bold border-2 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
+                      !newPower.fields.hc_price || newPower.fields.hc_price === ''
+                        ? 'border-amber-400 dark:border-amber-600 focus:ring-amber-500'
+                        : 'border-green-300 dark:border-green-600 focus:ring-green-500'
+                    }`}
+                  />
+                  <span className="text-gray-500 dark:text-gray-400 text-sm w-12 shrink-0">€/kWh</span>
+                </div>
+                <div className="flex items-center gap-2 w-[200px]">
+                  <span className="text-sm font-semibold w-10 shrink-0 text-right text-red-600 dark:text-red-400">HP<span className="text-red-500">*</span></span>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={newPower.fields.hp_price ?? ''}
+                    onChange={(e) => setNewPowersData(prev => prev.map((p, i) =>
+                      i === index ? { ...p, fields: { ...p.fields, hp_price: e.target.value } } : p
+                    ))}
+                    placeholder="0.0000"
+                    className={`w-28 px-3 py-2 text-base font-bold border-2 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
+                      !newPower.fields.hp_price || newPower.fields.hp_price === ''
+                        ? 'border-amber-400 dark:border-amber-600 focus:ring-amber-500'
+                        : 'border-green-300 dark:border-green-600 focus:ring-green-500'
+                    }`}
+                  />
+                  <span className="text-gray-500 dark:text-gray-400 text-sm w-12 shrink-0">€/kWh</span>
+                </div>
+              </>
+            )}
+
+            {effectiveType === 'TEMPO' && (
+              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                Tarifs Tempo à renseigner après validation
+              </div>
+            )}
+
+            {(effectiveType === 'ZEN_WEEK_END' || effectiveType === 'ZEN_WEEK_END_HP_HC' || effectiveType === 'ZEN_FLEX' || effectiveType === 'SEASONAL' || effectiveType === 'EJP') && (
+              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                Tarifs spécifiques à renseigner après validation
+              </div>
+            )}
+          </div>
+
+          {/* Bouton supprimer */}
+          <div className="shrink-0">
+            <button
+              onClick={() => setNewPowersData(prev => prev.filter((_, i) => i !== index))}
+              className="p-1.5 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+              title="Supprimer cette puissance"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Helper pour extraire et nettoyer le nom de l'offre
   const getCleanOfferName = (offerName: string): string => {
     let name = offerName.replace(/\s*\d+\s*kVA/gi, '')
@@ -881,13 +1063,13 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
 
   // Helper pour soumettre toutes les modifications en un seul lot (batch)
   // Envoie une seule notification Slack/email au lieu d'une par contribution
-  const submitAllModifications = async () => {
+  const submitAllModifications = async (directApply: boolean = false) => {
     const currentProvider = sortedProviders.find(p => p.id === filterProvider)
 
-    // Calcul des modifications liées à un fournisseur spécifique
-    // En mode 'all', on inclut toutes les offres du fournisseur (pas de filtre par type)
+    // Soumission : inclure TOUTES les offres modifiées du fournisseur
+    // (pas seulement le type actuellement affiché, car l'import IA peut toucher plusieurs types)
     const providerOffers = currentProvider ? offersArray.filter((offer) =>
-      offer.provider_id === currentProvider.id && (filterOfferType === 'all' || offer.offer_type === filterOfferType)
+      offer.provider_id === currentProvider.id
     ) : []
 
     // Récupérer le nom de base des offres existantes (sans la puissance)
@@ -952,19 +1134,22 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
             hp_price_summer: parsePrice(edited.hp_price_summer, offer.hp_price_summer),
           },
           price_sheet_url: priceSheetUrl,
-          valid_from: offer.valid_from || new Date().toISOString().split('T')[0],
+          valid_from: edited.valid_from || offer.valid_from || new Date().toISOString().split('T')[0],
         })
       }
 
       // Suppressions de puissances
-      for (const power of powersToRemove) {
+      for (const { power, groupName } of powersToRemove) {
+        // Trouver le type d'offre depuis les offres du groupe
+        const groupOffer = providerOffers.find(o => getCleanOfferName(o.name) === groupName)
+        const offerType = groupOffer?.offer_type || filterOfferType
         allContributions.push({
           contribution_type: 'UPDATE_OFFER',
           existing_provider_id: currentProvider.id,
           provider_name: currentProvider.name,
-          offer_name: `[SUPPRESSION] ${currentProvider.name} - ${filterOfferType} - ${power} kVA`,
-          offer_type: filterOfferType,
-          description: `Demande de suppression de la puissance ${power} kVA pour ${currentProvider.name} (${filterOfferType})`,
+          offer_name: `[SUPPRESSION] ${currentProvider.name} - ${groupName} - ${power} kVA`,
+          offer_type: offerType,
+          description: `Demande de suppression de la puissance ${power} kVA pour ${currentProvider.name} (${groupName})`,
           power_kva: power,
           price_sheet_url: priceSheetUrl,
           valid_from: new Date().toISOString().split('T')[0],
@@ -1011,7 +1196,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
           power_kva: newPower.power,
           pricing_data: pricingData,
           price_sheet_url: priceSheetUrl,
-          valid_from: new Date().toISOString().split('T')[0],
+          valid_from: newPower.valid_from || new Date().toISOString().split('T')[0],
         })
       }
 
@@ -1081,13 +1266,31 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
 
     // Envoyer en un seul appel batch
     try {
-      const response = await energyApi.submitContributionBatch(allContributions, priceSheetUrl)
+      const response = await energyApi.submitContributionBatch(allContributions, priceSheetUrl, directApply)
       if (response.success) {
-        const data = response.data as { created: number; errors: number; error_details?: string[] }
+        const data = response.data as { created: number; contribution_ids?: string[]; errors: number; error_details?: string[] }
         const created = data.created || 0
+        const contributionIds = data.contribution_ids || []
         const errors = data.errors || 0
-        if (created > 0) {
+
+        // Application directe : approuver automatiquement les contributions créées
+        if (directApply && contributionIds.length > 0) {
+          try {
+            const approveResponse = await energyApi.bulkApproveContributions(contributionIds)
+            if (approveResponse.success) {
+              const approveData = approveResponse.data as { processed: number }
+              toast.success(`${approveData.processed || contributionIds.length} modification(s) appliquée(s) directement !`)
+            } else {
+              toast.error('Erreur lors de l\'application directe des contributions')
+            }
+          } catch {
+            toast.error('Erreur lors de l\'application directe des contributions')
+          }
+        } else if (created > 0) {
           toast.success(`${created} contribution(s) soumise(s) avec succès !`)
+        }
+
+        if (created > 0 || contributionIds.length > 0) {
           setEditedOffers({})
           setEditedOfferNames({})
           setPriceSheetUrl('')
@@ -1180,7 +1383,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
     // Compare power + offer_type + offer_name pour éviter les faux doublons entre offres différentes du même type
     const existsInOffers = existingPowers.some(ep => {
       if (ep.power !== power || ep.offer_type !== effectiveType) return false
-      if (powersToRemove.includes(power)) return false
+      if (powersToRemove.some(p => p.power === power && (!offerName || p.groupName === offerName))) return false
       // Si un offer_name est fourni, comparer aussi par nom d'offre
       if (offerName && ep.offer_name && offerName !== ep.offer_name) return false
       return true
@@ -2878,7 +3081,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
 
                   {/* Bouton de soumission */}
                   <button
-                    onClick={submitAllModifications}
+                    onClick={() => submitAllModifications()}
                     disabled={submittingOffers || (!isPrivilegedUser && !priceSheetUrl) || hasIncompleteGroups || hasGroupDuplicatePowers}
                     className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:opacity-60 text-white font-semibold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2"
                   >
@@ -2912,10 +3115,14 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
             // Vérifier si le groupe contient des offres expirées
             const hasExpiredOffers = offersInGroup.some(offer => offer.valid_to)
 
+            const isGroupDeprecated = deprecatedOffers.some(d =>
+              d.offer_name === groupName && d.offer_type === offersInGroup[0]?.offer_type
+            )
+
             return (
-              <div key={groupName} className="space-y-2">
+              <div key={groupName} className={`space-y-2 ${isGroupDeprecated ? 'opacity-50' : ''}`}>
                 {/* En-tête du groupe avec nom éditable */}
-                <div className="flex items-center gap-3 pb-2 border-b border-gray-200 dark:border-gray-700">
+                <div className={`flex items-center gap-3 pb-2 border-b ${isGroupDeprecated ? 'border-red-300 dark:border-red-700' : 'border-gray-200 dark:border-gray-700'}`}>
                   {isEditMode ? (
                     <input
                       type="text"
@@ -2935,6 +3142,46 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                     <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded">Nom modifié</span>
                   )}
                   <span className="text-xs text-gray-500 dark:text-gray-400">{offersInGroup.length} puissance(s)</span>
+                  {isGroupDeprecated && (
+                    <span className="text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded font-medium">Suppression demandée</span>
+                  )}
+                  {/* Bouton supprimer le groupe complet (mode édition) */}
+                  {isEditMode && (
+                    <button
+                      onClick={() => {
+                        const isAlreadyDeprecated = deprecatedOffers.some(d =>
+                          d.offer_name === groupName && d.offer_type === offersInGroup[0]?.offer_type
+                        )
+                        if (isAlreadyDeprecated) {
+                          // Annuler la suppression
+                          setDeprecatedOffers(prev => prev.filter(d =>
+                            !(d.offer_name === groupName && d.offer_type === offersInGroup[0]?.offer_type)
+                          ))
+                        } else {
+                          setDeprecatedOffers(prev => [...prev, {
+                            offer_type: offersInGroup[0]?.offer_type || filterOfferType,
+                            offer_name: groupName,
+                            offer_ids: offersInGroup.map(o => o.id),
+                            warning: 'Suppression manuelle demandée par l\'utilisateur.',
+                          }])
+                        }
+                      }}
+                      className={`p-1.5 rounded transition-colors ${
+                        deprecatedOffers.some(d => d.offer_name === groupName && d.offer_type === offersInGroup[0]?.offer_type)
+                          ? 'text-amber-500 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20'
+                          : 'text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20'
+                      }`}
+                      title={deprecatedOffers.some(d => d.offer_name === groupName && d.offer_type === offersInGroup[0]?.offer_type)
+                        ? 'Annuler la suppression'
+                        : 'Supprimer cette offre'
+                      }
+                    >
+                      {deprecatedOffers.some(d => d.offer_name === groupName && d.offer_type === offersInGroup[0]?.offer_type)
+                        ? <Undo2 size={16} />
+                        : <Trash2 size={16} />
+                      }
+                    </button>
+                  )}
                   {/* Spacer pour pousser la date à droite */}
                   <div className="flex-1" />
                   {/* Badge date de validité du groupe - Style proéminent */}
@@ -2958,7 +3205,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                   const modified = isOfferModified(offer)
                   const power = getPower(offer.name)
                   const powerNum = power ? parseInt(power) : null
-                  const isMarkedForRemoval = powerNum !== null && powersToRemove.includes(powerNum)
+                  const isMarkedForRemoval = powerNum !== null && powersToRemove.some(p => p.power === powerNum && p.groupName === groupName)
 
                   return (
                     <div
@@ -3057,7 +3304,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                               <div className="flex items-center gap-0.5 justify-center">
                                 {isMarkedForRemoval ? (
                                   <button
-                                    onClick={() => setPowersToRemove(prev => prev.filter(p => p !== powerNum))}
+                                    onClick={() => setPowersToRemove(prev => prev.filter(p => !(p.power === powerNum && p.groupName === groupName)))}
                                     className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                                     title="Annuler la suppression"
                                   >
@@ -3066,8 +3313,8 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                                 ) : (
                                   <button
                                     onClick={() => {
-                                      if (!powersToRemove.includes(powerNum)) {
-                                        setPowersToRemove(prev => [...prev, powerNum])
+                                      if (!powersToRemove.some(p => p.power === powerNum && p.groupName === groupName)) {
+                                        setPowersToRemove(prev => [...prev, { power: powerNum, groupName }])
                                       }
                                     }}
                                     className="p-1.5 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
@@ -3169,189 +3416,38 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                     </div>
                   )
                 })}
+
+                {/* Nouvelles puissances ajoutées à ce groupe (mode édition) */}
+                {isEditMode && newPowersData.map((newPower, index) => {
+                  // Filtrer : n'afficher que les puissances de CE groupe
+                  const groupOfferType = offersInGroup[0]?.offer_type
+                  if (newPower.offer_name !== groupName || newPower.offer_type !== groupOfferType) return null
+                  return renderNewPowerRow(newPower, index)
+                })}
+
+                {/* Bouton ajouter une puissance à ce groupe (mode édition) */}
+                {isEditMode && (
+                  <button
+                    onClick={() => {
+                      const groupOfferType = offersInGroup[0]?.offer_type || filterOfferType
+                      setNewPowersData(prev => [...prev, { power: 0, fields: {}, offer_name: groupName, offer_type: groupOfferType }])
+                    }}
+                    className="w-full rounded-lg p-2 border-2 border-dashed border-primary-300 dark:border-primary-700 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 hover:border-primary-400 dark:hover:border-primary-600 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Plus size={16} />
+                    <span className="font-medium text-xs">Ajouter une puissance</span>
+                  </button>
+                )}
               </div>
             )
           })}
 
-          {/* Lignes des nouvelles puissances ajoutées (uniquement en mode édition) */}
+          {/* Nouvelles puissances non associées à un groupe (import IA sans offer_name, etc.) */}
           {isEditMode && newPowersData.map((newPower, index) => {
-            const isDuplicate = isPowerAlreadyUsed(newPower.power, index, newPower.offer_type, newPower.offer_name)
-            const isIncomplete = !isNewPowerComplete(newPower)
-            const hasError = isDuplicate || isIncomplete
-            const effectiveType = newPower.offer_type || filterOfferType
-            return (
-            <div
-              key={`new-power-${index}`}
-              className={`rounded-lg p-3 border transition-all ${
-                isDuplicate
-                  ? 'bg-red-50 dark:bg-red-900/20 border-red-400 dark:border-red-600'
-                  : isIncomplete
-                    ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-600'
-                    : 'bg-green-50 dark:bg-green-900/20 border-green-400 dark:border-green-600'
-              }`}
-            >
-              <div className="flex flex-wrap items-center gap-4">
-                {/* Nom de l'offre */}
-                <div className="w-64 shrink-0">
-                  <div className="flex items-center gap-2">
-                    <Plus size={16} className={hasError ? (isDuplicate ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400') : 'text-green-600 dark:text-green-400'} />
-                    <h4 className={`font-medium text-sm ${hasError ? (isDuplicate ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300') : 'text-green-700 dark:text-green-300'}`}>Nouvelle puissance</h4>
-                    {newPower.offer_type && (
-                      <span className="text-xs text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded shrink-0">{newPower.offer_type}</span>
-                    )}
-                    {isDuplicate ? (
-                      <span className="text-xs text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded shrink-0">Existe déjà</span>
-                    ) : isIncomplete ? (
-                      <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded shrink-0">Incomplet</span>
-                    ) : (
-                      <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 rounded shrink-0">Nouveau</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Puissance */}
-                <div className="w-16 text-center shrink-0">
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={newPower.power}
-                    onChange={(e) => {
-                      const power = e.target.value ? parseInt(e.target.value) : 0
-                      setNewPowersData(prev => prev.map((p, i) => i === index ? { ...p, power } : p))
-                    }}
-                    className={`w-full px-2 py-1 text-xs font-medium text-center border rounded bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
-                      isDuplicate || !newPower.power || newPower.power <= 0
-                        ? 'border-red-400 dark:border-red-600 focus:ring-red-500'
-                        : 'border-green-300 dark:border-green-600 focus:ring-green-500'
-                    }`}
-                  />
-                </div>
-
-                {/* Abonnement (obligatoire) */}
-                <div className="shrink-0">
-                  <div className="flex items-center gap-2 w-[200px]">
-                    <span className="text-sm font-semibold w-10 shrink-0 text-right text-gray-600 dark:text-gray-400">Abo.<span className="text-red-500">*</span></span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newPower.fields.subscription_price ?? ''}
-                      onChange={(e) => setNewPowersData(prev => prev.map((p, i) =>
-                        i === index ? { ...p, fields: { ...p.fields, subscription_price: e.target.value } } : p
-                      ))}
-                      placeholder="0.00"
-                      className={`w-28 px-3 py-2 text-base font-bold border-2 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
-                        !newPower.fields.subscription_price || newPower.fields.subscription_price === ''
-                          ? 'border-amber-400 dark:border-amber-600 focus:ring-amber-500'
-                          : 'border-green-300 dark:border-green-600 focus:ring-green-500'
-                      }`}
-                    />
-                    <span className="text-gray-500 dark:text-gray-400 text-sm w-12 shrink-0">€/mois</span>
-                  </div>
-                </div>
-
-                {/* Tarifs selon le type d'offre (effectiveType = offer_type IA ou filterOfferType) */}
-                <div className="flex flex-wrap gap-x-3 gap-y-1 justify-end pr-4 flex-1">
-                  {effectiveType === 'BASE' && (
-                    <div className="flex items-center gap-2 w-[200px]">
-                      <span className="text-sm font-semibold w-10 shrink-0 text-right text-gray-600 dark:text-gray-400">Base<span className="text-red-500">*</span></span>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        value={newPower.fields.base_price ?? ''}
-                        onChange={(e) => setNewPowersData(prev => prev.map((p, i) =>
-                          i === index ? { ...p, fields: { ...p.fields, base_price: e.target.value } } : p
-                        ))}
-                        placeholder="0.0000"
-                        className={`w-28 px-3 py-2 text-base font-bold border-2 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
-                          !newPower.fields.base_price || newPower.fields.base_price === ''
-                            ? 'border-amber-400 dark:border-amber-600 focus:ring-amber-500'
-                            : 'border-green-300 dark:border-green-600 focus:ring-green-500'
-                        }`}
-                      />
-                      <span className="text-gray-500 dark:text-gray-400 text-sm w-12 shrink-0">€/kWh</span>
-                    </div>
-                  )}
-
-                  {effectiveType === 'HC_HP' && (
-                    <>
-                      <div className="flex items-center gap-2 w-[200px]">
-                        <span className="text-sm font-semibold w-10 shrink-0 text-right text-blue-600 dark:text-blue-400">HC<span className="text-red-500">*</span></span>
-                        <input
-                          type="number"
-                          step="0.0001"
-                          value={newPower.fields.hc_price ?? ''}
-                          onChange={(e) => setNewPowersData(prev => prev.map((p, i) =>
-                            i === index ? { ...p, fields: { ...p.fields, hc_price: e.target.value } } : p
-                          ))}
-                          placeholder="0.0000"
-                          className={`w-28 px-3 py-2 text-base font-bold border-2 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
-                            !newPower.fields.hc_price || newPower.fields.hc_price === ''
-                              ? 'border-amber-400 dark:border-amber-600 focus:ring-amber-500'
-                              : 'border-green-300 dark:border-green-600 focus:ring-green-500'
-                          }`}
-                        />
-                        <span className="text-gray-500 dark:text-gray-400 text-sm w-12 shrink-0">€/kWh</span>
-                      </div>
-                      <div className="flex items-center gap-2 w-[200px]">
-                        <span className="text-sm font-semibold w-10 shrink-0 text-right text-red-600 dark:text-red-400">HP<span className="text-red-500">*</span></span>
-                        <input
-                          type="number"
-                          step="0.0001"
-                          value={newPower.fields.hp_price ?? ''}
-                          onChange={(e) => setNewPowersData(prev => prev.map((p, i) =>
-                            i === index ? { ...p, fields: { ...p.fields, hp_price: e.target.value } } : p
-                          ))}
-                          placeholder="0.0000"
-                          className={`w-28 px-3 py-2 text-base font-bold border-2 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:outline-none ${
-                            !newPower.fields.hp_price || newPower.fields.hp_price === ''
-                              ? 'border-amber-400 dark:border-amber-600 focus:ring-amber-500'
-                              : 'border-green-300 dark:border-green-600 focus:ring-green-500'
-                          }`}
-                        />
-                        <span className="text-gray-500 dark:text-gray-400 text-sm w-12 shrink-0">€/kWh</span>
-                      </div>
-                    </>
-                  )}
-
-                  {effectiveType === 'TEMPO' && (
-                    <div className="text-sm text-gray-500 dark:text-gray-400 italic">
-                      Tarifs Tempo à renseigner après validation
-                    </div>
-                  )}
-
-                  {(effectiveType === 'ZEN_WEEK_END' || effectiveType === 'ZEN_WEEK_END_HP_HC' || effectiveType === 'ZEN_FLEX' || effectiveType === 'SEASONAL' || effectiveType === 'EJP') && (
-                    <div className="text-sm text-gray-500 dark:text-gray-400 italic">
-                      Tarifs spécifiques à renseigner après validation
-                    </div>
-                  )}
-                </div>
-
-                {/* Bouton supprimer */}
-                <div className="shrink-0">
-                  <button
-                    onClick={() => setNewPowersData(prev => prev.filter((_, i) => i !== index))}
-                    className="p-1.5 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                    title="Supprimer cette puissance"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )})}
-
-
-          {/* Bouton pour ajouter une nouvelle puissance au groupe existant (uniquement en mode édition et si des offres existent) */}
-          {isEditMode && groupNames.length > 0 && (
-            <button
-              onClick={() => setNewPowersData(prev => [...prev, { power: 0, fields: {} }])}
-              className="w-full rounded-lg p-3 border-2 border-dashed border-primary-300 dark:border-primary-700 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 hover:border-primary-400 dark:hover:border-primary-600 transition-all flex items-center justify-center gap-2"
-            >
-              <Plus size={18} />
-              <span className="font-medium text-sm">Ajouter une puissance</span>
-            </button>
-          )}
+            // N'afficher ici que les puissances sans groupe ou dont le groupe n'existe pas
+            if (newPower.offer_name && groupNames.includes(newPower.offer_name)) return null
+            return renderNewPowerRow(newPower, index)
+          })}
 
           {/* Nouveaux groupes d'offres (uniquement en mode édition) */}
           {isEditMode && newGroups.map((group, groupIndex) => (
@@ -3740,6 +3836,10 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                   for (const offer of allModifiedOffers) {
                     const edited = editedOffers[offer.id] || {}
                     const hasRealChanges = Object.entries(edited).some(([key, value]) => {
+                      if (key === 'valid_from') {
+                        const origStr = String((offer as unknown as Record<string, unknown>)[key] || '')
+                        return value !== origStr
+                      }
                       const orig = Number((offer as unknown as Record<string, unknown>)[key])
                       const next = Number(value)
                       if (isNaN(orig) && isNaN(next)) return false
@@ -3760,6 +3860,7 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                         {offers.map(offer => {
                           const edited = editedOffers[offer.id] || {}
                           const changes = Object.entries(edited).filter(([key, value]) => {
+                            if (key === 'valid_from') return false
                             const orig = Number((offer as unknown as Record<string, unknown>)[key])
                             const next = Number(value)
                             if (isNaN(orig) && isNaN(next)) return false
@@ -3767,10 +3868,17 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                             return Math.abs(orig - next) > 0.00001
                           })
                           const power = getPower(offer.name)
+                          const validFromChanged = edited.valid_from && edited.valid_from !== String((offer as unknown as Record<string, unknown>).valid_from || '')
                           return (
                             <div key={offer.id} className="px-4 py-2">
                               <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{power || offer.name}</div>
                               <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                {validFromChanged && (
+                                  <span className="text-xs flex items-center gap-1">
+                                    <span className="text-gray-500 dark:text-gray-400">Valide depuis</span>
+                                    <span className="text-green-600 dark:text-green-400 font-semibold">{new Date(edited.valid_from).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short' })}</span>
+                                  </span>
+                                )}
                                 {changes.map(([key, value]) => {
                                   const orig = Number((offer as unknown as Record<string, unknown>)[key])
                                   const next = Number(value)
@@ -3851,9 +3959,9 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                       )}
                     </div>
                     <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {powersToRemove.sort((a, b) => a - b).map(power => (
-                        <div key={`remove-${power}`} className="px-4 py-2 flex items-center justify-between text-red-600 dark:text-red-400">
-                          <span className="text-xs flex items-center gap-1"><Trash2 size={12} /> Supprimer</span>
+                      {[...powersToRemove].sort((a, b) => a.power - b.power).map(({ power, groupName }) => (
+                        <div key={`remove-${groupName}-${power}`} className="px-4 py-2 flex items-center justify-between text-red-600 dark:text-red-400">
+                          <span className="text-xs flex items-center gap-1"><Trash2 size={12} /> Supprimer <span className="text-gray-500 dark:text-gray-400">({groupName})</span></span>
                           <span className="text-xs font-semibold">{power} kVA</span>
                         </div>
                       ))}
@@ -4032,6 +4140,19 @@ Ne retourne QUE le JSON, sans texte avant ou après.`
                       {submittingOffers ? 'Envoi en cours...' : 'Soumettre'}
                     </button>
                   </div>
+                  {isPrivilegedUser && (
+                    <button
+                      onClick={() => {
+                        submitAllModifications(true)
+                        setShowRecapModal(false)
+                      }}
+                      disabled={submittingOffers || hasDuplicatePowers || hasIncompletePowers || hasIncompleteGroups || hasGroupDuplicatePowers}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
+                    >
+                      <Zap size={18} />
+                      {submittingOffers ? 'Application en cours...' : 'Appliquer directement (sans validation)'}
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setEditedOffers({})

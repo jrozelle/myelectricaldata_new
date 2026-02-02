@@ -268,10 +268,11 @@ export const energyApi = {
     return apiClient.post('energy/contribute', data)
   },
 
-  submitContributionBatch: async (contributions: ContributionData[], priceSheetUrl: string) => {
+  submitContributionBatch: async (contributions: ContributionData[], priceSheetUrl: string, autoApprove = false) => {
     return apiClient.post('energy/contribute/batch', {
       contributions,
       price_sheet_url: priceSheetUrl,
+      ...(autoApprove && { auto_approve: true }),
     })
   },
 

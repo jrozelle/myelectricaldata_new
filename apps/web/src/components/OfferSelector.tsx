@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Building2, Zap, Tag, X } from 'lucide-react'
 import { energyApi, EnergyOffer } from '@/api/energy'
@@ -28,9 +28,12 @@ export default function OfferSelector({
   disabled = false,
   className = '',
 }: OfferSelectorProps) {
-  // Local state for cascading selectors
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null)
-  const [selectedOfferType, setSelectedOfferType] = useState<string | null>(null)
+  // States locaux pour les overrides manuels de l'utilisateur.
+  // Quand l'utilisateur change un sélecteur, on stocke son choix ici.
+  // Quand une offre est déjà sélectionnée (selectedOfferId), ces valeurs
+  // sont ignorées au profit des valeurs dérivées de l'offre.
+  const [userProviderId, setUserProviderId] = useState<string | null>(null)
+  const [userOfferType, setUserOfferType] = useState<string | null>(null)
 
   // Fetch providers
   const { data: providersResponse, isLoading: isLoadingProviders } = useQuery({
@@ -62,6 +65,25 @@ export default function OfferSelector({
     })
   }, [allOffers, subscribedPower])
 
+  // Find selected offer details
+  const selectedOffer = useMemo(() => {
+    if (!selectedOfferId) return null
+    return allOffers.find(o => o.id === selectedOfferId) || null
+  }, [selectedOfferId, allOffers])
+
+  // Valeurs effectives des sélecteurs : dérivées de l'offre sélectionnée
+  // si elle existe, sinon des choix manuels de l'utilisateur.
+  // Cela élimine le besoin d'un useEffect pour synchroniser les states.
+  const effectiveProviderId = useMemo(() => {
+    if (selectedOffer) return selectedOffer.provider_id
+    return userProviderId
+  }, [selectedOffer, userProviderId])
+
+  const effectiveOfferType = useMemo(() => {
+    if (selectedOffer) return selectedOffer.offer_type
+    return userOfferType
+  }, [selectedOffer, userOfferType])
+
   // Get providers that have offers (after power filtering)
   const availableProviders = useMemo(() => {
     const providerIds = new Set(filteredOffers.map(o => o.provider_id))
@@ -70,66 +92,34 @@ export default function OfferSelector({
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [filteredOffers, providers])
 
-  // Get offer types available for selected provider
+  // Get offer types available for effective provider
   const availableOfferTypes = useMemo(() => {
-    if (!selectedProviderId) return []
+    if (!effectiveProviderId) return []
     const types = new Set(
       filteredOffers
-        .filter(o => o.provider_id === selectedProviderId)
+        .filter(o => o.provider_id === effectiveProviderId)
         .map(o => o.offer_type)
     )
     return Array.from(types).sort()
-  }, [filteredOffers, selectedProviderId])
+  }, [filteredOffers, effectiveProviderId])
 
-  // Get offers for selected provider and offer type
+  // Get offers for effective provider and offer type
   const availableOffers = useMemo(() => {
-    if (!selectedProviderId || !selectedOfferType) return []
+    if (!effectiveProviderId || !effectiveOfferType) return []
     return filteredOffers
-      .filter(o => o.provider_id === selectedProviderId && o.offer_type === selectedOfferType)
+      .filter(o => o.provider_id === effectiveProviderId && o.offer_type === effectiveOfferType)
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [filteredOffers, selectedProviderId, selectedOfferType])
+  }, [filteredOffers, effectiveProviderId, effectiveOfferType])
 
-  // Find selected offer details
-  const selectedOffer = useMemo(() => {
-    if (!selectedOfferId) return null
-    return allOffers.find(o => o.id === selectedOfferId) || null
-  }, [selectedOfferId, allOffers])
-
-  // Sync selectors when selectedOffer changes (after data is loaded)
-  // This handles:
-  // 1. Initial mount - wait for offers to load, then sync
-  // 2. Page navigation (back to Dashboard) - offers reload, sync when ready
-  // 3. External offer change - sync immediately
-  //
-  // IMPORTANT: We include allOffers.length in dependencies to handle race conditions
-  // where selectedOfferId is set but offers haven't loaded yet. When offers load,
-  // this effect re-runs and selectedOffer becomes available for sync.
-  useEffect(() => {
-    if (selectedOffer) {
-      // Always sync when selectedOffer is available
-      // This ensures selectors are populated after page navigation
-      setSelectedProviderId(selectedOffer.provider_id)
-      setSelectedOfferType(selectedOffer.offer_type)
-    } else if (selectedOfferId === null || selectedOfferId === undefined) {
-      // Offer was cleared - reset selectors
-      setSelectedProviderId(null)
-      setSelectedOfferType(null)
-    }
-    // When selectedOfferId is set but offers not loaded yet, wait
-    // The effect re-runs when allOffers populates and selectedOffer becomes non-null
-  }, [selectedOffer, selectedOfferId, allOffers.length])
-
-  // Reset offer type when provider changes
+  // Reset offer type when provider changes manually
   const handleProviderChange = (providerId: string | null) => {
-    setSelectedProviderId(providerId)
-    setSelectedOfferType(null)
-    // Don't clear the selected offer yet - let user pick new one
+    setUserProviderId(providerId)
+    setUserOfferType(null)
   }
 
-  // Reset offer when type changes
+  // Reset offer when type changes manually
   const handleOfferTypeChange = (offerType: string | null) => {
-    setSelectedOfferType(offerType)
-    // Don't clear the selected offer yet - let user pick new one
+    setUserOfferType(offerType)
   }
 
   // Handle offer selection
@@ -139,8 +129,8 @@ export default function OfferSelector({
 
   // Clear all selections
   const handleClear = () => {
-    setSelectedProviderId(null)
-    setSelectedOfferType(null)
+    setUserProviderId(null)
+    setUserOfferType(null)
     onChange(null)
   }
 
@@ -419,7 +409,7 @@ export default function OfferSelector({
             Fournisseur
           </label>
           <select
-            value={selectedProviderId || ''}
+            value={effectiveProviderId || ''}
             onChange={(e) => handleProviderChange(e.target.value || null)}
             disabled={disabled || isLoading}
             className={selectClassName}
@@ -440,9 +430,9 @@ export default function OfferSelector({
             Type
           </label>
           <select
-            value={selectedOfferType || ''}
+            value={effectiveOfferType || ''}
             onChange={(e) => handleOfferTypeChange(e.target.value || null)}
-            disabled={disabled || isLoading || !selectedProviderId}
+            disabled={disabled || isLoading || !effectiveProviderId}
             className={selectClassName}
           >
             <option value="">--</option>
@@ -463,7 +453,7 @@ export default function OfferSelector({
           <select
             value={selectedOfferId || ''}
             onChange={(e) => handleOfferChange(e.target.value || null)}
-            disabled={disabled || isLoading || !selectedProviderId || !selectedOfferType}
+            disabled={disabled || isLoading || !effectiveProviderId || !effectiveOfferType}
             className={selectClassName}
           >
             <option value="">--</option>

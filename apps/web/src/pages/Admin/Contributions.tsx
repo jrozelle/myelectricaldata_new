@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, CheckCircle, XCircle, User, Package, DollarSign, ExternalLink, Image, Zap, MessageCircle, Clock, ArrowUpDown, Award, ChevronDown, ChevronRight } from 'lucide-react'
+import { Users, CheckCircle, XCircle, User, Package, DollarSign, ExternalLink, Image, Zap, MessageCircle, Clock, ArrowUpDown, Award, ChevronDown, ChevronRight, Calendar } from 'lucide-react'
 import { energyApi } from '@/api/energy'
 import ChatWhatsApp, { type ChatMessage } from '@/components/ChatWhatsApp'
 
@@ -85,6 +85,7 @@ interface PendingContribution {
   power_kva?: number
   price_sheet_url: string
   screenshot_url?: string
+  valid_from?: string
   created_at: string
 }
 
@@ -1122,6 +1123,11 @@ export default function Contributions() {
                           <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                             {getContributionTypeLabel(contribution.contribution_type)}
                           </span>
+                          {contribution.valid_from && (
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                              {new Date(contribution.valid_from).toLocaleDateString('fr-FR', { year: 'numeric', month: 'short' })}
+                            </span>
+                          )}
                           {hasUnreadMessages(contribution) && !readContributions.has(contribution.id) && (
                             <span className="flex h-2 w-2">
                               <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-orange-400 opacity-75"></span>
@@ -1199,6 +1205,12 @@ export default function Contributions() {
                                   <div className="flex items-center gap-2">
                                     <Zap size={14} className="text-yellow-600 dark:text-yellow-400" />
                                     <span>{contribution.power_kva} kVA</span>
+                                  </div>
+                                )}
+                                {contribution.valid_from && (
+                                  <div className="flex items-center gap-2">
+                                    <Calendar size={14} className="text-green-600 dark:text-green-400" />
+                                    <span>Valide depuis : {new Date(contribution.valid_from).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                                   </div>
                                 )}
                                 {contribution.description && (
