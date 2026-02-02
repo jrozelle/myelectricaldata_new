@@ -326,9 +326,20 @@ export default function Simulator() {
         break
       }
       case 'profile': {
-        startDate = profileRange.start
-        const profEnd = new Date(profileRange.end)
-        endDate = profEnd > yesterday ? yesterdayStr : profileRange.end
+        // Plage complete : 12 mois a partir du debut du preset
+        // Ex: Tempo 01/09/2024 → 31/08/2025, Calendaire 01/01/2024 → 31/12/2024
+        const profStart = new Date(profileRange.start + 'T12:00:00')
+        const profEndFull = new Date(profStart.getFullYear() + 1, profStart.getMonth(), profStart.getDate() - 1, 12, 0, 0)
+        // Si la plage complete depasse J-1, reculer d'un an pour avoir une annee pleine
+        if (profEndFull > yesterday) {
+          const prevStart = new Date(profStart.getFullYear() - 1, profStart.getMonth(), profStart.getDate(), 12, 0, 0)
+          const prevEnd = new Date(profStart.getFullYear(), profStart.getMonth(), profStart.getDate() - 1, 12, 0, 0)
+          startDate = prevStart.toISOString().split('T')[0]
+          endDate = prevEnd.toISOString().split('T')[0]
+        } else {
+          startDate = profileRange.start
+          endDate = profEndFull.toISOString().split('T')[0]
+        }
         label = profileLabel
         break
       }
