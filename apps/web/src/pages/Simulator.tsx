@@ -33,6 +33,12 @@ function isOldTariff(validFrom: string | undefined): boolean {
   return new Date(validFrom) < sixMonthsAgo
 }
 
+// Vérifie si une offre est expirée (valid_to défini et dans le passé)
+function isExpiredOffer(offer: { valid_to?: string | null }): boolean {
+  if (!offer.valid_to) return false
+  return new Date(offer.valid_to) < new Date()
+}
+
 // Helper function to check if a date is in winter season (November to March)
 function isWinterSeason(dateString: string): boolean {
   const date = new Date(dateString)
@@ -182,8 +188,11 @@ export default function Simulator() {
     staleTime: 0, // Always refetch to ensure fresh data
   })
 
-  // Ensure offersData is always an array
-  const offersData = Array.isArray(offersDataRaw) ? offersDataRaw : []
+  // Ensure offersData is always an array, exclure les offres expirées
+  const offersData = useMemo(() => {
+    const raw = Array.isArray(offersDataRaw) ? offersDataRaw : []
+    return raw.filter((o) => !isExpiredOffer(o))
+  }, [offersDataRaw])
 
   // Selected PDL from global store + reference offer for shared PDLs
   const { selectedPdl, setSelectedPdl, impersonation, referenceOffers, setReferenceOffer } = usePdlStore()

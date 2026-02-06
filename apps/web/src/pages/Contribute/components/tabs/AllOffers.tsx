@@ -247,7 +247,7 @@ export default function AllOffers() {
     setDeprecatedOffers([])
   }, [filterProvider, offersArray])
 
-  // Reset les propositions de puissances quand on change de type d'offre
+  // Reset les propositions de puissances et les modifications quand on change de type d'offre
   // (sauf si le changement vient de l'import IA)
   useEffect(() => {
     if (skipFilterResetRef.current) {
@@ -258,6 +258,8 @@ export default function AllOffers() {
     setNewPowersData([])
     setNewGroups([])
     setDeprecatedOffers([])
+    setEditedOffers({})
+    setEditedOfferNames({})
   }, [filterOfferType])
 
   // Fermer le dropdown de duplication au clic exterieur
