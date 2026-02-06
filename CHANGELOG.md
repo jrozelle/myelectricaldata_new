@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.4](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.18.3...1.18.4) (2026-02-06)
+
+### Bug Fixes
+
+* supprimer la gestion des anciennes offres dans le simulateur ([b179546](https://github.com/MyElectricalData/myelectricaldata_new/commit/b179546921f6d25dcdf82cb471839deed839523b))
+
 ## [1.18.3](https://github.com/MyElectricalData/myelectricaldata_new/compare/1.18.2...1.18.3) (2026-02-06)
 
 ### Refactoring
