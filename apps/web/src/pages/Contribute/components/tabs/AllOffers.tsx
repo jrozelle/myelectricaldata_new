@@ -2454,30 +2454,32 @@ Puis retourne le JSON complet.`
             </div>
             <div className="flex items-center justify-between mb-3">
               {isEditMode && (() => {
+                // Regrouper par nom ET type pour éviter les collisions entre offres homonymes de types différents
                 const providerOffers = offersArray.filter(o => o.provider_id === filterProvider)
-                const groups: Record<string, typeof providerOffers> = {}
+                const groups: Record<string, { name: string; offer_type: string; offers: typeof providerOffers }> = {}
                 for (const offer of providerOffers) {
                   const name = getCleanOfferName(offer.name)
-                  if (!groups[name]) groups[name] = []
-                  groups[name].push(offer)
+                  const key = `${name}::${offer.offer_type}`
+                  if (!groups[key]) groups[key] = { name, offer_type: offer.offer_type, offers: [] }
+                  groups[key].offers.push(offer)
                 }
-                const groupEntries = Object.entries(groups)
+                const groupEntries = Object.values(groups)
                 if (groupEntries.length === 0) return null
-                const allDeprecated = groupEntries.every(([name, offers]) =>
-                  deprecatedOffers.some(d => d.offer_name === name && d.offer_type === offers[0]?.offer_type)
+                const allDeprecated = groupEntries.every(({ name, offer_type }) =>
+                  deprecatedOffers.some(d => d.offer_name === name && d.offer_type === offer_type)
                 )
                 return (
                   <button
                     onClick={() => {
                       if (allDeprecated) {
-                        const groupKeys = new Set(groupEntries.map(([name, offers]) => `${name}::${offers[0]?.offer_type}`))
+                        const groupKeys = new Set(groupEntries.map(({ name, offer_type }) => `${name}::${offer_type}`))
                         setDeprecatedOffers(prev => prev.filter(d => !groupKeys.has(`${d.offer_name}::${d.offer_type}`)))
                         toast.info('Suppression de toutes les offres annulée')
                       } else {
                         const newDeprecated = groupEntries
-                          .filter(([name, offers]) => !deprecatedOffers.some(d => d.offer_name === name && d.offer_type === offers[0]?.offer_type))
-                          .map(([name, offers]) => ({
-                            offer_type: offers[0]?.offer_type || '',
+                          .filter(({ name, offer_type }) => !deprecatedOffers.some(d => d.offer_name === name && d.offer_type === offer_type))
+                          .map(({ name, offer_type, offers }) => ({
+                            offer_type,
                             offer_name: name,
                             offer_ids: offers.map(o => o.id),
                             warning: 'Suppression groupée demandée par l\'utilisateur.',

@@ -25,7 +25,6 @@ function isWeekend(dateString: string): boolean {
   return dayOfWeek === 0 || dayOfWeek === 6 // 0 = Sunday, 6 = Saturday
 }
 
-// Helper function to check if tariff is older than 6 months
 // Vérifie si une offre est expirée (valid_to défini et dans le passé)
 function isExpiredOffer(offer: { valid_to?: string | null }): boolean {
   if (!offer.valid_to) return false
@@ -725,6 +724,9 @@ export default function Simulator() {
       // ZEN_FLEX breakdown: Eco days (normal) vs Sobriété days (peak pricing)
       let zenFlexEcoHcKwh = 0, zenFlexEcoHpKwh = 0
       let zenFlexSobrietyHcKwh = 0, zenFlexSobrietyHpKwh = 0
+      // EJP breakdown: Normal days (343j) vs Peak days (22j)
+      let ejpNormalKwh = 0, ejpPeakKwh = 0
+      let ejpPeakDaysCount = 0
 
       if ((offer.offer_type === 'BASE' || offer.offer_type === 'BASE_WEEKEND') && offer.base_price) {
         // BASE calculation with weekend pricing support
@@ -995,6 +997,42 @@ export default function Simulator() {
           redHpKwh: redHpKwh.toFixed(2),
           energyCost: energyCost.toFixed(2)
         })
+      } else if (offer.offer_type === 'EJP' && offer.ejp_normal && offer.ejp_peak) {
+        // EJP calculation: 343 jours normaux + 22 jours de pointe mobile
+        // Approximation : les jours RED TEMPO servent de proxy pour les jours EJP
+        logger.log(`[SIMULATOR] EJP calculation for ${offer.name}`)
+
+        // Collecter les jours RED TEMPO comme approximation des jours de pointe EJP
+        const ejpPeakDays = new Set<string>()
+        allConsumptionFinal.forEach((item) => {
+          const color = tempoColorMap.get(item.dateOnly)
+          if (color === 'RED' && !ejpPeakDays.has(item.dateOnly)) {
+            ejpPeakDays.add(item.dateOnly)
+          }
+        })
+
+        ejpPeakDaysCount = ejpPeakDays.size
+        logger.log(`[EJP] Found ${ejpPeakDaysCount} RED days as EJP peak days`)
+
+        allConsumptionFinal.forEach((item) => {
+          const kwh = item.value / 1000
+          if (ejpPeakDays.has(item.dateOnly)) {
+            ejpPeakKwh += kwh
+          } else {
+            ejpNormalKwh += kwh
+          }
+        })
+
+        energyCost = (ejpNormalKwh * offer.ejp_normal) + (ejpPeakKwh * offer.ejp_peak)
+
+        logger.log(`[EJP] Result for ${offer.name}:`, {
+          normalKwh: ejpNormalKwh.toFixed(2),
+          peakKwh: ejpPeakKwh.toFixed(2),
+          peakDays: ejpPeakDaysCount,
+          normalPrice: offer.ejp_normal,
+          peakPrice: offer.ejp_peak,
+          energyCost: energyCost.toFixed(2)
+        })
       } else if (offer.offer_type === 'ZEN_FLEX' && offer.hc_price_winter && offer.hp_price_winter) {
         // ZEN_FLEX calculation: EDF Zen Week-End - Option Flex
         // - 345 "Eco" days: normal HC/HP pricing (hc_price_winter/hp_price_winter)
@@ -1110,6 +1148,8 @@ export default function Simulator() {
         breakdown = { baseWeekdayKwh, baseWeekendKwh }
       } else if (offer.offer_type === 'ZEN_FLEX') {
         breakdown = { zenFlexEcoHcKwh, zenFlexEcoHpKwh, zenFlexSobrietyHcKwh, zenFlexSobrietyHpKwh }
+      } else if (offer.offer_type === 'EJP') {
+        breakdown = { ejpNormalKwh, ejpPeakKwh, ejpPeakDaysCount }
       }
 
       // Remove power (kVA) from offer name for cleaner display
@@ -1831,6 +1871,19 @@ export default function Simulator() {
           pdf.text(`  ${formatPrice(result.offer.peak_day_price, 5)} € / kWh`, margin + 3, detailY)
           detailY += 5
         }
+      } else if (result.offerType === 'EJP') {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('Jours Normaux (343j/an):', margin + 3, detailY)
+        pdf.setFont('helvetica', 'normal')
+        detailY += 5
+        pdf.text(`  ${formatPrice(result.offer?.ejp_normal, 5)} € / kWh`, margin + 3, detailY)
+        detailY += 5
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('Jours de Pointe Mobile (22j/an):', margin + 3, detailY)
+        pdf.setFont('helvetica', 'normal')
+        detailY += 5
+        pdf.text(`  ${formatPrice(result.offer?.ejp_peak, 5)} € / kWh`, margin + 3, detailY)
+        detailY += 5
       } else if (result.offerType === 'TEMPO') {
         pdf.setFont('helvetica', 'bold')
         pdf.text('Jours Bleus:', margin + 3, detailY)
@@ -1925,6 +1978,19 @@ export default function Simulator() {
             pdf.text(`  ${result.breakdown.peakDayKwh?.toFixed(0)} kWh × ${formatPrice(result.offer.peak_day_price, 5)} € = ${calcPrice(result.breakdown.peakDayKwh, result.offer.peak_day_price)} €`, margin + 3, detailY)
             detailY += 5
           }
+        } else if (result.offerType === 'EJP') {
+          pdf.setFont('helvetica', 'bold')
+          pdf.text(`Jours Normaux:`, margin + 3, detailY)
+          pdf.setFont('helvetica', 'normal')
+          detailY += 5
+          pdf.text(`  ${result.breakdown.ejpNormalKwh?.toFixed(0)} kWh × ${formatPrice(result.offer.ejp_normal, 5)} € = ${calcPrice(result.breakdown.ejpNormalKwh, result.offer.ejp_normal)} €`, margin + 3, detailY)
+          detailY += 5
+          pdf.setFont('helvetica', 'bold')
+          pdf.text(`Jours de Pointe (${result.breakdown.ejpPeakDaysCount}j):`, margin + 3, detailY)
+          pdf.setFont('helvetica', 'normal')
+          detailY += 5
+          pdf.text(`  ${result.breakdown.ejpPeakKwh?.toFixed(0)} kWh × ${formatPrice(result.offer.ejp_peak, 5)} € = ${calcPrice(result.breakdown.ejpPeakKwh, result.offer.ejp_peak)} €`, margin + 3, detailY)
+          detailY += 5
         } else if (result.offerType === 'TEMPO') {
           pdf.setFont('helvetica', 'bold')
           pdf.text('Jours Bleus:', margin + 3, detailY)
@@ -2192,6 +2258,30 @@ export default function Simulator() {
           y += 6
           totalEnergy += peakCost
         }
+
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(`  TOTAL ÉNERGIE: ${result.energyCost.toFixed(2)} €`, margin + 3, y)
+        pdf.setFont('helvetica', 'normal')
+        y += 8
+      } else if (result.offerType === 'EJP') {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('Tarif EJP (Effacement Jours de Pointe):', margin + 3, y)
+        pdf.setFont('helvetica', 'normal')
+        y += 6
+
+        currentPage = checkNewPage(30, currentPage)
+
+        pdf.text(`  🟢 JOURS NORMAUX (~343 jours/an):`, margin + 3, y)
+        y += 5
+        const ejpNormalCost = result.breakdown.ejpNormalKwh * result.offer.ejp_normal
+        pdf.text(`    -> ${result.breakdown.ejpNormalKwh?.toFixed(0)} kWh × ${formatPrice(result.offer.ejp_normal, 5)} €/kWh = ${ejpNormalCost.toFixed(2)} €`, margin + 3, y)
+        y += 6
+
+        pdf.text(`  🔴 JOURS DE POINTE MOBILE (${result.breakdown.ejpPeakDaysCount} jours détectés):`, margin + 3, y)
+        y += 5
+        const ejpPeakCost = result.breakdown.ejpPeakKwh * result.offer.ejp_peak
+        pdf.text(`    -> ${result.breakdown.ejpPeakKwh?.toFixed(0)} kWh × ${formatPrice(result.offer.ejp_peak, 5)} €/kWh = ${ejpPeakCost.toFixed(2)} €`, margin + 3, y)
+        y += 6
 
         pdf.setFont('helvetica', 'bold')
         pdf.text(`  TOTAL ÉNERGIE: ${result.energyCost.toFixed(2)} €`, margin + 3, y)
@@ -3178,6 +3268,51 @@ export default function Simulator() {
                                     </div>
                                   </div>
                                 )}
+                                {result.breakdown && result.offerType === 'EJP' && result.offer && (
+                                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                    <div className="bg-gray-100 dark:bg-gray-700 px-4 py-2 border-b border-gray-200 dark:border-gray-600">
+                                      <h4 className="font-semibold text-sm text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                                        <span className="text-lg">⚡</span>
+                                        Détail de consommation
+                                      </h4>
+                                    </div>
+                                    <div className="p-4 space-y-3">
+                                      {/* Jours Normaux */}
+                                      <div className="space-y-2">
+                                        <div className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide flex items-center gap-1">
+                                          <span className="w-3 h-3 rounded-full bg-green-500"></span> Jours Normaux (343j/an)
+                                        </div>
+                                        <div className="p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                                          <div className="text-sm font-bold text-green-800 dark:text-green-200">{result.breakdown.ejpNormalKwh?.toFixed(0)} kWh</div>
+                                          <div className="text-xs text-green-600 dark:text-green-400">{result.breakdown.ejpNormalKwh?.toFixed(0)} kWh x {formatPrice(result.offer.ejp_normal, 4)} €/kWh = {calcPrice(result.breakdown.ejpNormalKwh, result.offer.ejp_normal)} €</div>
+                                        </div>
+                                      </div>
+                                      {/* Jours de Pointe Mobile */}
+                                      <div className="space-y-2">
+                                        <div className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide flex items-center gap-1">
+                                          <span className="w-3 h-3 rounded-full bg-red-500"></span> Jours de Pointe Mobile ({result.breakdown.ejpPeakDaysCount}j détectés)
+                                        </div>
+                                        <div className="p-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                                          <div className="text-sm font-bold text-red-800 dark:text-red-200">{result.breakdown.ejpPeakKwh?.toFixed(0)} kWh</div>
+                                          <div className="text-xs text-red-600 dark:text-red-400">{result.breakdown.ejpPeakKwh?.toFixed(0)} kWh x {formatPrice(result.offer.ejp_peak, 4)} €/kWh = {calcPrice(result.breakdown.ejpPeakKwh, result.offer.ejp_peak)} €</div>
+                                        </div>
+                                      </div>
+                                      {/* Warning about EJP peak days estimation */}
+                                      <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-400">
+                                        <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300">
+                                          <span className="flex-shrink-0 text-base">⚠️</span>
+                                          <div>
+                                            <strong>Estimation des jours de pointe :</strong> Les jours EJP sont estimés à partir des jours Tempo Rouge ({result.breakdown.ejpPeakDaysCount} jours détectés sur la période). Les jours EJP réels sont signalés par EDF et peuvent différer légèrement.
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex justify-between pt-3 border-t border-gray-200 dark:border-gray-600">
+                                        <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Total énergie</span>
+                                        <span className="text-lg font-bold text-orange-600 dark:text-orange-400">{result.energyCost.toFixed(2)} €</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Pricing details */}
                                 {result.offer && (
@@ -3289,6 +3424,26 @@ export default function Simulator() {
                                               <div className="text-xs text-red-600 dark:text-red-400">HP</div>
                                               <div className="text-sm font-bold text-red-800 dark:text-red-200">{formatPrice(result.offer.hp_price_summer, 5)} €</div>
                                             </div>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* EJP prices */}
+                                      {result.offerType === 'EJP' && result.offer.ejp_normal && (
+                                        <div className="space-y-2">
+                                          <div className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide flex items-center gap-1">
+                                            <span className="w-2 h-2 rounded-full bg-green-500"></span> Jours Normaux (343j/an)
+                                          </div>
+                                          <div className="p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-center">
+                                            <div className="text-xs text-green-600 dark:text-green-400">Prix du kWh</div>
+                                            <div className="text-sm font-bold text-green-800 dark:text-green-200">{formatPrice(result.offer.ejp_normal, 5)} €</div>
+                                          </div>
+                                          <div className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide flex items-center gap-1">
+                                            <span className="w-2 h-2 rounded-full bg-red-500"></span> Jours de Pointe Mobile (22j/an)
+                                          </div>
+                                          <div className="p-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-center">
+                                            <div className="text-xs text-red-600 dark:text-red-400">Prix du kWh</div>
+                                            <div className="text-sm font-bold text-red-800 dark:text-red-200">{formatPrice(result.offer.ejp_peak, 5)} €</div>
                                           </div>
                                         </div>
                                       )}
@@ -3545,6 +3700,22 @@ export default function Simulator() {
                                                   <div className="text-red-700 dark:text-red-300 font-semibold mb-1">⚡ Jours Sobriété (~20j)</div>
                                                   <div>HC: {result.breakdown.zenFlexSobrietyHcKwh?.toFixed(0)} kWh × {formatPrice(result.offer?.hc_price_summer, 5)} € = {calcPrice(result.breakdown.zenFlexSobrietyHcKwh, result.offer?.hc_price_summer)} €</div>
                                                   <div>HP: {result.breakdown.zenFlexSobrietyHpKwh?.toFixed(0)} kWh × {formatPrice(result.offer?.hp_price_summer, 5)} € = {calcPrice(result.breakdown.zenFlexSobrietyHpKwh, result.offer?.hp_price_summer)} €</div>
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {result.offerType === 'EJP' && (
+                                              <div className="space-y-2">
+                                                <p className="text-xs text-gray-600 dark:text-gray-400 italic">
+                                                  L'option EJP applique un tarif normal 343 jours/an et un tarif de pointe mobile 22 jours/an. Les jours de pointe sont estimés via les jours Tempo Rouge.
+                                                </p>
+                                                <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded border border-green-300 dark:border-green-700 font-mono text-xs">
+                                                  <div className="text-green-700 dark:text-green-300 font-semibold mb-1">🟢 Jours Normaux (~343j/an)</div>
+                                                  <div>{result.breakdown.ejpNormalKwh?.toFixed(0)} kWh × {formatPrice(result.offer?.ejp_normal, 5)} € = {calcPrice(result.breakdown.ejpNormalKwh, result.offer?.ejp_normal)} €</div>
+                                                </div>
+                                                <div className="p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-300 dark:border-red-700 font-mono text-xs">
+                                                  <div className="text-red-700 dark:text-red-300 font-semibold mb-1">🔴 Jours de Pointe Mobile ({result.breakdown.ejpPeakDaysCount}j détectés)</div>
+                                                  <div>{result.breakdown.ejpPeakKwh?.toFixed(0)} kWh × {formatPrice(result.offer?.ejp_peak, 5)} € = {calcPrice(result.breakdown.ejpPeakKwh, result.offer?.ejp_peak)} €</div>
                                                 </div>
                                               </div>
                                             )}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Building2, Zap, Tag, X } from 'lucide-react'
 import { energyApi, EnergyOffer } from '@/api/energy'
@@ -111,22 +111,17 @@ export default function OfferSelector({
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [filteredOffers, effectiveProviderId, effectiveOfferType])
 
-  // Auto-sélection : quand il n'y a qu'une seule offre possible, la sélectionner automatiquement
-  useEffect(() => {
-    if (availableOffers.length === 1 && availableOffers[0].id !== selectedOfferId) {
-      onChange(availableOffers[0].id)
-    }
-  }, [availableOffers, selectedOfferId, onChange])
-
-  // Reset offer type when provider changes manually
+  // Reset offer type and clear selected offer when provider changes manually
   const handleProviderChange = (providerId: string | null) => {
     setUserProviderId(providerId)
     setUserOfferType(null)
+    if (selectedOfferId) onChange(null)
   }
 
   // Reset offer when type changes manually
   const handleOfferTypeChange = (offerType: string | null) => {
     setUserOfferType(offerType)
+    if (selectedOfferId) onChange(null)
   }
 
   // Handle offer selection
@@ -407,8 +402,8 @@ export default function OfferSelector({
 
   return (
     <div className={`space-y-3 ${className}`}>
-      {/* Fournisseur + Type sur une ligne */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* All selectors on one line */}
+      <div className="grid grid-cols-3 gap-2">
         {/* Provider Selector */}
         <div>
           <label className="flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
@@ -450,30 +445,32 @@ export default function OfferSelector({
             ))}
           </select>
         </div>
-      </div>
 
-      {/* Sélecteur d'offre visible uniquement quand plusieurs offres existent pour la combinaison */}
-      {availableOffers.length > 1 && (
+        {/* Offer Selector */}
         <div>
           <label className="flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             <Tag size={12} />
-            Offre ({availableOffers.length} disponibles)
+            Offre
           </label>
           <select
             value={selectedOfferId || ''}
             onChange={(e) => handleOfferChange(e.target.value || null)}
-            disabled={disabled || isLoading}
+            disabled={disabled || isLoading || !effectiveProviderId || !effectiveOfferType}
             className={selectClassName}
           >
             <option value="">--</option>
-            {availableOffers.map(offer => (
-              <option key={offer.id} value={offer.id}>
-                {offer.name}
-              </option>
-            ))}
+            {availableOffers.map(offer => {
+              // Retirer le suffixe de puissance du nom (ex: "Tempo - 12 kVA" → "Tempo")
+              const displayName = offer.name.replace(/\s*-\s*\d+\s*kVA$/i, '')
+              return (
+                <option key={offer.id} value={offer.id}>
+                  {displayName}
+                </option>
+              )
+            })}
           </select>
         </div>
-      )}
+      </div>
 
       {/* Selected offer summary */}
       {selectedOffer && (
@@ -487,7 +484,7 @@ export default function OfferSelector({
                 </span>
                 <span className="text-blue-400">-</span>
                 <span className="text-blue-700 dark:text-blue-300">
-                  {selectedOffer.name}
+                  {selectedOffer.name.replace(/\s*-\s*\d+\s*kVA$/i, '')}
                 </span>
                 <span className="px-1.5 py-0.5 text-xs rounded bg-blue-100 dark:bg-blue-800 text-blue-700 dark:text-blue-300">
                   {OFFER_TYPE_LABELS[selectedOffer.offer_type] || selectedOffer.offer_type}
@@ -542,8 +539,8 @@ export default function OfferSelector({
       {/* Help text when no offer selected */}
       {!selectedOffer && !isLoading && (
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          Sélectionnez un fournisseur et un type d'offre.
-          {subscribedPower ? ` L'offre correspondante pour ${subscribedPower} kVA sera automatiquement sélectionnée.` : ' Renseignez aussi la puissance souscrite pour filtrer les offres.'}
+          Sélectionnez un fournisseur, puis un type d'offre pour voir les offres disponibles
+          {subscribedPower && ` pour ${subscribedPower} kVA`}.
         </p>
       )}
     </div>
