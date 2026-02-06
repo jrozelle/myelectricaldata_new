@@ -26,13 +26,6 @@ function isWeekend(dateString: string): boolean {
 }
 
 // Helper function to check if tariff is older than 6 months
-function isOldTariff(validFrom: string | undefined): boolean {
-  if (!validFrom) return false
-  const sixMonthsAgo = new Date()
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
-  return new Date(validFrom) < sixMonthsAgo
-}
-
 // Vérifie si une offre est expirée (valid_to défini et dans le passé)
 function isExpiredOffer(offer: { valid_to?: string | null }): boolean {
   if (!offer.valid_to) return false
@@ -274,7 +267,6 @@ export default function Simulator() {
   // Filters and sorting state
   const [filterType, setFilterType] = useState<string>('all')
   const [filterProvider, setFilterProvider] = useState<string>('all')
-  const [showOldOffers, setShowOldOffers] = useState(false)
   const [sortBy, setSortBy] = useState<'total' | 'subscription' | 'energy'>('total')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
 
@@ -1194,11 +1186,6 @@ export default function Simulator() {
       filtered = filtered.filter((result) => result.providerName === filterProvider)
     }
 
-    // Filter by recency (tariffs < 6 months old) - par défaut on masque les anciennes offres
-    if (!showOldOffers) {
-      filtered = filtered.filter((result) => !isOldTariff(result.validFrom))
-    }
-
     // Sort by selected criteria
     filtered.sort((a, b) => {
       let comparison = 0
@@ -1218,7 +1205,7 @@ export default function Simulator() {
     })
 
     return filtered
-  }, [simulationResult, filterType, filterProvider, showOldOffers, sortBy, sortOrder])
+  }, [simulationResult, filterType, filterProvider, sortBy, sortOrder])
 
   // Check if viewing a shared PDL (impersonation mode)
   const isSharedPdl = !!impersonation
@@ -2708,38 +2695,11 @@ export default function Simulator() {
                   </select>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-1 cursor-pointer text-xs text-gray-600 dark:text-gray-400">
-                    <input
-                      type="checkbox"
-                      checked={showOldOffers}
-                      onChange={(e) => setShowOldOffers(e.target.checked)}
-                      className="w-3 h-3 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                    />
-                    <span>Afficher les anciennes offres</span>
-                  </label>
-                  <div className="relative group">
-                    <Info
-                      size={14}
-                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help transition-colors"
-                    />
-                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg shadow-lg z-10">
-                      <div className="text-left">
-                        Inclut les offres dont les tarifs ont été mis à jour il y a plus de 6 mois. Ces offres sont marquées du badge "⚠️ Ancien".
-                      </div>
-                      <div className="absolute top-full left-4 -mt-1">
-                        <div className="border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {(filterType !== 'all' || filterProvider !== 'all' || showOldOffers) && (
+                {(filterType !== 'all' || filterProvider !== 'all') && (
                   <button
                     onClick={() => {
                       setFilterType('all')
                       setFilterProvider('all')
-                      setShowOldOffers(false)
                     }}
                     className="text-xs text-primary-600 dark:text-primary-400 hover:underline ml-auto transition-colors"
                   >
@@ -2851,14 +2811,6 @@ export default function Simulator() {
                                   title={result.offer.description.split('.')[0]}
                                 >
                                   ⚠️
-                                </span>
-                              )}
-                              {isOldTariff(result.validFrom) && (
-                                <span
-                                  className="px-1.5 py-0.5 text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded"
-                                  title="Tarif ancien (> 6 mois) - Potentiellement non à jour"
-                                >
-                                  Ancien
                                 </span>
                               )}
                             </div>
@@ -3649,11 +3601,11 @@ export default function Simulator() {
                 </p>
                 {filteredAndSortedResults.length > 1 && (
                   <p className="mt-1">
-                    💡 {filterType !== 'all' || filterProvider !== 'all' || !showOldOffers ? 'Parmi les offres affichées, l' : 'L'}'offre la moins chère vous permet d'économiser{' '}
+                    💡 {filterType !== 'all' || filterProvider !== 'all' ? 'Parmi les offres affichées, l' : 'L'}'offre la moins chère vous permet d'économiser{' '}
                     <strong className="text-green-600 dark:text-green-400">
                       {(filteredAndSortedResults[filteredAndSortedResults.length - 1].totalCost - filteredAndSortedResults[0].totalCost).toFixed(2)} €
                     </strong>
-                    {' '}par an par rapport à l'offre la plus chère{filterType !== 'all' || filterProvider !== 'all' || !showOldOffers ? ' (affichée)' : ''}.
+                    {' '}par an par rapport à l'offre la plus chère{filterType !== 'all' || filterProvider !== 'all' ? ' (affichée)' : ''}.
                   </p>
                 )}
               </div>
