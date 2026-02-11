@@ -300,12 +300,12 @@ async def init_default_energy_offers(db: AsyncSession) -> None:
             logger.info(f"[SEED] Created EDF provider: {provider.id}")
 
         # Check existing offers for this provider
-        result = await db.execute(
+        offers_result = await db.execute(
             select(EnergyOffer).where(EnergyOffer.provider_id == provider.id)
         )
         existing_offers = {
             (offer.name, offer.offer_type, offer.power_kva)
-            for offer in result.scalars().all()
+            for offer in offers_result.scalars().all()
         }
 
         offers_created = 0

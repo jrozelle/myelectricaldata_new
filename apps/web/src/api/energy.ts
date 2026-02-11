@@ -365,7 +365,7 @@ export const energyApi = {
   },
 
   purgeProviderOffers: async (provider: string) => {
-    return apiClient.delete('admin/offers/purge', { provider })
+    return apiClient.delete<{ deleted_count: number }>('admin/offers/purge', { provider })
   },
 
   // Get sync status
