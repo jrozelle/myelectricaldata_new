@@ -28,6 +28,8 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
   const [editedName, setEditedName] = useState(pdl.name || '')
   const [editedPower, setEditedPower] = useState(pdl.subscribed_power?.toString() || '')
   const [isSaving, setIsSaving] = useState(false)
+  const [showExpiredOffers, setShowExpiredOffers] = useState(false)
+  const [hasExpiredOffers, setHasExpiredOffers] = useState(false)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mobileMenuRef = useRef<HTMLDivElement | null>(null)
   const [offpeakRanges, setOffpeakRanges] = useState<Array<{startHour: string, startMin: string, endHour: string, endMin: string}>>(() => {
@@ -845,9 +847,9 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
           {!hasConsentError && (
             <>
             {/* Consumption Section */}
-            <div className="border-2 border-blue-200 dark:border-blue-700 rounded-lg overflow-hidden shadow-md">
+            <div className="-mx-4 overflow-hidden">
               {/* Consumption Header */}
-              <label className="flex items-center gap-3 py-2 px-3 bg-blue-100/70 dark:bg-blue-900/30 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors" data-tour="pdl-consumption">
+              <label className="flex items-center gap-3 py-2 px-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors" data-tour="pdl-consumption">
                 <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-semibold">
                   <Zap size={18} className="text-blue-600 dark:text-blue-400" />
                   <span>Consommation</span>
@@ -869,7 +871,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
               {/* Consumption Configuration - Only show if consumption is enabled */}
               {(pdl.has_consumption ?? true) && (
-                <div className="px-3 py-2 space-y-2 bg-blue-50/20 dark:bg-gray-800/50">
+                <div className="px-3 py-2 space-y-2">
                   <div className="flex items-center justify-between" data-tour="pdl-power">
                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                       <Zap size={16} />
@@ -895,9 +897,22 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
                   {/* Energy Offer Selection */}
                   <div className="space-y-2" data-tour="pdl-energy-offer">
-                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                      <ShoppingBag size={16} />
-                      <span>Offre tarifaire :</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                        <ShoppingBag size={16} />
+                        <span>Offre tarifaire :</span>
+                      </div>
+                      {hasExpiredOffers && (
+                        <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-600 dark:text-gray-400">
+                          <span>Afficher les offres obsolètes</span>
+                          <input
+                            type="checkbox"
+                            checked={showExpiredOffers}
+                            onChange={(e) => setShowExpiredOffers(e.target.checked)}
+                            className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-amber-500 focus:ring-amber-500"
+                          />
+                        </label>
+                      )}
                     </div>
                     <OfferSelector
                       selectedOfferId={pdl.selected_offer_id}
@@ -906,6 +921,8 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
                         updateSelectedOfferMutation.mutate(offerId)
                       }}
                       disabled={updateSelectedOfferMutation.isPending}
+                      showExpired={showExpiredOffers}
+                      onHasExpiredOffersChange={setHasExpiredOffers}
                     />
                   </div>
 
@@ -1113,9 +1130,9 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
 
         {/* Production Section */}
         {!hasConsentError && (
-          <div className="border-2 border-yellow-400 dark:border-yellow-500 rounded-lg overflow-hidden shadow-md">
+          <div className="-mx-4 overflow-hidden">
             {/* Production Header */}
-            <label className="flex items-center gap-3 py-2 px-3 bg-yellow-100 dark:bg-yellow-900/50 cursor-pointer hover:bg-yellow-200 dark:hover:bg-yellow-800/50 transition-colors" data-tour="pdl-production">
+            <label className="flex items-center gap-3 py-2 px-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors" data-tour="pdl-production">
               <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-200 font-semibold">
                 <Factory size={18} className="text-yellow-600 dark:text-yellow-400" />
                 <span>Production</span>
@@ -1140,7 +1157,7 @@ export default function PDLCard({ pdl, onViewDetails, onDelete, isDemo = false, 
               const productionPdls = allPdls.filter(p => p.has_production && p.id !== pdl.id && (p.is_active ?? true))
 
               return productionPdls.length > 0 ? (
-                <div className="px-3 py-2 bg-yellow-50 dark:bg-gray-800">
+                <div className="px-3 py-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                       <Factory size={16} />

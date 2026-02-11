@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { Building2, Zap, Tag, X, AlertTriangle, Loader2 } from 'lucide-react'
+import { Building2, Zap, Tag, X, AlertTriangle, Loader2, ChevronDown, Search } from 'lucide-react'
 import { energyApi, EnergyOffer } from '@/api/energy'
 
 interface OfferSelectorProps {
@@ -9,17 +9,30 @@ interface OfferSelectorProps {
   onChange: (offerId: string | null) => void
   disabled?: boolean
   className?: string
+  showExpired?: boolean
+  onHasExpiredOffersChange?: (has: boolean) => void
 }
 
 // Mapping from offer_type to French label
 const OFFER_TYPE_LABELS: Record<string, string> = {
   'BASE': 'Base',
-  'HC_HP': 'Heures Creuses',
+  'HC_HP': 'Heures Creuses / Pleines',
+  'BASE_WEEKEND': 'Week-end - Base',
+  'HC_WEEKEND': 'Week-end - HC/HP',
+  'HC_NUIT_WEEKEND': 'Week-end - Nuit',
+  'WEEKEND': 'Week-end',
   'TEMPO': 'Tempo',
   'EJP': 'EJP',
-  'WEEKEND': 'Nuit & Week-end',
   'SEASONAL': 'Saisonnier',
+  'ZEN_FLEX': 'Zen Flex',
 }
+
+// Groupes de types d'offres pour le dropdown
+const OFFER_TYPE_GROUPS: { label: string; types: string[] }[] = [
+  { label: 'Classique', types: ['BASE', 'HC_HP'] },
+  { label: 'Week-end', types: ['BASE_WEEKEND', 'HC_WEEKEND', 'HC_NUIT_WEEKEND', 'WEEKEND'] },
+  { label: 'Modulable', types: ['TEMPO', 'SEASONAL', 'EJP', 'ZEN_FLEX'] },
+]
 
 export default function OfferSelector({
   selectedOfferId,
@@ -27,6 +40,8 @@ export default function OfferSelector({
   onChange,
   disabled = false,
   className = '',
+  showExpired: showExpiredProp,
+  onHasExpiredOffersChange,
 }: OfferSelectorProps) {
   // States locaux pour les overrides manuels de l'utilisateur.
   // Quand l'utilisateur change un sélecteur, on stocke son choix ici.
@@ -34,13 +49,13 @@ export default function OfferSelector({
   // sont ignorées au profit des valeurs dérivées de l'offre.
   const [userProviderId, setUserProviderId] = useState<string | null>(null)
   const [userOfferType, setUserOfferType] = useState<string | null>(null)
-  const [showExpired, setShowExpired] = useState(false)
+  const showExpired = showExpiredProp ?? false
 
   // Fetch providers
   // refetchOnMount: 'always' force un fetch frais à chaque mount pour éviter
   // les sélecteurs vides quand les données ne sont pas en cache (bug race condition)
   // placeholderData: garde les données précédentes pendant un refetch
-  const { data: providersResponse, isLoading: isLoadingProviders } = useQuery({
+  const { data: providersResponse, isLoading: isLoadingProviders, isFetching: isFetchingProviders } = useQuery({
     queryKey: ['energy-providers'],
     queryFn: energyApi.getProviders,
     staleTime: 5 * 60 * 1000,
@@ -49,7 +64,7 @@ export default function OfferSelector({
   })
 
   // Fetch all offers (incluant les offres périmées pour permettre leur sélection)
-  const { data: offersResponse, isLoading: isLoadingOffers } = useQuery({
+  const { data: offersResponse, isLoading: isLoadingOffers, isFetching: isFetchingOffers } = useQuery({
     queryKey: ['energy-offers', 'with-history'],
     queryFn: () => energyApi.getOffers(undefined, true),
     staleTime: 5 * 60 * 1000,
@@ -111,6 +126,11 @@ export default function OfferSelector({
     return powerFilteredOffers.some(o => isExpiredOffer(o))
   }, [powerFilteredOffers])
 
+  // Notifie le parent quand hasExpiredOffers change
+  useEffect(() => {
+    onHasExpiredOffersChange?.(hasExpiredOffers)
+  }, [hasExpiredOffers, onHasExpiredOffersChange])
+
   // Get providers that have offers
   // Inclut toujours le provider de l'offre sélectionnée pour éviter
   // que le changement de visibilité (toggle périmées) ne vide le sélecteur
@@ -159,6 +179,32 @@ export default function OfferSelector({
     if (selectedOfferId) onChange(null)
   }
 
+  // Auto-sélection du premier type quand le provider change (et pas d'offre sélectionnée)
+  useEffect(() => {
+    if (effectiveProviderId && !selectedOffer && !effectiveOfferType) {
+      const types = visibleOffers
+        .filter(o => o.provider_id === effectiveProviderId)
+        .map(o => o.offer_type)
+      const uniqueTypes = Array.from(new Set(types)).sort()
+      if (uniqueTypes.length > 0) {
+        setUserOfferType(uniqueTypes[0])
+      }
+    }
+  }, [effectiveProviderId, effectiveOfferType, selectedOffer, visibleOffers])
+
+  // Auto-sélection de la première offre quand le type est défini (et pas d'offre sélectionnée)
+  useEffect(() => {
+    if (effectiveProviderId && effectiveOfferType && !selectedOffer && !selectedOfferId) {
+      const offers = visibleOffers
+        .filter(o => o.provider_id === effectiveProviderId && o.offer_type === effectiveOfferType)
+        .filter(o => !isExpiredOffer(o))
+        .sort((a, b) => a.name.localeCompare(b.name))
+      if (offers.length > 0) {
+        onChange(offers[0].id)
+      }
+    }
+  }, [effectiveProviderId, effectiveOfferType, selectedOffer, selectedOfferId, visibleOffers])
+
   // Reset offer when type changes manually
   // Avant de désélectionner l'offre, on sauvegarde le provider actuel
   // dans userProviderId pour qu'il survive à la perte de selectedOffer
@@ -189,6 +235,9 @@ export default function OfferSelector({
   }
 
   const isLoading = isLoadingProviders || isLoadingOffers
+  // Détecte quand une offre est sélectionnée en base mais pas encore résolue
+  // (données en cours de chargement ou placeholder stale via keepPreviousData)
+  const isOfferUnresolved = !!selectedOfferId && !selectedOffer && (isFetchingProviders || isFetchingOffers)
 
   // Format price for display (in €/kWh)
   const formatPrice = (price: number | string | undefined | null): string => {
@@ -440,36 +489,51 @@ export default function OfferSelector({
     return priceRows.length > 0 ? priceRows : <span className="text-gray-500">-</span>
   }
 
-  const selectClassName = `
-    w-full px-3 py-2 text-sm
-    bg-white dark:bg-gray-800
-    border-2 border-blue-300 dark:border-blue-700
-    rounded-lg text-gray-900 dark:text-gray-100
-    focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400
-    focus:border-blue-500 dark:focus:border-blue-400
-    transition-all shadow-sm hover:shadow
-    disabled:opacity-50 disabled:cursor-not-allowed
-    cursor-pointer
-  `
+  const selectClassName = 'input text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
 
+  // État et refs pour les dropdowns custom
+  const [openDropdown, setOpenDropdown] = useState<'provider' | 'type' | 'offer' | null>(null)
+  const [providerSearch, setProviderSearch] = useState('')
+  const providerSearchRef = useRef<HTMLInputElement>(null)
+  const providerDropdownRef = useRef<HTMLDivElement>(null)
+  const typeDropdownRef = useRef<HTMLDivElement>(null)
+  const offerDropdownRef = useRef<HTMLDivElement>(null)
+
+  // Fermer le dropdown quand on clique à l'extérieur
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const refs = { provider: providerDropdownRef, type: typeDropdownRef, offer: offerDropdownRef }
+      if (openDropdown && refs[openDropdown]?.current && !refs[openDropdown].current!.contains(event.target as Node)) {
+        setOpenDropdown(null)
+        setProviderSearch('')
+      }
+    }
+    if (openDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [openDropdown])
+
+  // Nom formaté de l'offre sélectionnée (sans le suffixe kVA)
+  const formatOfferName = (offer: EnergyOffer) =>
+    offer.name.replace(/\s*-\s*\d+\s*kVA$/i, '')
+
+  const formatExpiredLabel = (offer: EnergyOffer) => {
+    if (offer.valid_to) {
+      const date = new Date(offer.valid_to).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
+      return `jusqu'à ${date}`
+    }
+    return 'obsolète'
+  }
+
+  // Séparer les offres actives et obsolètes pour le dropdown
+  const activeOffers = useMemo(() => availableOffers.filter(o => !isExpiredOffer(o)), [availableOffers])
+  const expiredOffers = useMemo(() => availableOffers.filter(o => isExpiredOffer(o)), [availableOffers])
 
   return (
     <div className={`space-y-3 ${className}`}>
-      {/* Toggle offres périmées */}
-      {hasExpiredOffers && (
-        <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={showExpired}
-            onChange={(e) => setShowExpired(e.target.checked)}
-            className="rounded border-gray-300 dark:border-gray-600 text-amber-500 focus:ring-amber-500"
-          />
-          <span>Afficher les offres périmées</span>
-        </label>
-      )}
-
       {/* Skeleton de chargement quand une offre est sélectionnée mais les données pas encore chargées */}
-      {isLoading && selectedOfferId ? (
+      {(isLoading || isOfferUnresolved) && selectedOfferId ? (
         <div className="grid grid-cols-3 gap-2">
           {[
             { icon: <Building2 size={12} />, label: 'Fournisseur' },
@@ -481,8 +545,8 @@ export default function OfferSelector({
                 {icon}
                 {label}
               </label>
-              <div className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-700 rounded-lg flex items-center gap-2">
-                <Loader2 size={14} className="animate-spin text-blue-400" />
+              <div className="input text-sm flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin text-primary-400" />
                 <span className="text-gray-400 dark:text-gray-500">Chargement...</span>
               </div>
             </div>
@@ -491,94 +555,252 @@ export default function OfferSelector({
       ) : (
       /* All selectors on one line */
       <div className="grid grid-cols-3 gap-2">
-        {/* Provider Selector */}
-        <div>
+        {/* Provider Selector - Custom Dropdown */}
+        <div className="relative" ref={providerDropdownRef}>
           <label className="flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             <Building2 size={12} />
             Fournisseur
           </label>
-          <select
-            value={effectiveProviderId || ''}
-            onChange={(e) => handleProviderChange(e.target.value || null)}
+          <button
+            type="button"
+            onClick={() => {
+              if (!disabled && !isLoading) {
+                setOpenDropdown(openDropdown === 'provider' ? null : 'provider')
+              }
+            }}
             disabled={disabled || isLoading}
-            className={selectClassName}
+            className={`${selectClassName} w-full flex items-center justify-between gap-1 text-left`}
           >
-            <option value="">{isLoading ? 'Chargement...' : '--'}</option>
-            {availableProviders.map(provider => (
-              <option key={provider.id} value={provider.id}>
-                {provider.name}
-              </option>
-            ))}
-          </select>
+            <span className={`truncate ${effectiveProviderId ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}`}>
+              {isLoading ? 'Chargement...' : (availableProviders.find(p => p.id === effectiveProviderId)?.name || 'Sélectionnez un fournisseur')}
+            </span>
+            <ChevronDown
+              size={14}
+              className={`flex-shrink-0 text-gray-400 transition-transform ${openDropdown === 'provider' ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {openDropdown === 'provider' && (
+            <div className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
+              <div className="sticky top-0 bg-white dark:bg-gray-800 p-2 border-b border-gray-100 dark:border-gray-700">
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    ref={providerSearchRef}
+                    type="text"
+                    value={providerSearch}
+                    onChange={(e) => setProviderSearch(e.target.value)}
+                    placeholder="Rechercher..."
+                    className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="max-h-52 overflow-y-auto">
+                {availableProviders
+                  .filter(p => !providerSearch || p.name.toLowerCase().includes(providerSearch.toLowerCase()))
+                  .map(provider => (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    onClick={() => {
+                      handleProviderChange(provider.id)
+                      setOpenDropdown(null)
+                      setProviderSearch('')
+                    }}
+                    className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                      provider.id === effectiveProviderId ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                    }`}
+                  >
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {provider.name}
+                    </div>
+                  </button>
+                ))}
+                {availableProviders.filter(p => !providerSearch || p.name.toLowerCase().includes(providerSearch.toLowerCase())).length === 0 && (
+                  <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
+                    Aucun fournisseur trouvé
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Offer Type Selector */}
-        <div>
+        {/* Offer Type Selector - Custom Dropdown */}
+        <div className="relative" ref={typeDropdownRef}>
           <label className="flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             <Zap size={12} />
             Type
           </label>
-          <select
-            value={effectiveOfferType || ''}
-            onChange={(e) => handleOfferTypeChange(e.target.value || null)}
+          <button
+            type="button"
+            onClick={() => {
+              if (!disabled && !isLoading && effectiveProviderId) {
+                setOpenDropdown(openDropdown === 'type' ? null : 'type')
+              }
+            }}
             disabled={disabled || isLoading || !effectiveProviderId}
-            className={selectClassName}
+            className={`${selectClassName} w-full flex items-center justify-between gap-1 text-left`}
           >
-            <option value="">{isLoading ? 'Chargement...' : '--'}</option>
-            {availableOfferTypes.map(type => (
-              <option key={type} value={type}>
-                {OFFER_TYPE_LABELS[type] || type}
-              </option>
-            ))}
-          </select>
+            <span className={`truncate ${effectiveOfferType ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}`}>
+              {isLoading ? 'Chargement...' : (effectiveOfferType ? (OFFER_TYPE_LABELS[effectiveOfferType] || effectiveOfferType) : '\u00A0')}
+            </span>
+            <ChevronDown
+              size={14}
+              className={`flex-shrink-0 text-gray-400 transition-transform ${openDropdown === 'type' ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {openDropdown === 'type' && (
+            <div className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-lg max-h-64 overflow-y-auto shadow-lg">
+              {OFFER_TYPE_GROUPS.map(group => {
+                const groupTypes = group.types.filter(t => availableOfferTypes.includes(t))
+                if (groupTypes.length === 0) return null
+                return (
+                  <div key={group.label}>
+                    <div className="px-4 py-1.5 bg-gray-100 dark:bg-gray-700/50 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide sticky top-0">
+                      {group.label}
+                    </div>
+                    {groupTypes.map(type => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => {
+                          handleOfferTypeChange(type)
+                          setOpenDropdown(null)
+                        }}
+                        className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                          type === effectiveOfferType ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                        }`}
+                      >
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {OFFER_TYPE_LABELS[type] || type}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )
+              })}
+              {/* Types non classés (sécurité) */}
+              {availableOfferTypes
+                .filter(t => !OFFER_TYPE_GROUPS.some(g => g.types.includes(t)))
+                .map(type => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => {
+                      handleOfferTypeChange(type)
+                      setOpenDropdown(null)
+                    }}
+                    className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                      type === effectiveOfferType ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                    }`}
+                  >
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {OFFER_TYPE_LABELS[type] || type}
+                    </div>
+                  </button>
+                ))
+              }
+            </div>
+          )}
         </div>
 
-        {/* Offer Selector */}
-        <div>
+        {/* Offer Selector - Custom Dropdown */}
+        <div className="relative" ref={offerDropdownRef}>
           <label className="flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             <Tag size={12} />
             Offre
           </label>
-          <select
-            value={selectedOfferId || ''}
-            onChange={(e) => handleOfferChange(e.target.value || null)}
-            disabled={disabled || isLoading || !effectiveProviderId || !effectiveOfferType}
-            className={selectClassName}
-          >
-            <option value="">--</option>
-            {(() => {
-              const active = availableOffers.filter(o => !isExpiredOffer(o))
-              const expired = availableOffers.filter(o => isExpiredOffer(o))
-              const formatName = (offer: EnergyOffer) =>
-                offer.name.replace(/\s*-\s*\d+\s*kVA$/i, '')
-              const formatExpiredLabel = (offer: EnergyOffer) => {
-                const name = formatName(offer)
-                if (offer.valid_to) {
-                  const date = new Date(offer.valid_to).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
-                  return `${name} (jusqu'à ${date})`
-                }
-                return `${name} (périmée)`
+          <button
+            type="button"
+            onClick={() => {
+              if (!disabled && !isLoading && effectiveProviderId && effectiveOfferType) {
+                setOpenDropdown(openDropdown === 'offer' ? null : 'offer')
               }
-              return (
+            }}
+            disabled={disabled || isLoading || !effectiveProviderId || !effectiveOfferType}
+            className={`${selectClassName} w-full flex items-center justify-between gap-1 text-left`}
+          >
+            <span className={`truncate ${selectedOffer ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}`}>
+              {selectedOffer ? formatOfferName(selectedOffer) : '\u00A0'}
+            </span>
+            <ChevronDown
+              size={14}
+              className={`flex-shrink-0 text-gray-400 transition-transform ${openDropdown === 'offer' ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {openDropdown === 'offer' && (
+            <div className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-lg max-h-64 overflow-y-auto shadow-lg">
+              {/* Offres actives */}
+              {activeOffers.length > 0 && (
                 <>
-                  {active.map(offer => (
-                    <option key={offer.id} value={offer.id}>
-                      {formatName(offer)}
-                    </option>
+                  {activeOffers.map(offer => (
+                    <button
+                      key={offer.id}
+                      type="button"
+                      onClick={() => {
+                        handleOfferChange(offer.id)
+                        setOpenDropdown(null)
+                      }}
+                      className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                        offer.id === selectedOfferId ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                      }`}
+                    >
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {formatOfferName(offer)}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {OFFER_TYPE_LABELS[offer.offer_type] || offer.offer_type}
+                        {offer.power_kva && ` - ${offer.power_kva} kVA`}
+                      </div>
+                    </button>
                   ))}
-                  {expired.length > 0 && (
-                    <optgroup label="Offres périmées">
-                      {expired.map(offer => (
-                        <option key={offer.id} value={offer.id}>
-                          {formatExpiredLabel(offer)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
                 </>
-              )
-            })()}
-          </select>
+              )}
+
+              {/* Offres obsolètes */}
+              {expiredOffers.length > 0 && (
+                <>
+                  <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700/50 text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide sticky top-0">
+                    Offres obsolètes
+                  </div>
+                  {expiredOffers.map(offer => (
+                    <button
+                      key={offer.id}
+                      type="button"
+                      onClick={() => {
+                        handleOfferChange(offer.id)
+                        setOpenDropdown(null)
+                      }}
+                      className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                        offer.id === selectedOfferId ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                      }`}
+                    >
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {formatOfferName(offer)}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {OFFER_TYPE_LABELS[offer.offer_type] || offer.offer_type}
+                        {offer.power_kva && ` - ${offer.power_kva} kVA`}
+                        {' · '}
+                        <span className="text-amber-600 dark:text-amber-400">{formatExpiredLabel(offer)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {/* Message si aucune offre */}
+              {activeOffers.length === 0 && expiredOffers.length === 0 && (
+                <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
+                  Aucune offre disponible
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
       )}
@@ -595,7 +817,7 @@ export default function OfferSelector({
             <div className="flex items-center gap-2 mb-3 pb-2 border-b border-amber-200 dark:border-amber-700">
               <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
               <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
-                Cette offre n'est plus commercialisée
+                Cette offre est obsolète
               </span>
             </div>
           )}

@@ -11,6 +11,7 @@ Les formulaires incluent les inputs, selects, checkboxes, radios et labels. Ils 
 3. Toujours inclure dark mode
 4. Focus states obligatoires pour l'accessibilité
 5. Messages d'erreur en rouge sous les champs
+6. Pour les selects enrichis (multi-lignes, groupes), utiliser un **Custom Dropdown** (voir section dediee)
 
 ## Classe Input Standard
 
@@ -63,6 +64,126 @@ Les formulaires incluent les inputs, selects, checkboxes, radios et labels. Ils 
   </select>
 </div>
 ```
+
+### Custom Dropdown (select enrichi)
+
+Pour les cas ou un `<select>` natif ne suffit pas (items multi-lignes, groupes avec headers, badges, icones), utiliser un dropdown custom base sur un `<button>` trigger + panel absolu.
+
+**Quand utiliser un Custom Dropdown plutot qu'un Select natif :**
+
+- Items avec sous-texte (nom + description)
+- Groupes avec headers sticky
+- Besoin de badges ou indicateurs visuels sur les items
+- Surbrillance de l'item selectionne
+
+**Structure :**
+
+```tsx
+const [isOpen, setIsOpen] = useState(false)
+const dropdownRef = useRef<HTMLDivElement>(null)
+
+// Fermeture au clic exterieur (obligatoire)
+useEffect(() => {
+  const handleClickOutside = (event: MouseEvent) => {
+    if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      setIsOpen(false)
+    }
+  }
+  if (isOpen) {
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }
+}, [isOpen])
+```
+
+**Trigger :**
+
+```tsx
+<div className="relative" ref={dropdownRef}>
+  <button
+    type="button"
+    onClick={() => setIsOpen(!isOpen)}
+    disabled={disabled}
+    className="input text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full flex items-center justify-between gap-1 text-left"
+  >
+    <span className={`truncate ${selectedValue ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}`}>
+      {selectedLabel || '--'}
+    </span>
+    <ChevronDown
+      size={14}
+      className={`flex-shrink-0 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+    />
+  </button>
+```
+
+**Panel dropdown :**
+
+```tsx
+  {isOpen && (
+    <div className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-lg max-h-64 overflow-y-auto shadow-lg">
+      {/* Option vide */}
+      <button
+        type="button"
+        onClick={() => { onSelect(null); setIsOpen(false) }}
+        className="w-full text-left px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+      >
+        --
+      </button>
+
+      {/* Items simples (1 ligne) */}
+      <button
+        type="button"
+        onClick={() => { onSelect(item.id); setIsOpen(false) }}
+        className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+          isSelected ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+        }`}
+      >
+        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {item.name}
+        </div>
+      </button>
+
+      {/* Items enrichis (2 lignes) */}
+      <button
+        type="button"
+        onClick={() => { onSelect(item.id); setIsOpen(false) }}
+        className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+          isSelected ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+        }`}
+      >
+        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {item.name}
+        </div>
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          {item.subtitle}
+        </div>
+      </button>
+
+      {/* Header de groupe (sticky) */}
+      <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700/50 text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide sticky top-0">
+        Nom du groupe
+      </div>
+    </div>
+  )}
+</div>
+```
+
+**Regles du Custom Dropdown :**
+
+1. Toujours `type="button"` sur le trigger (eviter le submit dans un form)
+2. Toujours `useRef` + listener `mousedown` pour fermeture au clic exterieur
+3. Panel en `absolute z-50` avec `max-h-64 overflow-y-auto`
+4. Bordure : `border-2 border-gray-200 dark:border-gray-600`
+5. Item selectionne : `bg-blue-50 dark:bg-blue-900/30`
+6. Hover : `hover:bg-gray-50 dark:hover:bg-gray-700/50`
+7. Headers de groupe : `sticky top-0` avec fond `bg-gray-100 dark:bg-gray-700/50`
+8. Chevron avec `transition-transform` et `rotate-180` a l'ouverture
+9. Texte placeholder en `text-gray-500 dark:text-gray-400`, valeur en `text-gray-900 dark:text-gray-100`
+
+**Exemples d'utilisation :**
+
+- `OfferSelector.tsx` : 3 dropdowns custom (Fournisseur, Type, Offre)
+- `OfferPricingCard.tsx` : dropdown de comparaison d'offres avec groupes par fournisseur
 
 ### Checkbox
 
