@@ -35,6 +35,7 @@ import MetricsSection from '@/components/MetricsSection'
 
 export default function VictoriaMetrics() {
   const queryClient = useQueryClient()
+  const runtimeEnv = typeof window !== 'undefined' ? window.__ENV__ || {} : {}
 
   // State
   const [isEditing, setIsEditing] = useState(false)
@@ -50,7 +51,7 @@ export default function VictoriaMetrics() {
   const [formIntervalMinutes, setFormIntervalMinutes] = useState<number | null>(null)
 
   // VictoriaMetrics config
-  const [vmUrl, setVmUrl] = useState('')
+  const [vmUrl, setVmUrl] = useState(runtimeEnv.VITE_DEFAULT_VM_URL || '')
   const [vmDatabase, setVmDatabase] = useState('myelectricaldata')
   const [vmUsername, setVmUsername] = useState('')
   const [vmPassword, setVmPassword] = useState('')

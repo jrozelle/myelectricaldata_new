@@ -40,6 +40,27 @@ class StatisticsService:
             return ProductionData
         return ConsumptionData
 
+    def _daily_values_subquery(
+        self,
+        model: type[ConsumptionData] | type[ProductionData],
+        usage_point_id: str,
+        start_date: date,
+        end_date: date,
+    ) -> Any:
+        """Return one DAILY value per date (max value) to avoid duplicate-day inflation."""
+        return (
+            select(
+                model.date.label("day"),
+                func.max(model.value).label("value"),
+            )
+            .where(model.usage_point_id == usage_point_id)
+            .where(model.granularity == DataGranularity.DAILY)
+            .where(model.date >= start_date)
+            .where(model.date <= end_date)
+            .group_by(model.date)
+            .subquery()
+        )
+
     # =========================================================================
     # ANNUAL STATISTICS (Calendar-based)
     # =========================================================================
@@ -60,13 +81,10 @@ class StatisticsService:
         model = self._get_model(direction)
         start_date = date(year, 1, 1)
         end_date = date(year, 12, 31)
+        daily_subquery = self._daily_values_subquery(model, usage_point_id, start_date, end_date)
 
         result = await self.db.execute(
-            select(func.coalesce(func.sum(model.value), 0))
-            .where(model.usage_point_id == usage_point_id)
-            .where(model.granularity == DataGranularity.DAILY)
-            .where(model.date >= start_date)
-            .where(model.date <= end_date)
+            select(func.coalesce(func.sum(daily_subquery.c.value), 0))
         )
         return int(result.scalar() or 0)
 
@@ -92,13 +110,10 @@ class StatisticsService:
             end_date = date(year + 1, 1, 1) - timedelta(days=1)
         else:
             end_date = date(year, month + 1, 1) - timedelta(days=1)
+        daily_subquery = self._daily_values_subquery(model, usage_point_id, start_date, end_date)
 
         result = await self.db.execute(
-            select(func.coalesce(func.sum(model.value), 0))
-            .where(model.usage_point_id == usage_point_id)
-            .where(model.granularity == DataGranularity.DAILY)
-            .where(model.date >= start_date)
-            .where(model.date <= end_date)
+            select(func.coalesce(func.sum(daily_subquery.c.value), 0))
         )
         return int(result.scalar() or 0)
 
@@ -123,13 +138,10 @@ class StatisticsService:
         start_of_week1 = jan4 - timedelta(days=jan4.weekday())
         start_date = start_of_week1 + timedelta(weeks=week - 1)
         end_date = start_date + timedelta(days=6)
+        daily_subquery = self._daily_values_subquery(model, usage_point_id, start_date, end_date)
 
         result = await self.db.execute(
-            select(func.coalesce(func.sum(model.value), 0))
-            .where(model.usage_point_id == usage_point_id)
-            .where(model.granularity == DataGranularity.DAILY)
-            .where(model.date >= start_date)
-            .where(model.date <= end_date)
+            select(func.coalesce(func.sum(daily_subquery.c.value), 0))
         )
         return int(result.scalar() or 0)
 
@@ -149,7 +161,7 @@ class StatisticsService:
         model = self._get_model(direction)
 
         result = await self.db.execute(
-            select(func.coalesce(func.sum(model.value), 0))
+            select(func.coalesce(func.max(model.value), 0))
             .where(model.usage_point_id == usage_point_id)
             .where(model.granularity == DataGranularity.DAILY)
             .where(model.date == target_date)
@@ -215,12 +227,9 @@ class StatisticsService:
         start_date = end_date - timedelta(days=364)
 
         model = self._get_model(direction)
+        daily_subquery = self._daily_values_subquery(model, usage_point_id, start_date, end_date)
         result = await self.db.execute(
-            select(func.coalesce(func.sum(model.value), 0))
-            .where(model.usage_point_id == usage_point_id)
-            .where(model.granularity == DataGranularity.DAILY)
-            .where(model.date >= start_date)
-            .where(model.date <= end_date)
+            select(func.coalesce(func.sum(daily_subquery.c.value), 0))
         )
         return int(result.scalar() or 0)
 
@@ -498,11 +507,12 @@ class StatisticsService:
 
         # Get all consumption for the year
         consumption_result = await self.db.execute(
-            select(model.date, model.value)
+            select(model.date, func.max(model.value).label("value"))
             .where(model.usage_point_id == usage_point_id)
             .where(model.granularity == DataGranularity.DAILY)
             .where(model.date >= start_date)
             .where(model.date <= end_date)
+            .group_by(model.date)
         )
 
         totals = {"BLUE": 0, "WHITE": 0, "RED": 0}
@@ -542,11 +552,12 @@ class StatisticsService:
 
         # Get consumption
         consumption_result = await self.db.execute(
-            select(model.date, model.value)
+            select(model.date, func.max(model.value).label("value"))
             .where(model.usage_point_id == usage_point_id)
             .where(model.granularity == DataGranularity.DAILY)
             .where(model.date >= start_date)
             .where(model.date <= end_date)
+            .group_by(model.date)
         )
 
         totals = {"BLUE": 0, "WHITE": 0, "RED": 0}

@@ -31,6 +31,12 @@ from ..services.local_data import (
 
 logger = logging.getLogger(__name__)
 
+# Lightweight in-process caches to avoid hammering remote gateway
+_POWER_CACHE_TTL = timedelta(hours=6)
+_DETAIL_CHUNK_BACKOFF_TTL = timedelta(hours=12)
+_power_cache: dict[str, tuple[datetime, dict]] = {}
+_detail_chunk_backoff: dict[str, datetime] = {}
+
 router = APIRouter(
     prefix="/enedis",
     tags=["Enedis Data (via Gateway)"],
@@ -78,9 +84,198 @@ def extract_readings_from_response(response: dict) -> list[dict]:
     # Try different response structures
     meter_reading = response.get("meter_reading", {})
     if not meter_reading and "data" in response:
-        meter_reading = response.get("data", {}).get("meter_reading", {})
+        data = response.get("data")
+        if isinstance(data, dict):
+            meter_reading = data.get("meter_reading", {})
 
-    return meter_reading.get("interval_reading", [])
+    if not isinstance(meter_reading, dict):
+        return []
+
+    interval_reading = meter_reading.get("interval_reading", [])
+    return interval_reading if isinstance(interval_reading, list) else []
+
+
+def _extract_day(date_str: str) -> str:
+    """Extract YYYY-MM-DD from reading date string."""
+    if not date_str:
+        return ""
+    if "T" in date_str:
+        return date_str.split("T", 1)[0][:10]
+    if " " in date_str:
+        return date_str.split(" ", 1)[0][:10]
+    return date_str[:10]
+
+
+def _merge_daily_readings(readings: list[dict]) -> list[dict]:
+    """Deduplicate daily readings by date (keep highest value)."""
+    by_day: dict[str, dict] = {}
+    for reading in readings:
+        day = _extract_day(str(reading.get("date", "")))
+        if not day:
+            continue
+        try:
+            value = int(float(reading.get("value", 0)))
+        except (TypeError, ValueError):
+            value = 0
+
+        current = by_day.get(day)
+        if current is None or value >= int(float(current.get("value", 0))):
+            by_day[day] = {"date": day, "value": value}
+
+    return [by_day[d] for d in sorted(by_day.keys())]
+
+
+def _extract_day_and_time(date_str: str) -> tuple[str, str]:
+    """Extract YYYY-MM-DD and HH:MM from a reading date string."""
+    if not date_str:
+        return "", "00:00"
+
+    if "T" in date_str:
+        day_part, time_part = date_str.split("T", 1)
+    elif " " in date_str:
+        day_part, time_part = date_str.split(" ", 1)
+    else:
+        return date_str[:10], "00:00"
+
+    # Keep only HH:MM and ignore seconds/timezone suffixes.
+    hhmm = time_part[:5] if len(time_part) >= 5 else "00:00"
+    return day_part[:10], hhmm
+
+
+def _format_power_response(
+    usage_point_id: str,
+    start: str,
+    end: str,
+    readings: list[dict],
+    from_cache: bool = False,
+) -> dict:
+    """Format max-power payload in Enedis-compatible shape."""
+    return {
+        "meter_reading": {
+            "usage_point_id": usage_point_id,
+            "start": start,
+            "end": end,
+            "reading_type": {
+                "unit": "W",
+                "measurement_kind": "power",
+                "aggregate": "maximum",
+            },
+            "interval_reading": readings,
+        },
+        "_from_local_cache": from_cache,
+    }
+
+
+def _merge_power_interval_readings(readings: list[dict]) -> list[dict]:
+    """Deduplicate power readings by day, keeping the highest daily value."""
+    by_day: dict[str, tuple[int, str]] = {}
+
+    for reading in readings:
+        day, hhmm = _extract_day_and_time(str(reading.get("date", "")))
+        if not day:
+            continue
+
+        try:
+            value = int(float(reading.get("value", 0)))
+        except (TypeError, ValueError):
+            value = 0
+
+        current = by_day.get(day)
+        if current is None or value > current[0] or (value == current[0] and hhmm > current[1]):
+            by_day[day] = (value, hhmm)
+
+    merged: list[dict] = []
+    for day in sorted(by_day.keys()):
+        value, hhmm = by_day[day]
+        merged.append(
+            {
+                "date": f"{day} {hhmm}:00",
+                "value": value,
+            }
+        )
+    return merged
+
+
+async def _get_power_data_local_first(
+    db: AsyncSession,
+    usage_point_id: str,
+    start: str,
+    end: str,
+    start_date: date,
+    end_date: date,
+    use_cache: bool,
+) -> dict:
+    """Get max power with local-first strategy on dedicated max_power_data cache."""
+    cache_key = f"{usage_point_id}:{start}:{end}"
+    now = datetime.now()
+
+    if use_cache:
+        cached = _power_cache.get(cache_key)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    if use_cache:
+        local_service = LocalDataService(db)
+        local_readings, missing_ranges = await local_service.get_consumption_max_power(
+            usage_point_id=usage_point_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        if not missing_ranges:
+            payload = _format_power_response(
+                usage_point_id=usage_point_id,
+                start=start,
+                end=end,
+                readings=_merge_power_interval_readings(local_readings),
+                from_cache=True,
+            )
+            _power_cache[cache_key] = (now + _POWER_CACHE_TTL, payload)
+            return payload
+
+        # Fill only missing day-ranges from gateway to limit remote calls.
+        all_readings = list(local_readings)
+        adapter = get_med_adapter()
+        for range_start, range_end in missing_ranges:
+            try:
+                response = await adapter.get_consumption_max_power(
+                    usage_point_id,
+                    range_start.isoformat(),
+                    range_end.isoformat(),
+                )
+                remote_data = extract_gateway_data(response)
+                remote_readings = extract_readings_from_response(remote_data)
+                all_readings.extend(remote_readings)
+                await local_service.save_consumption_max_power(usage_point_id, remote_data)
+            except Exception as exc:
+                logger.warning(
+                    f"[{usage_point_id}] Failed to fetch max power for missing range "
+                    f"{range_start} -> {range_end}: {exc}"
+                )
+
+        # Rebuild from DB for canonical values after upsert.
+        refreshed_local, _ = await local_service.get_consumption_max_power(
+            usage_point_id=usage_point_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        source_readings = refreshed_local if refreshed_local else all_readings
+        merged = _merge_power_interval_readings(source_readings)
+        combined = _format_power_response(
+            usage_point_id=usage_point_id,
+            start=start,
+            end=end,
+            readings=merged,
+            from_cache=False,
+        )
+        _power_cache[cache_key] = (now + _POWER_CACHE_TTL, combined)
+        return combined
+
+    # Direct gateway fetch when cache/local strategy is disabled.
+    adapter = get_med_adapter()
+    response = await adapter.get_consumption_max_power(usage_point_id, start, end)
+    data = extract_gateway_data(response)
+    return data
 
 
 # =========================================================================
@@ -242,13 +437,14 @@ async def get_consumption_daily(
 
         # If no missing ranges, return local data only
         if not missing_ranges:
+            merged_readings = _merge_daily_readings(all_readings)
             logger.info(
                 f"[{usage_point_id}] Daily consumption fully served from local cache "
-                f"({len(local_data)} records)"
+                f"({len(merged_readings)} records)"
             )
             return APIResponse(
                 success=True,
-                data=format_daily_response(usage_point_id, start, end, all_readings, from_cache=True),
+                data=format_daily_response(usage_point_id, start, end, merged_readings, from_cache=True),
             )
 
         # Fetch only missing ranges from gateway
@@ -271,8 +467,8 @@ async def get_consumption_daily(
                     f"[{usage_point_id}] Failed to fetch {range_start} to {range_end}: {e}"
                 )
 
-        # Sort by date
-        all_readings.sort(key=lambda x: x.get("date", ""))
+        # Sort + dedup by date
+        all_readings = _merge_daily_readings(all_readings)
 
         return APIResponse(
             success=True,
@@ -400,7 +596,7 @@ async def get_max_power(
     usage_point_id: str = Path(..., description="Point de livraison (14 chiffres)"),
     start: str = Query(..., description="Date de début (YYYY-MM-DD)"),
     end: str = Query(..., description="Date de fin (YYYY-MM-DD)"),
-    use_cache: bool = Query(False, description="Use cached data if available (ignored in client mode)"),
+    use_cache: bool = Query(True, description="Use local cache and only fetch missing data"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
@@ -416,9 +612,24 @@ async def get_max_power(
         )
 
     try:
-        adapter = get_med_adapter()
-        response = await adapter.get_consumption_max_power(usage_point_id, start, end)
-        data = extract_gateway_data(response)
+        start_date = parse_date(start)
+        end_date = parse_date(end)
+    except ValueError as e:
+        return APIResponse(
+            success=False,
+            error=ErrorDetail(code="INVALID_DATE", message=str(e)),
+        )
+
+    try:
+        data = await _get_power_data_local_first(
+            db=db,
+            usage_point_id=usage_point_id,
+            start=start,
+            end=end,
+            start_date=start_date,
+            end_date=end_date,
+            use_cache=use_cache,
+        )
         return APIResponse(success=True, data=data)
     except Exception as e:
         logger.error(f"[{usage_point_id}] Error fetching max power: {e}")
@@ -480,13 +691,14 @@ async def get_production_daily(
 
         # If no missing ranges, return local data only
         if not missing_ranges:
+            merged_readings = _merge_daily_readings(all_readings)
             logger.info(
                 f"[{usage_point_id}] Daily production fully served from local cache "
-                f"({len(local_data)} records)"
+                f"({len(merged_readings)} records)"
             )
             return APIResponse(
                 success=True,
-                data=format_daily_response(usage_point_id, start, end, all_readings, from_cache=True),
+                data=format_daily_response(usage_point_id, start, end, merged_readings, from_cache=True),
             )
 
         # Fetch only missing ranges from gateway
@@ -509,8 +721,8 @@ async def get_production_daily(
                     f"[{usage_point_id}] Failed to fetch production {range_start} to {range_end}: {e}"
                 )
 
-        # Sort by date
-        all_readings.sort(key=lambda x: x.get("date", ""))
+        # Sort + dedup by date
+        all_readings = _merge_daily_readings(all_readings)
 
         return APIResponse(
             success=True,
@@ -643,7 +855,7 @@ async def get_power(
     usage_point_id: str = Path(..., description="Point de livraison (14 chiffres)"),
     start: str = Query(..., description="Date de début (YYYY-MM-DD)"),
     end: str = Query(..., description="Date de fin (YYYY-MM-DD)"),
-    use_cache: bool = Query(False, description="Use cached data if available (ignored in client mode)"),
+    use_cache: bool = Query(True, description="Use local cache and only fetch missing data"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
@@ -659,9 +871,24 @@ async def get_power(
         )
 
     try:
-        adapter = get_med_adapter()
-        response = await adapter.get_consumption_max_power(usage_point_id, start, end)
-        data = extract_gateway_data(response)
+        start_date = parse_date(start)
+        end_date = parse_date(end)
+    except ValueError as e:
+        return APIResponse(
+            success=False,
+            error=ErrorDetail(code="INVALID_DATE", message=str(e)),
+        )
+
+    try:
+        data = await _get_power_data_local_first(
+            db=db,
+            usage_point_id=usage_point_id,
+            start=start,
+            end=end,
+            start_date=start_date,
+            end_date=end_date,
+            use_cache=use_cache,
+        )
         return APIResponse(success=True, data=data)
     except Exception as e:
         logger.error(f"[{usage_point_id}] Error fetching max power: {e}")
@@ -736,6 +963,11 @@ async def get_consumption_detail_batch(
                 current_start = range_start
                 while current_start < range_end:
                     chunk_end = min(current_start + timedelta(days=7), range_end)
+                    backoff_key = f"consumption:{usage_point_id}:{current_start.isoformat()}:{chunk_end.isoformat()}"
+                    backoff_until = _detail_chunk_backoff.get(backoff_key)
+                    if backoff_until and backoff_until > datetime.now():
+                        current_start = chunk_end
+                        continue
                     try:
                         response = await adapter.get_consumption_detail(
                             usage_point_id,
@@ -743,8 +975,11 @@ async def get_consumption_detail_batch(
                             chunk_end.isoformat(),
                         )
                         gateway_readings = extract_readings_from_response(response)
+                        if not gateway_readings:
+                            _detail_chunk_backoff[backoff_key] = datetime.now() + _DETAIL_CHUNK_BACKOFF_TTL
                         all_readings.extend(gateway_readings)
                     except Exception as chunk_error:
+                        _detail_chunk_backoff[backoff_key] = datetime.now() + _DETAIL_CHUNK_BACKOFF_TTL
                         logger.warning(
                             f"[{usage_point_id}] Chunk {current_start} - {chunk_end} échoué: {chunk_error}"
                         )
@@ -851,6 +1086,11 @@ async def get_production_detail_batch(
                 current_start = range_start
                 while current_start < range_end:
                     chunk_end = min(current_start + timedelta(days=7), range_end)
+                    backoff_key = f"production:{usage_point_id}:{current_start.isoformat()}:{chunk_end.isoformat()}"
+                    backoff_until = _detail_chunk_backoff.get(backoff_key)
+                    if backoff_until and backoff_until > datetime.now():
+                        current_start = chunk_end
+                        continue
                     try:
                         response = await adapter.get_production_detail(
                             usage_point_id,
@@ -858,8 +1098,11 @@ async def get_production_detail_batch(
                             chunk_end.isoformat(),
                         )
                         gateway_readings = extract_readings_from_response(response)
+                        if not gateway_readings:
+                            _detail_chunk_backoff[backoff_key] = datetime.now() + _DETAIL_CHUNK_BACKOFF_TTL
                         all_readings.extend(gateway_readings)
                     except Exception as chunk_error:
+                        _detail_chunk_backoff[backoff_key] = datetime.now() + _DETAIL_CHUNK_BACKOFF_TTL
                         logger.warning(
                             f"[{usage_point_id}] Chunk {current_start} - {chunk_end} échoué: {chunk_error}"
                         )
