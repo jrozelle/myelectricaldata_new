@@ -17,11 +17,13 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select, and_, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.client_mode import (
     ConsumptionData,
     ProductionData,
+    MaxPowerData,
     ContractData,
     AddressData,
     DataGranularity,
@@ -36,6 +38,11 @@ class LocalDataService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    @staticmethod
+    def _is_placeholder_raw(raw_data: Any) -> bool:
+        """Return True when a raw_data payload is marked as placeholder."""
+        return isinstance(raw_data, dict) and bool(raw_data.get("is_placeholder"))
 
     async def get_consumption_daily(
         self,
@@ -102,6 +109,55 @@ class LocalDataService:
             end_date=end_date,
             granularity=DataGranularity.DETAILED,
         )
+
+    async def get_consumption_max_power(
+        self,
+        usage_point_id: str,
+        start_date: date,
+        end_date: date,
+    ) -> tuple[list[dict[str, Any]], list[tuple[date, date]]]:
+        """Get daily max power from local database.
+
+        Date range is inclusive on both bounds.
+        """
+        result = await self.db.execute(
+            select(MaxPowerData).where(
+                and_(
+                    MaxPowerData.usage_point_id == usage_point_id,
+                    MaxPowerData.date >= start_date,
+                    MaxPowerData.date <= end_date,
+                )
+            ).order_by(MaxPowerData.date, MaxPowerData.interval_start)
+        )
+        records = result.scalars().all()
+
+        formatted = [
+            {
+                "date": f"{rec.date.isoformat()} {(rec.interval_start or '00:00')}:00",
+                "value": rec.value,
+            }
+            for rec in records
+        ]
+
+        existing_dates = {rec.date for rec in records}
+        missing_ranges = self._find_missing_ranges_inclusive(
+            start_date=start_date,
+            end_date=end_date,
+            existing_dates=existing_dates,
+        )
+
+        if formatted:
+            logger.info(
+                f"[{usage_point_id}] Found {len(formatted)} local max_power records "
+                f"from {start_date} to {end_date}"
+            )
+        if missing_ranges:
+            logger.info(
+                f"[{usage_point_id}] Missing {len(missing_ranges)} date ranges for max_power: "
+                f"{missing_ranges}"
+            )
+
+        return formatted, missing_ranges
 
     async def get_contract(self, usage_point_id: str) -> dict[str, Any] | None:
         """Get contract data from local database."""
@@ -238,6 +294,73 @@ class LocalDataService:
 
         await self.db.commit()
 
+    async def save_consumption_max_power(
+        self,
+        usage_point_id: str,
+        data: dict[str, Any],
+    ) -> int:
+        """Save max power readings to local database.
+
+        Returns:
+            Number of day records upserted.
+        """
+        meter_reading: dict[str, Any] = {}
+        if isinstance(data.get("data"), dict):
+            meter_reading = data["data"].get("meter_reading", {})
+        if not meter_reading:
+            meter_reading = data.get("meter_reading", {})
+
+        interval_reading = meter_reading.get("interval_reading", [])
+        if not isinstance(interval_reading, list) or not interval_reading:
+            return 0
+
+        # Keep max value per day (tie-breaker: latest interval_start).
+        by_day: dict[str, dict[str, Any]] = {}
+        for reading in interval_reading:
+            date_str = str(reading.get("date", ""))
+            day_str, hhmm = self._split_power_datetime(date_str)
+            if not day_str:
+                continue
+            try:
+                day_date = date.fromisoformat(day_str)
+                value = int(float(reading.get("value", 0)))
+            except (TypeError, ValueError):
+                continue
+
+            current = by_day.get(day_str)
+            if (
+                current is None
+                or value > int(current["value"])
+                or (value == int(current["value"]) and hhmm > str(current["interval_start"] or "00:00"))
+            ):
+                by_day[day_str] = {
+                    "usage_point_id": usage_point_id,
+                    "date": day_date,
+                    "interval_start": hhmm,
+                    "value": value,
+                    "source": "myelectricaldata",
+                    "raw_data": reading,
+                }
+
+        records = [by_day[k] for k in sorted(by_day.keys())]
+        if not records:
+            return 0
+
+        stmt = pg_insert(MaxPowerData).values(records)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_max_power_data",
+            set_={
+                "interval_start": stmt.excluded.interval_start,
+                "value": stmt.excluded.value,
+                "raw_data": stmt.excluded.raw_data,
+                "updated_at": datetime.now(),
+            },
+        )
+        await self.db.execute(stmt)
+        await self.db.commit()
+
+        return len(records)
+
     async def _get_energy_data(
         self,
         model: type[ConsumptionData | ProductionData],
@@ -260,7 +383,7 @@ class LocalDataService:
                     model.usage_point_id == usage_point_id,
                     model.granularity == granularity,
                     model.date >= start_date,
-                    model.date < end_date,  # end_date is exclusive
+                    model.date <= end_date,  # end_date is inclusive (already capped to yesterday by adjust_date_range)
                 )
             ).order_by(model.date, model.interval_start)
         )
@@ -268,9 +391,24 @@ class LocalDataService:
 
         # Format records for API response
         if granularity == DataGranularity.DAILY:
+            # Defensive dedup: keep one value per day (highest wins) to avoid
+            # duplicated DAILY rows skewing downstream charts/exports.
+            by_date: dict[date, Any] = {}
+            for rec in records:
+                current = by_date.get(rec.date)
+                if current is None or int(rec.value or 0) >= int(current.value or 0):
+                    by_date[rec.date] = rec
+
+            deduped_records = [by_date[d] for d in sorted(by_date.keys())]
+            if len(deduped_records) < len(records):
+                logger.warning(
+                    f"[{usage_point_id}] Deduplicated {len(records) - len(deduped_records)} "
+                    f"{model.__tablename__} DAILY rows"
+                )
+
             formatted = [
                 {"date": rec.date.isoformat(), "value": rec.value}
-                for rec in records
+                for rec in deduped_records
             ]
         else:  # DETAILED
             formatted = [
@@ -319,28 +457,51 @@ class LocalDataService:
 
         Returns list of (start, end) tuples representing missing ranges.
         """
-        # Get distinct dates that have data
-        result = await self.db.execute(
-            select(func.distinct(model.date)).where(
-                and_(
-                    model.usage_point_id == usage_point_id,
-                    model.granularity == granularity,
-                    model.date >= start_date,
-                    model.date < end_date,
+        placeholder_only_dates: set[date] = set()
+        if granularity == DataGranularity.DAILY:
+            result = await self.db.execute(
+                select(model.date, model.raw_data).where(
+                    and_(
+                        model.usage_point_id == usage_point_id,
+                        model.granularity == granularity,
+                        model.date >= start_date,
+                        model.date <= end_date,
+                        model.interval_start.is_(None),
+                    )
                 )
             )
-        )
-        existing_dates = {row[0] for row in result.fetchall()}
+            real_dates: set[date] = set()
+            placeholder_dates: set[date] = set()
+            for day_value, raw_data in result.all():
+                if self._is_placeholder_raw(raw_data):
+                    placeholder_dates.add(day_value)
+                else:
+                    real_dates.add(day_value)
+            existing_dates = real_dates
+            placeholder_only_dates = placeholder_dates - real_dates
+        else:
+            # Get distinct dates that have data
+            result = await self.db.execute(
+                select(func.distinct(model.date)).where(
+                    and_(
+                        model.usage_point_id == usage_point_id,
+                        model.granularity == granularity,
+                        model.date >= start_date,
+                        model.date <= end_date,
+                    )
+                )
+            )
+            existing_dates = {row[0] for row in result.fetchall()}
 
         # Generate all dates in range
         all_dates = set()
         current = start_date
-        while current < end_date:
+        while current <= end_date:
             all_dates.add(current)
             current += timedelta(days=1)
 
         # Find missing dates
-        missing_dates = sorted(all_dates - existing_dates)
+        missing_dates = sorted((all_dates - existing_dates) | placeholder_only_dates)
 
         if not missing_dates:
             return []
@@ -365,6 +526,54 @@ class LocalDataService:
         ranges.append((range_start, range_end + timedelta(days=1)))
 
         return ranges
+
+    @staticmethod
+    def _find_missing_ranges_inclusive(
+        start_date: date,
+        end_date: date,
+        existing_dates: set[date],
+    ) -> list[tuple[date, date]]:
+        """Find missing inclusive ranges in [start_date, end_date]."""
+        if end_date < start_date:
+            return []
+
+        missing_dates: list[date] = []
+        current = start_date
+        while current <= end_date:
+            if current not in existing_dates:
+                missing_dates.append(current)
+            current += timedelta(days=1)
+
+        if not missing_dates:
+            return []
+
+        ranges: list[tuple[date, date]] = []
+        range_start = missing_dates[0]
+        range_end = missing_dates[0]
+        for d in missing_dates[1:]:
+            if d == range_end + timedelta(days=1):
+                range_end = d
+            else:
+                ranges.append((range_start, range_end))
+                range_start = d
+                range_end = d
+        ranges.append((range_start, range_end))
+
+        return ranges
+
+    @staticmethod
+    def _split_power_datetime(date_str: str) -> tuple[str, str]:
+        """Split power datetime string to (YYYY-MM-DD, HH:MM)."""
+        if not date_str:
+            return "", "00:00"
+        if "T" in date_str:
+            day_part, time_part = date_str.split("T", 1)
+        elif " " in date_str:
+            day_part, time_part = date_str.split(" ", 1)
+        else:
+            return date_str[:10], "00:00"
+        hhmm = time_part[:5] if len(time_part) >= 5 else "00:00"
+        return day_part[:10], hhmm
 
     async def get_sync_status(
         self,
