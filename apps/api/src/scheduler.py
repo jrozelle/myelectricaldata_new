@@ -64,23 +64,32 @@ class SyncScheduler:
 
         self._scheduler = AsyncIOScheduler()
 
-        # Add sync job - runs every 30 minutes
+        # Sync au démarrage (redémarrage service à n'importe quelle heure)
         self._scheduler.add_job(
             self._run_sync,
-            trigger=IntervalTrigger(minutes=30),
-            id="sync_all",
-            name="Sync all PDLs from MyElectricalData API",
+            id="sync_all_startup",
+            name="Sync all PDLs (startup)",
             replace_existing=True,
-            next_run_time=datetime.now(UTC),  # Run immediately on start
+            next_run_time=datetime.now(UTC),
         )
 
-        # Add morning sync job - runs every 10 minutes from 6h to 9h
-        # Gateway J-1 data becomes available in the early morning
+        # Sync matinale : toutes les 30 min de 6h à 9h
+        # La passerelle publie les données J-1 tôt le matin ; on limite
+        # les appels en dehors de cette fenêtre pour rester dans le quota.
         self._scheduler.add_job(
             self._run_sync,
-            trigger=CronTrigger(minute="*/10", hour="6-9"),
+            trigger=CronTrigger(hour="6-9", minute="*/30"),
             id="sync_all_morning",
-            name="Sync all PDLs (morning boost 6h-9h)",
+            name="Sync all PDLs (morning 6h-9h every 30min)",
+            replace_existing=True,
+        )
+
+        # Checks ponctuels en journée (mises à jour tardives, corrections)
+        self._scheduler.add_job(
+            self._run_sync,
+            trigger=CronTrigger(hour="12,18", minute=0),
+            id="sync_all_daytime",
+            name="Sync all PDLs (daytime 12h/18h)",
             replace_existing=True,
         )
 
@@ -163,7 +172,7 @@ class SyncScheduler:
         self._scheduler.start()
         self._running = True
 
-        logger.info("[SCHEDULER] Started. Data sync every 30min (+ every 10min 6h-9h), Tempo every 15min (6h-23h), EcoWatt at 17h/12h15(fri), France data every 15-30min.")
+        logger.info("[SCHEDULER] Started. Data sync: 6h-9h toutes les 30min + 12h + 18h (~10 appels/jour). Tempo every 15min (6h-23h), EcoWatt at 17h/12h15(fri), France data every 15-30min.")
 
     def stop(self) -> None:
         """Stop the scheduler"""
