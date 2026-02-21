@@ -4,7 +4,7 @@ from typing import AsyncGenerator, Callable
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -144,17 +144,6 @@ app = FastAPI(
 
 # Mount static files for custom Swagger CSS
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
-
-# Trusted Host middleware to handle proxy headers
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
-    "myelectricaldata.fr",
-    "*.myelectricaldata.fr",  # Allow all subdomains
-    "localhost",
-    "127.0.0.1",
-    "backend",
-    "backend-client",  # Client mode Docker service name
-    "host.docker.internal",  # Allow client mode to connect to server mode locally
-])
 
 # CORS middleware - explicit origins required for credentials (httpOnly cookies)
 def get_cors_origins() -> list[str]:
