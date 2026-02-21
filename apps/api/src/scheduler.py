@@ -74,6 +74,16 @@ class SyncScheduler:
             next_run_time=datetime.now(UTC),  # Run immediately on start
         )
 
+        # Add morning sync job - runs every 10 minutes from 6h to 9h
+        # Gateway J-1 data becomes available in the early morning
+        self._scheduler.add_job(
+            self._run_sync,
+            trigger=CronTrigger(minute="*/10", hour="6-9"),
+            id="sync_all_morning",
+            name="Sync all PDLs (morning boost 6h-9h)",
+            replace_existing=True,
+        )
+
         # Add export scheduler job - runs every minute to check for due exports
         self._scheduler.add_job(
             self._run_scheduled_exports,
@@ -153,7 +163,7 @@ class SyncScheduler:
         self._scheduler.start()
         self._running = True
 
-        logger.info("[SCHEDULER] Started. Data sync every 30min, Tempo every 15min (6h-23h), EcoWatt at 17h/12h15(fri), France data every 15-30min.")
+        logger.info("[SCHEDULER] Started. Data sync every 30min (+ every 10min 6h-9h), Tempo every 15min (6h-23h), EcoWatt at 17h/12h15(fri), France data every 15-30min.")
 
     def stop(self) -> None:
         """Stop the scheduler"""
