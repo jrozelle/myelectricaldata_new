@@ -102,26 +102,19 @@ class SyncScheduler:
             replace_existing=True,
         )
 
-        # Add Tempo sync job - runs every 15 minutes from 6h to 23h
-        # + run immédiat au démarrage pour remplir l'historique si absent
+        # Tempo : 2 appels/jour
+        # - 7h00 : couleur du jour (annoncée la veille au soir)
+        # - 11h00 : couleur de demain (annoncée vers 10h30)
         self._scheduler.add_job(
             self._run_tempo_sync,
-            trigger=CronTrigger(minute="*/15", hour="6-23"),
+            trigger=CronTrigger(hour="7,11", minute=0),
             id="sync_tempo",
-            name="Sync Tempo calendar from gateway",
+            name="Sync Tempo calendar from gateway (7h + 11h)",
             replace_existing=True,
-        )
-        # Sync initiale Tempo au démarrage (indépendante du cron)
-        self._scheduler.add_job(
-            self._run_tempo_sync,
-            id="sync_tempo_startup",
-            name="Sync Tempo calendar (startup)",
-            replace_existing=True,
-            next_run_time=datetime.now(UTC),
         )
 
-        # Add EcoWatt sync jobs
-        # 1. Daily at 17h00 - RTE updates J+3 around 17h
+        # EcoWatt : ~1-2 appels/jour
+        # RTE publie vers 17h (quotidien) et vendredi 12h15
         self._scheduler.add_job(
             self._run_ecowatt_sync,
             trigger=CronTrigger(hour=17, minute=0),
@@ -129,7 +122,6 @@ class SyncScheduler:
             name="Sync EcoWatt daily at 17h",
             replace_existing=True,
         )
-        # 2. Friday at 12h15 - RTE updates earlier on Fridays
         self._scheduler.add_job(
             self._run_ecowatt_sync,
             trigger=CronTrigger(day_of_week="fri", hour=12, minute=15),
@@ -137,42 +129,45 @@ class SyncScheduler:
             name="Sync EcoWatt Friday at 12h15",
             replace_existing=True,
         )
-        # 3. Check every hour if J+3 data is complete (fallback)
+        # Fallback conditionnel : 2 appels/jour max si données J+3 incomplètes
         self._scheduler.add_job(
             self._run_ecowatt_sync_if_incomplete,
-            trigger=IntervalTrigger(hours=1),
+            trigger=CronTrigger(hour="8,20", minute=30),
             id="sync_ecowatt_fallback",
-            name="Sync EcoWatt if incomplete",
+            name="Sync EcoWatt if incomplete (8h30 + 20h30)",
             replace_existing=True,
-            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
-        # Add Consumption France sync job - runs every 15 minutes
-        # RTE data is updated every 15 minutes for realised consumption
+        # Consommation France : 3 appels/jour
+        # Données RTE mises à jour fréquemment mais une vue matin/midi/soir suffit
         self._scheduler.add_job(
             self._run_consumption_france_sync,
-            trigger=IntervalTrigger(minutes=15),
+            trigger=CronTrigger(hour="8,14,20", minute=0),
             id="sync_consumption_france",
-            name="Sync Consumption France from gateway",
+            name="Sync Consumption France from gateway (8h/14h/20h)",
             replace_existing=True,
-            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
-        # Add Generation Forecast sync job - runs every 30 minutes
-        # Renewable forecasts are updated less frequently
+        # Prévisions production : 2 appels/jour
+        # Données moins critiques, une vue matin + soir suffit
         self._scheduler.add_job(
             self._run_generation_forecast_sync,
-            trigger=IntervalTrigger(minutes=30),
+            trigger=CronTrigger(hour="9,21", minute=0),
             id="sync_generation_forecast",
-            name="Sync Generation Forecast from gateway",
+            name="Sync Generation Forecast from gateway (9h + 21h)",
             replace_existing=True,
-            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
         self._scheduler.start()
         self._running = True
 
-        logger.info("[SCHEDULER] Started. Data sync: 6h-9h toutes les 30min + 12h + 18h (~10 appels/jour). Tempo every 15min (6h-23h), EcoWatt at 17h/12h15(fri), France data every 15-30min.")
+        logger.info(
+            "[SCHEDULER] Started (~20 appels/jour max). "
+            "PDL: 6h-9h toutes les 30min + 12h + 18h (~10). "
+            "Tempo: 7h + 11h (2). "
+            "EcoWatt: 17h + vendredi 12h15 + fallback 8h30/20h30 (~4 max). "
+            "France: 8h/14h/20h (3). Forecast: 9h/21h (2)."
+        )
 
     def stop(self) -> None:
         """Stop the scheduler"""
