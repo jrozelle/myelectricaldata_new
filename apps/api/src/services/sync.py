@@ -413,7 +413,7 @@ class SyncService:
                     model_class.usage_point_id == usage_point_id,
                     model_class.granularity == granularity,
                     model_class.date >= start_date,
-                    model_class.date < end_date,
+                    model_class.date <= end_date,
                 )
             )
         )
@@ -422,7 +422,7 @@ class SyncService:
         # Générer toutes les dates attendues
         all_dates = set()
         current = start_date
-        while current < end_date:
+        while current <= end_date:
             all_dates.add(current)
             current += timedelta(days=1)
 

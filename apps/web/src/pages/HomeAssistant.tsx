@@ -496,6 +496,7 @@ export default function HomeAssistant() {
     mutationFn: (id: string) => exportApi.runExport(id),
     onSuccess: () => {
       toast.success('Export lancé')
+      queryClient.invalidateQueries({ queryKey: ['export-configs'] })
     },
     onError: (error: Error) => {
       toast.error(`Erreur: ${error.message}`)

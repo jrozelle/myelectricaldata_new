@@ -138,6 +138,9 @@ class StatisticsService:
     ) -> int:
         """Get total Wh for a specific day
 
+        Tries DAILY granularity first, then falls back to summing DETAILED
+        (30-min) records if no DAILY data exists for that day.
+
         Args:
             usage_point_id: PDL number
             target_date: The date to query
@@ -148,13 +151,28 @@ class StatisticsService:
         """
         model = self._get_model(direction)
 
+        # Try DAILY first
         result = await self.db.execute(
             select(func.coalesce(func.sum(model.value), 0))
             .where(model.usage_point_id == usage_point_id)
             .where(model.granularity == DataGranularity.DAILY)
             .where(model.date == target_date)
         )
-        return int(result.scalar() or 0)
+        daily_total = int(result.scalar() or 0)
+
+        if daily_total > 0:
+            return daily_total
+
+        # Fallback: aggregate DETAILED records (values in W, PT30M → Wh = W / 2)
+        result = await self.db.execute(
+            select(func.coalesce(func.sum(model.value), 0))
+            .where(model.usage_point_id == usage_point_id)
+            .where(model.granularity == DataGranularity.DETAILED)
+            .where(model.date == target_date)
+        )
+        detailed_sum = int(result.scalar() or 0)
+        # DETAILED values are in W for 30-min intervals → Wh = W / 2
+        return detailed_sum // 2 if detailed_sum > 0 else 0
 
     async def get_current_year_by_month(
         self, usage_point_id: str, direction: str = "consumption"
