@@ -202,6 +202,8 @@ async def get_export_config(
             "export_consumption": config.export_consumption,
             "export_production": config.export_production,
             "export_detailed": config.export_detailed,
+            "export_interval_minutes": config.export_interval_minutes,
+            "next_export_at": config.next_export_at.isoformat() if config.next_export_at else None,
             "last_export_at": config.last_export_at.isoformat() if config.last_export_at else None,
             "last_export_status": config.last_export_status,
             "last_export_error": config.last_export_error,
@@ -302,15 +304,18 @@ async def update_export_config(
     if data.export_detailed is not None:
         config.export_detailed = data.export_detailed
     # Gestion de export_interval_minutes :
-    # - Si non fourni (None) : on ne modifie pas
-    # - Si fourni avec valeur > 0 : on applique
-    # - Si fourni avec valeur <= 0 : on met à null (désactive la planification)
-    if data.export_interval_minutes is not None:
-        if data.export_interval_minutes > 0:
+    # - Si champ absent : on ne modifie pas
+    # - Si champ présent avec valeur > 0 : on applique
+    # - Si champ présent avec null/0/négatif : on désactive la planification
+    provided_fields = getattr(data, "model_fields_set", None)
+    if provided_fields is None:
+        provided_fields = getattr(data, "__fields_set__", set())
+
+    if "export_interval_minutes" in provided_fields:
+        if data.export_interval_minutes is not None and data.export_interval_minutes > 0:
             logger.info(f"[EXPORT] Setting export_interval_minutes: {config.export_interval_minutes} -> {data.export_interval_minutes}")
             config.export_interval_minutes = data.export_interval_minutes
         else:
-            # 0 ou négatif = désactiver la planification
             logger.warning(
                 f"[EXPORT] Disabling scheduled export (received {data.export_interval_minutes}): "
                 f"{config.export_interval_minutes} -> None"

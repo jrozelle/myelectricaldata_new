@@ -387,18 +387,20 @@ class MQTTExporter(BaseExporter):
 
     async def _get_tempo_data(self, db: AsyncSession) -> dict[str, Any] | None:
         """Get Tempo data"""
-        from ...models.tempo import TempoDay
+        from ...models.tempo_day import TempoDay
 
         today = date.today()
         tomorrow = today + timedelta(days=1)
+        today_str = today.isoformat()
+        tomorrow_str = tomorrow.isoformat()
 
         # Get today's color
-        stmt = select(TempoDay).where(TempoDay.date == today)
+        stmt = select(TempoDay).where(TempoDay.id == today_str)
         result = await db.execute(stmt)
         today_row = result.scalar_one_or_none()
 
         # Get tomorrow's color
-        stmt = select(TempoDay).where(TempoDay.date == tomorrow)
+        stmt = select(TempoDay).where(TempoDay.id == tomorrow_str)
         result = await db.execute(stmt)
         tomorrow_row = result.scalar_one_or_none()
 
@@ -410,28 +412,33 @@ class MQTTExporter(BaseExporter):
         month = today.month
         season_start = date(today.year if month >= 9 else today.year - 1, 9, 1)
         season_end = date(today.year + 1 if month >= 9 else today.year, 8, 31)
+        season_start_str = season_start.isoformat()
+        season_end_str = season_end.isoformat()
 
         # Count used days by color
         stmt = select(TempoDay.color, func.count(TempoDay.id)).where(
-            TempoDay.date >= season_start,
-            TempoDay.date <= today,
+            TempoDay.id >= season_start_str,
+            TempoDay.id <= today_str,
         ).group_by(TempoDay.color)
         result = await db.execute(stmt)
-        used = {row[0]: row[1] for row in result.all()}
+        used = {
+            (row[0].value if hasattr(row[0], "value") else str(row[0])): row[1]
+            for row in result.all()
+        }
 
         remaining = {
-            "blue": TEMPO_QUOTAS["BLUE"] - used.get("BLUE", 0),
-            "white": TEMPO_QUOTAS["WHITE"] - used.get("WHITE", 0),
-            "red": TEMPO_QUOTAS["RED"] - used.get("RED", 0),
+            "blue": max(0, TEMPO_QUOTAS["BLUE"] - used.get("BLUE", 0)),
+            "white": max(0, TEMPO_QUOTAS["WHITE"] - used.get("WHITE", 0)),
+            "red": max(0, TEMPO_QUOTAS["RED"] - used.get("RED", 0)),
         }
 
         return {
             "today": {
-                "color": today_row.color if today_row else "UNKNOWN",
+                "color": (today_row.color.value if (today_row and hasattr(today_row.color, "value")) else "UNKNOWN"),
                 "date": today.isoformat(),
             },
             "tomorrow": {
-                "color": tomorrow_row.color if tomorrow_row else "UNKNOWN",
+                "color": (tomorrow_row.color.value if (tomorrow_row and hasattr(tomorrow_row.color, "value")) else "UNKNOWN"),
                 "date": tomorrow.isoformat(),
             },
             "remaining": remaining,
@@ -440,24 +447,27 @@ class MQTTExporter(BaseExporter):
 
     async def _get_ecowatt_data(self, db: AsyncSession) -> dict[str, Any] | None:
         """Get EcoWatt data"""
-        from ...models.ecowatt import EcoWattSignal
+        from ...models.ecowatt import EcoWatt
 
         today = date.today()
         now = datetime.now()
 
         # Get today's signal
-        stmt = select(EcoWattSignal).where(
-            cast(EcoWattSignal.timestamp, String).like(f"{today.isoformat()}%")
-        ).order_by(EcoWattSignal.timestamp.desc()).limit(1)
+        stmt = (
+            select(EcoWatt)
+            .where(func.date(EcoWatt.periode) == today)
+            .order_by(EcoWatt.generation_datetime.desc())
+            .limit(1)
+        )
         result = await db.execute(stmt)
-        signal = result.scalar_one_or_none()
+        ecowatt = result.scalar_one_or_none()
 
-        if not signal:
+        if not ecowatt:
             return None
 
         # Parse hourly values if available
-        hourly_values = signal.hourly_values or []
-        current_level = signal.level
+        hourly_values = ecowatt.values or []
+        current_level = ecowatt.dvalue
         current_hour = now.hour
 
         # Get current hour level if available
@@ -474,7 +484,7 @@ class MQTTExporter(BaseExporter):
             "level": current_level,
             "level_label": {1: "Vert", 2: "Orange", 3: "Rouge"}.get(current_level, "Inconnu"),
             "next_hour_level": next_hour_level,
-            "message": signal.message,
+            "message": ecowatt.message,
             "timestamp": datetime.now().isoformat(),
         }
 

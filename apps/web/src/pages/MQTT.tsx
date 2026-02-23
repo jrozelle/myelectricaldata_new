@@ -36,6 +36,9 @@ import MetricsSection from '@/components/MetricsSection'
 
 export default function MQTT() {
   const queryClient = useQueryClient()
+  const runtimeEnv = typeof window !== 'undefined' ? window.__ENV__ || {} : {}
+  const parsedDefaultPort = Number.parseInt(runtimeEnv.VITE_DEFAULT_MQTT_PORT || '1883', 10)
+  const defaultMqttPort = Number.isFinite(parsedDefaultPort) ? parsedDefaultPort : 1883
 
   // State
   const [isEditing, setIsEditing] = useState(false)
@@ -51,12 +54,12 @@ export default function MQTT() {
   const [formIntervalMinutes, setFormIntervalMinutes] = useState<number | null>(null)
 
   // MQTT config
-  const [mqttBroker, setMqttBroker] = useState('')
-  const [mqttPort, setMqttPort] = useState(1883)
+  const [mqttBroker, setMqttBroker] = useState(runtimeEnv.VITE_DEFAULT_MQTT_BROKER || '')
+  const [mqttPort, setMqttPort] = useState(defaultMqttPort)
   const [mqttUsername, setMqttUsername] = useState('')
   const [mqttPassword, setMqttPassword] = useState('')
   const [mqttTls, setMqttTls] = useState(false)
-  const [topicPrefix, setTopicPrefix] = useState('myelectricaldata')
+  const [topicPrefix, setTopicPrefix] = useState(runtimeEnv.VITE_DEFAULT_TOPIC_PREFIX || 'myelectricaldata')
   const [qos, setQos] = useState(0)
   const [retain, setRetain] = useState(true)
 

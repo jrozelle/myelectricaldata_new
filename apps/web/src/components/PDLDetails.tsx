@@ -81,13 +81,18 @@ export default function PDLDetails({ usagePointId, onClose }: PDLDetailsProps) {
   const isTesting = testConsumptionDaily.isPending || testConsumptionDetail.isPending ||
                      testMaxPower.isPending || testProductionDaily.isPending || testProductionDetail.isPending
 
-  // Syntax highlighting for JSON
+  // Syntax highlighting for JSON (HTML-safe)
   const highlightJSON = (json: string) => {
-    return json.replace(
-      /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+    // Escape HTML entities FIRST to prevent XSS from API data
+    const escaped = json
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+    return escaped.replace(
+      /(&quot;|")((?:\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*)\1(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g,
       (match) => {
         let cls = 'text-orange-400' // numbers
-        if (/^"/.test(match)) {
+        if (/^["&]/.test(match)) {
           if (/:$/.test(match)) {
             cls = 'text-blue-400' // keys
           } else {

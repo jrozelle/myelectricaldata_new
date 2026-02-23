@@ -1,12 +1,10 @@
 """Scheduler for Client Mode
 
-Runs background tasks (~20 appels/jour max):
-- PDL sync: startup + 6h-9h toutes les 30min + 12h + 18h (~10/jour)
-- Exports: check toutes les minutes (local, pas d'appel API)
-- Tempo: 7h + 11h (2/jour)
-- EcoWatt: 17h + vendredi 12h15 + fallback 8h30/20h30 si incomplet (~4 max)
-- Consommation France: 8h/14h/20h (3/jour)
-- Prévisions production: 9h/21h (2/jour)
+Runs background tasks:
+- Sync data from MyElectricalData API at 8h05, 12h05, 18h05 (Europe/Paris)
+- Run all exports immediately after each sync completes
+- Sync Tempo every hour if tomorrow's color is unknown
+- Sync EcoWatt at 12h15 (friday) and 17h (daily) if J+3 is incomplete
 
 Uses APScheduler for task scheduling.
 """
@@ -38,7 +36,7 @@ except ImportError:
 class SyncScheduler:
     """Scheduler for automatic data synchronization
 
-    ~20 API calls/day. See module docstring for full schedule.
+    Syncs data at 8h05, 12h05, 18h05 (Europe/Paris) and runs exports after each sync.
     """
 
     def __init__(self) -> None:
@@ -66,52 +64,69 @@ class SyncScheduler:
 
         self._scheduler = AsyncIOScheduler()
 
-        # Sync au démarrage (redémarrage service à n'importe quelle heure)
+        # Sync + export at optimal hours (Europe/Paris):
+        #   8h05  — first attempt after Enedis publishes J-1 data (typically 6h-10h)
+        #   12h05 — retry if J-1 data wasn't available at 8h
+        #   18h05 — final retry + pick up Tempo J+1 (published ~17h)
         self._scheduler.add_job(
             self._run_sync,
-            id="sync_all_startup",
-            name="Sync all PDLs (startup)",
+            trigger=CronTrigger(hour="8,12,18", minute=5, timezone="Europe/Paris"),
+            id="sync_all",
+            name="Sync all PDLs + run exports",
+            replace_existing=True,
+        )
+
+        # Run sync+export immediately on startup (container restart, rebuild, etc.)
+        self._scheduler.add_job(
+            self._run_sync,
+            id="sync_startup",
+            name="Sync + export at startup",
             replace_existing=True,
             next_run_time=datetime.now(UTC),
         )
 
-        # Sync matinale : toutes les 30 min de 6h à 9h
+        # Midnight export (no sync): shift the displayed week to the new day.
+        # Enedis J-1 data isn't available yet, but the card dates will be correct.
+        # The 8h05 sync will fill in yesterday's actual values.
         self._scheduler.add_job(
-            self._run_sync,
-            trigger=CronTrigger(hour="6-9", minute="*/30"),
-            id="sync_all_morning",
-            name="Sync all PDLs (morning 6h-9h every 30min)",
+            self._run_all_exports,
+            trigger=CronTrigger(hour=0, minute=5, timezone="Europe/Paris"),
+            id="midnight_export",
+            name="Midnight export (date rollover)",
             replace_existing=True,
         )
 
-        # Checks ponctuels en journée
-        self._scheduler.add_job(
-            self._run_sync,
-            trigger=CronTrigger(hour="12,18", minute=0),
-            id="sync_all_daytime",
-            name="Sync all PDLs (daytime 12h/18h)",
-            replace_existing=True,
-        )
-
-        # Add export scheduler job - runs every minute to check for due exports
+        # Fallback: check for due exports every 15 min (in case an export was
+        # triggered manually from the UI and needs its next_export_at honoured).
         self._scheduler.add_job(
             self._run_scheduled_exports,
-            trigger=IntervalTrigger(minutes=1),
+            trigger=IntervalTrigger(minutes=15),
             id="run_scheduled_exports",
-            name="Check and run scheduled exports",
+            name="Check and run scheduled exports (fallback)",
             replace_existing=True,
         )
 
-        # Tempo : 2 appels/jour (7h couleur du jour, 11h couleur de demain)
+        # Add Tempo sync job - runs every hour (including night)
+        # so J/J+1 rollover is refreshed around midnight as well.
+        # + run immédiat au démarrage pour remplir l'historique si absent
         self._scheduler.add_job(
             self._run_tempo_sync,
-            trigger=CronTrigger(hour="7,11", minute=0),
+            trigger=CronTrigger(minute=0, hour="0-23"),
             id="sync_tempo",
-            name="Sync Tempo calendar from gateway (7h + 11h)",
+            name="Sync Tempo calendar from gateway",
             replace_existing=True,
         )
+        # Sync initiale Tempo au démarrage (indépendante du cron)
+        self._scheduler.add_job(
+            self._run_tempo_sync,
+            id="sync_tempo_startup",
+            name="Sync Tempo calendar (startup)",
+            replace_existing=True,
+            next_run_time=datetime.now(UTC),
+        )
 
-        # EcoWatt : ~1-2 appels/jour (RTE publie vers 17h, vendredi 12h15)
+        # Add EcoWatt sync jobs
+        # 1. Daily at 17h00 - RTE updates J+3 around 17h
         self._scheduler.add_job(
             self._run_ecowatt_sync,
             trigger=CronTrigger(hour=17, minute=0),
@@ -119,6 +134,7 @@ class SyncScheduler:
             name="Sync EcoWatt daily at 17h",
             replace_existing=True,
         )
+        # 2. Friday at 12h15 - RTE updates earlier on Fridays
         self._scheduler.add_job(
             self._run_ecowatt_sync,
             trigger=CronTrigger(day_of_week="fri", hour=12, minute=15),
@@ -126,42 +142,43 @@ class SyncScheduler:
             name="Sync EcoWatt Friday at 12h15",
             replace_existing=True,
         )
-        # Fallback conditionnel : 2 appels/jour max si données J+3 incomplètes
+        # 3. Check every 6 hours if J+3 data is complete (fallback)
         self._scheduler.add_job(
             self._run_ecowatt_sync_if_incomplete,
-            trigger=CronTrigger(hour="8,20", minute=30),
+            trigger=IntervalTrigger(hours=6),
             id="sync_ecowatt_fallback",
-            name="Sync EcoWatt if incomplete (8h30 + 20h30)",
+            name="Sync EcoWatt if incomplete",
             replace_existing=True,
+            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
-        # Consommation France : 3 appels/jour (matin/midi/soir)
+        # Add Consumption France sync job - runs every 6 hours
         self._scheduler.add_job(
             self._run_consumption_france_sync,
-            trigger=CronTrigger(hour="8,14,20", minute=0),
+            trigger=IntervalTrigger(hours=6),
             id="sync_consumption_france",
-            name="Sync Consumption France from gateway (8h/14h/20h)",
+            name="Sync Consumption France from gateway",
             replace_existing=True,
+            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
-        # Prévisions production : 2 appels/jour
+        # Add Generation Forecast sync job - runs every 12 hours
         self._scheduler.add_job(
             self._run_generation_forecast_sync,
-            trigger=CronTrigger(hour="9,21", minute=0),
+            trigger=IntervalTrigger(hours=12),
             id="sync_generation_forecast",
-            name="Sync Generation Forecast from gateway (9h + 21h)",
+            name="Sync Generation Forecast from gateway",
             replace_existing=True,
+            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
         self._scheduler.start()
         self._running = True
 
         logger.info(
-            "[SCHEDULER] Started (~20 appels/jour max). "
-            "PDL: 6h-9h toutes les 30min + 12h + 18h (~10). "
-            "Tempo: 7h + 11h (2). "
-            "EcoWatt: 17h + vendredi 12h15 + fallback 8h30/20h30 (~4 max). "
-            "France: 8h/14h/20h (3). Forecast: 9h/21h (2)."
+            "[SCHEDULER] Started. Sync+export at 8h05/12h05/18h05 (Europe/Paris) + startup, "
+            "Tempo hourly (24h), EcoWatt at 17h/12h15(fri) + fallback every 6h, "
+            "France data every 6-12h."
         )
 
     def stop(self) -> None:
@@ -172,7 +189,7 @@ class SyncScheduler:
             logger.info("[SCHEDULER] Stopped")
 
     async def _run_sync(self) -> None:
-        """Run sync job"""
+        """Run sync job, then trigger all due exports."""
         logger.info("[SCHEDULER] Starting scheduled sync...")
 
         try:
@@ -192,6 +209,37 @@ class SyncScheduler:
 
         except Exception as e:
             logger.error(f"[SCHEDULER] Sync failed: {e}")
+
+        # Always run exports after sync (even if sync had errors, some data may be fresh)
+        try:
+            logger.info("[SCHEDULER] Sync done, triggering exports...")
+            await self._run_all_exports()
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Post-sync exports failed: {e}")
+
+    async def _run_all_exports(self) -> None:
+        """Run all enabled exports unconditionally (called after sync)."""
+        from sqlalchemy import select
+        from .models.client_mode import ExportConfig
+        from .models.database import async_session_maker
+
+        async with async_session_maker() as db:
+            stmt = select(ExportConfig).where(ExportConfig.is_enabled.is_(True))
+            result = await db.execute(stmt)
+            configs = result.scalars().all()
+
+            for config in configs:
+                try:
+                    await self._run_export(db, config)
+                    config.next_export_at = datetime.now(UTC) + timedelta(
+                        minutes=config.export_interval_minutes or 60
+                    )
+                    await db.commit()
+                except Exception as e:
+                    logger.error(f"[SCHEDULER] Export failed for {config.name}: {e}")
+                    config.last_export_status = "failed"
+                    config.last_export_error = str(e)[:500]
+                    await db.commit()
 
     async def _run_scheduled_exports(self) -> None:
         """Check for exports that are due and run them
@@ -518,7 +566,9 @@ class SyncScheduler:
 
             async with async_session_maker() as db:
                 # Check if we have data for today through J+3
-                today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+                # EcoWatt.periode is stored as timezone-naive datetime in PostgreSQL.
+                # Use naive UTC boundaries to avoid asyncpg naive/aware mismatch.
+                today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
                 dates_needed = [today + timedelta(days=i) for i in range(4)]  # J, J+1, J+2, J+3
 
                 # Query existing data
@@ -528,7 +578,11 @@ class SyncScheduler:
                         EcoWatt.periode < today + timedelta(days=4)
                     )
                 )
-                existing_dates = {row[0].replace(tzinfo=None).date() for row in existing_result.all()}
+                existing_dates = set()
+                for row in existing_result.all():
+                    val = row[0]
+                    if hasattr(val, "date"):
+                        existing_dates.add(val.date())
                 needed_dates = {d.date() for d in dates_needed}
 
                 missing_dates = needed_dates - existing_dates
