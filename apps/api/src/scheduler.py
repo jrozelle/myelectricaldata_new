@@ -3,7 +3,7 @@
 Runs background tasks:
 - Sync data from MyElectricalData API at 8h05, 12h05, 18h05 (Europe/Paris)
 - Run all exports immediately after each sync completes
-- Sync Tempo every hour if tomorrow's color is unknown
+- Sync Tempo at 7h + 11h (colors published around 6h and 10h40)
 - Sync EcoWatt at 12h15 (friday) and 17h (daily) if J+3 is incomplete
 
 Uses APScheduler for task scheduling.
@@ -64,69 +64,52 @@ class SyncScheduler:
 
         self._scheduler = AsyncIOScheduler()
 
-        # Sync + export at optimal hours (Europe/Paris):
-        #   8h05  — first attempt after Enedis publishes J-1 data (typically 6h-10h)
-        #   12h05 — retry if J-1 data wasn't available at 8h
-        #   18h05 — final retry + pick up Tempo J+1 (published ~17h)
+        # Sync au démarrage (redémarrage service à n'importe quelle heure)
         self._scheduler.add_job(
             self._run_sync,
-            trigger=CronTrigger(hour="8,12,18", minute=5, timezone="Europe/Paris"),
-            id="sync_all",
-            name="Sync all PDLs + run exports",
-            replace_existing=True,
-        )
-
-        # Run sync+export immediately on startup (container restart, rebuild, etc.)
-        self._scheduler.add_job(
-            self._run_sync,
-            id="sync_startup",
-            name="Sync + export at startup",
+            id="sync_all_startup",
+            name="Sync all PDLs (startup)",
             replace_existing=True,
             next_run_time=datetime.now(UTC),
         )
 
-        # Midnight export (no sync): shift the displayed week to the new day.
-        # Enedis J-1 data isn't available yet, but the card dates will be correct.
-        # The 8h05 sync will fill in yesterday's actual values.
+        # Sync matinale : toutes les 30 min de 6h à 9h
         self._scheduler.add_job(
-            self._run_all_exports,
-            trigger=CronTrigger(hour=0, minute=5, timezone="Europe/Paris"),
-            id="midnight_export",
-            name="Midnight export (date rollover)",
+            self._run_sync,
+            trigger=CronTrigger(hour="6-9", minute="*/30"),
+            id="sync_all_morning",
+            name="Sync all PDLs (morning 6h-9h every 30min)",
             replace_existing=True,
         )
 
-        # Fallback: check for due exports every 15 min (in case an export was
-        # triggered manually from the UI and needs its next_export_at honoured).
+        # Checks ponctuels en journée
+        self._scheduler.add_job(
+            self._run_sync,
+            trigger=CronTrigger(hour="12,18", minute=0),
+            id="sync_all_daytime",
+            name="Sync all PDLs (daytime 12h/18h)",
+            replace_existing=True,
+        )
+
+        # Add export scheduler job - runs every minute to check for due exports
         self._scheduler.add_job(
             self._run_scheduled_exports,
-            trigger=IntervalTrigger(minutes=15),
+            trigger=IntervalTrigger(minutes=1),
             id="run_scheduled_exports",
-            name="Check and run scheduled exports (fallback)",
+            name="Check and run scheduled exports",
             replace_existing=True,
         )
 
-        # Add Tempo sync job - runs every hour (including night)
-        # so J/J+1 rollover is refreshed around midnight as well.
-        # + run immédiat au démarrage pour remplir l'historique si absent
+        # Tempo : 2 appels/jour (7h couleur du jour, 11h couleur de demain)
         self._scheduler.add_job(
             self._run_tempo_sync,
-            trigger=CronTrigger(minute=0, hour="0-23"),
+            trigger=CronTrigger(hour="7,11", minute=0),
             id="sync_tempo",
-            name="Sync Tempo calendar from gateway",
+            name="Sync Tempo calendar from gateway (7h + 11h)",
             replace_existing=True,
-        )
-        # Sync initiale Tempo au démarrage (indépendante du cron)
-        self._scheduler.add_job(
-            self._run_tempo_sync,
-            id="sync_tempo_startup",
-            name="Sync Tempo calendar (startup)",
-            replace_existing=True,
-            next_run_time=datetime.now(UTC),
         )
 
-        # Add EcoWatt sync jobs
-        # 1. Daily at 17h00 - RTE updates J+3 around 17h
+        # EcoWatt : ~1-2 appels/jour (RTE publie vers 17h, vendredi 12h15)
         self._scheduler.add_job(
             self._run_ecowatt_sync,
             trigger=CronTrigger(hour=17, minute=0),
@@ -134,7 +117,6 @@ class SyncScheduler:
             name="Sync EcoWatt daily at 17h",
             replace_existing=True,
         )
-        # 2. Friday at 12h15 - RTE updates earlier on Fridays
         self._scheduler.add_job(
             self._run_ecowatt_sync,
             trigger=CronTrigger(day_of_week="fri", hour=12, minute=15),
@@ -142,43 +124,42 @@ class SyncScheduler:
             name="Sync EcoWatt Friday at 12h15",
             replace_existing=True,
         )
-        # 3. Check every 6 hours if J+3 data is complete (fallback)
+        # Fallback conditionnel : 2 appels/jour max si données J+3 incomplètes
         self._scheduler.add_job(
             self._run_ecowatt_sync_if_incomplete,
-            trigger=IntervalTrigger(hours=6),
+            trigger=CronTrigger(hour="8,20", minute=30),
             id="sync_ecowatt_fallback",
-            name="Sync EcoWatt if incomplete",
+            name="Sync EcoWatt if incomplete (8h30 + 20h30)",
             replace_existing=True,
-            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
-        # Add Consumption France sync job - runs every 6 hours
+        # Consommation France : 3 appels/jour (matin/midi/soir)
         self._scheduler.add_job(
             self._run_consumption_france_sync,
-            trigger=IntervalTrigger(hours=6),
+            trigger=CronTrigger(hour="8,14,20", minute=0),
             id="sync_consumption_france",
-            name="Sync Consumption France from gateway",
+            name="Sync Consumption France from gateway (8h/14h/20h)",
             replace_existing=True,
-            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
-        # Add Generation Forecast sync job - runs every 12 hours
+        # Prévisions production : 2 appels/jour
         self._scheduler.add_job(
             self._run_generation_forecast_sync,
-            trigger=IntervalTrigger(hours=12),
+            trigger=CronTrigger(hour="9,21", minute=0),
             id="sync_generation_forecast",
-            name="Sync Generation Forecast from gateway",
+            name="Sync Generation Forecast from gateway (9h + 21h)",
             replace_existing=True,
-            next_run_time=datetime.now(UTC),  # Run au démarrage
         )
 
         self._scheduler.start()
         self._running = True
 
         logger.info(
-            "[SCHEDULER] Started. Sync+export at 8h05/12h05/18h05 (Europe/Paris) + startup, "
-            "Tempo hourly (24h), EcoWatt at 17h/12h15(fri) + fallback every 6h, "
-            "France data every 6-12h."
+            "[SCHEDULER] Started (~20 appels/jour max). "
+            "PDL: 6h-9h toutes les 30min + 12h + 18h (~10). "
+            "Tempo: 7h + 11h (2). "
+            "EcoWatt: 17h + vendredi 12h15 + fallback 8h30/20h30 (~4 max). "
+            "France: 8h/14h/20h (3). Forecast: 9h/21h (2)."
         )
 
     def stop(self) -> None:
