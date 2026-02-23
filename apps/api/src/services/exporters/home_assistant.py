@@ -245,6 +245,7 @@ class HomeAssistantExporter(BaseExporter):
         # Discovery config
         discovery_config = {
             "unique_id": unique_id,
+            "object_id": unique_id,
             "name": f"Consommation {usage_point_id} ({granularity})",
             "state_topic": state_topic,
             "unit_of_measurement": "kWh",
@@ -310,6 +311,7 @@ class HomeAssistantExporter(BaseExporter):
 
         discovery_config = {
             "unique_id": unique_id,
+            "object_id": unique_id,
             "name": f"Production {usage_point_id} ({granularity})",
             "state_topic": state_topic,
             "unit_of_measurement": "kWh",
@@ -387,7 +389,7 @@ class HomeAssistantExporter(BaseExporter):
 
             # Global exports (not PDL-specific)
             try:
-                count = await self._export_tempo(client, db)
+                count = await self._export_tempo(client, db, usage_point_ids)
                 results["tempo"] = count
             except Exception as e:
                 logger.error(f"[HA-MQTT] Tempo export failed: {e}")
@@ -459,6 +461,7 @@ class HomeAssistantExporter(BaseExporter):
         discovery_config: dict[str, Any] = {
             "name": name,
             "uniq_id": unique_id,
+            "obj_id": unique_id,
             "stat_t": state_topic,
             "json_attr_t": attributes_topic,
             "device": device,
@@ -516,6 +519,7 @@ class HomeAssistantExporter(BaseExporter):
         # Build discovery config
         discovery_config: dict[str, Any] = {
             "unique_id": unique_id,
+            "object_id": unique_id,
             "name": name,
             "state_topic": state_topic,
             "value_template": "{{ value_json.state }}",
@@ -582,6 +586,7 @@ class HomeAssistantExporter(BaseExporter):
         """
         discovery_config: dict[str, Any] = {
             "unique_id": unique_id,
+            "object_id": unique_id,
             "name": name,
             "state_topic": state_topic,
             "value_template": "{{ value_json.state }}",
@@ -619,6 +624,481 @@ class HomeAssistantExporter(BaseExporter):
     # CONSUMPTION/PRODUCTION STATISTICS
     # =========================================================================
 
+    @staticmethod
+    def _safe_evolution_percent(current_value: float, reference_value: float) -> float:
+        """Return percentage evolution, guarded against division by zero."""
+        if reference_value == 0:
+            return 0.0
+        return round(((current_value - reference_value) / reference_value) * 100, 2)
+
+    @staticmethod
+    def _normalize_offpeak_hours(offpeak_raw: Any) -> list[dict[str, str]]:
+        """Normalize off-peak configuration to [{'start': 'HH:MM', 'end': 'HH:MM'}]."""
+        normalized: list[dict[str, str]] = []
+
+        def add_range(start: str, end: str) -> None:
+            normalized.append({"start": start, "end": end})
+
+        def parse_range_string(range_str: str) -> None:
+            match = re.search(r"(\d{1,2})[h:](\d{2})\s*-\s*(\d{1,2})[h:](\d{2})", range_str)
+            if not match:
+                return
+            add_range(
+                f"{match.group(1).zfill(2)}:{match.group(2)}",
+                f"{match.group(3).zfill(2)}:{match.group(4)}",
+            )
+
+        if isinstance(offpeak_raw, list):
+            for item in offpeak_raw:
+                if isinstance(item, dict):
+                    start = item.get("start")
+                    end = item.get("end")
+                    if isinstance(start, str) and isinstance(end, str):
+                        add_range(start, end)
+                elif isinstance(item, str):
+                    parse_range_string(item)
+            return normalized
+
+        if isinstance(offpeak_raw, dict):
+            ranges = offpeak_raw.get("ranges")
+            if isinstance(ranges, list):
+                for item in ranges:
+                    if isinstance(item, str):
+                        parse_range_string(item)
+                    elif isinstance(item, dict):
+                        start = item.get("start")
+                        end = item.get("end")
+                        if isinstance(start, str) and isinstance(end, str):
+                            add_range(start, end)
+            for value in offpeak_raw.values():
+                if isinstance(value, str):
+                    parse_range_string(value)
+                elif isinstance(value, list):
+                    for sub_item in value:
+                        if isinstance(sub_item, str):
+                            parse_range_string(sub_item)
+            return normalized
+
+        return normalized
+
+    def _is_offpeak_interval(self, interval_start: str | None, offpeak_hours: list[dict[str, str]]) -> bool:
+        """Check if an interval start time is in off-peak period."""
+        if not interval_start:
+            return False
+
+        # Default HC range when no contract schedule is available.
+        periods = offpeak_hours or [{"start": "22:00", "end": "06:00"}]
+
+        try:
+            hour, minute = map(int, interval_start.split(":"))
+            current_minutes = hour * 60 + minute
+        except ValueError:
+            return False
+
+        for period in periods:
+            try:
+                start_h, start_m = map(int, period["start"].split(":"))
+                end_h, end_m = map(int, period["end"].split(":"))
+            except (KeyError, ValueError):
+                continue
+
+            start_minutes = start_h * 60 + start_m
+            end_minutes = end_h * 60 + end_m
+
+            # Overnight range (e.g. 22:00 -> 06:00)
+            if start_minutes > end_minutes:
+                if current_minutes >= start_minutes or current_minutes < end_minutes:
+                    return True
+            elif start_minutes <= current_minutes < end_minutes:
+                return True
+
+        return False
+
+    @staticmethod
+    def _detailed_value_to_wh(value: int, raw_data: dict[str, Any] | None) -> float:
+        """Convert a detailed record value to Wh.
+
+        Some MED payloads expose interval power values (W), others already provide Wh.
+        We use interval_length when available to normalize.
+        """
+        if value is None:
+            return 0.0
+
+        if not raw_data:
+            # Historical default used by the existing code path.
+            return float(value) / 2
+
+        interval_length = str(raw_data.get("interval_length", "PT30M"))
+        match = re.match(r"PT(\d+)M", interval_length)
+        if not match:
+            # Daily/unknown payloads are already in Wh.
+            return float(value)
+
+        interval_minutes = int(match.group(1))
+        if interval_minutes <= 0:
+            return float(value)
+
+        return float(value) / (60 / interval_minutes)
+
+    async def _resolve_linky_pricing_context(
+        self,
+        db: AsyncSession,
+        pdl: str,
+    ) -> tuple[str, list[dict[str, str]], dict[str, float], int | None]:
+        """Resolve pricing option, offpeak hours, prices and subscribed power for one PDL."""
+        from ...models.client_mode import ContractData
+        from ...models.energy_provider import EnergyOffer
+        from ...models.pdl import PDL
+
+        pricing_option = "BASE"
+        offpeak_hours: list[dict[str, str]] = []
+        subscribed_power: int | None = None
+
+        # Default prices keep output deterministic (never NaN in card).
+        prices: dict[str, float] = {
+            "base": 0.0,
+            "hc": 0.0,
+            "hp": 0.0,
+            **TEMPO_PRICES,
+        }
+
+        pdl_result = await db.execute(
+            select(PDL).where(PDL.usage_point_id == pdl)
+        )
+        pdl_record = pdl_result.scalar_one_or_none()
+        selected_offer_id = pdl_record.selected_offer_id if pdl_record else None
+
+        if pdl_record and pdl_record.pricing_option:
+            pricing_option = str(pdl_record.pricing_option).upper()
+        if pdl_record and pdl_record.subscribed_power is not None:
+            subscribed_power = int(pdl_record.subscribed_power)
+        if pdl_record and pdl_record.offpeak_hours:
+            offpeak_hours = self._normalize_offpeak_hours(pdl_record.offpeak_hours)
+
+        contract_result = await db.execute(
+            select(ContractData).where(ContractData.usage_point_id == pdl)
+        )
+        contract = contract_result.scalar_one_or_none()
+        if contract and contract.pricing_option:
+            pricing_option = str(contract.pricing_option).upper()
+        if contract and contract.subscribed_power is not None:
+            subscribed_power = int(contract.subscribed_power)
+        if contract and contract.offpeak_hours:
+            normalized = self._normalize_offpeak_hours(contract.offpeak_hours)
+            if normalized:
+                offpeak_hours = normalized
+
+        if selected_offer_id:
+            offer_result = await db.execute(
+                select(EnergyOffer).where(EnergyOffer.id == selected_offer_id)
+            )
+            offer = offer_result.scalar_one_or_none()
+            if offer:
+                if offer.base_price is not None:
+                    prices["base"] = float(offer.base_price)
+                if offer.hc_price is not None:
+                    prices["hc"] = float(offer.hc_price)
+                if offer.hp_price is not None:
+                    prices["hp"] = float(offer.hp_price)
+                if offer.tempo_blue_hc is not None:
+                    prices["blue_hc"] = float(offer.tempo_blue_hc)
+                if offer.tempo_blue_hp is not None:
+                    prices["blue_hp"] = float(offer.tempo_blue_hp)
+                if offer.tempo_white_hc is not None:
+                    prices["white_hc"] = float(offer.tempo_white_hc)
+                if offer.tempo_white_hp is not None:
+                    prices["white_hp"] = float(offer.tempo_white_hp)
+                if offer.tempo_red_hc is not None:
+                    prices["red_hc"] = float(offer.tempo_red_hc)
+                if offer.tempo_red_hp is not None:
+                    prices["red_hp"] = float(offer.tempo_red_hp)
+
+        return pricing_option, offpeak_hours, prices, subscribed_power
+
+    async def _get_day_hp_hc_kwh(
+        self,
+        db: AsyncSession,
+        pdl: str,
+        target_day: date,
+        offpeak_hours: list[dict[str, str]],
+    ) -> tuple[float, float, int]:
+        """Return (HC_kWh, HP_kWh, interval_count) for one day from detailed data."""
+        from ...models.client_mode import ConsumptionData, DataGranularity
+
+        result = await db.execute(
+            select(ConsumptionData.interval_start, ConsumptionData.value, ConsumptionData.raw_data)
+            .where(ConsumptionData.usage_point_id == pdl)
+            .where(ConsumptionData.granularity == DataGranularity.DETAILED)
+            .where(ConsumptionData.date == target_day)
+        )
+
+        hc_wh = 0.0
+        hp_wh = 0.0
+        interval_count = 0
+        for interval_start, value, raw_data in result.all():
+            interval_count += 1
+            value_wh = self._detailed_value_to_wh(int(value or 0), raw_data)
+            if self._is_offpeak_interval(interval_start, offpeak_hours):
+                hc_wh += value_wh
+            else:
+                hp_wh += value_wh
+
+        return round(hc_wh / 1000, 3), round(hp_wh / 1000, 3), interval_count
+
+    async def _get_day_max_power(
+        self,
+        db: AsyncSession,
+        pdl: str,
+        target_day: date,
+    ) -> tuple[float, str]:
+        """Return max power (kW) and time ISO string for one day from max_power_data."""
+        from ...models.client_mode import MaxPowerData
+
+        result = await db.execute(
+            select(MaxPowerData.interval_start, MaxPowerData.value)
+            .where(MaxPowerData.usage_point_id == pdl)
+            .where(MaxPowerData.date == target_day)
+            .limit(1)
+        )
+        row = result.first()
+        if not row:
+            return 0.0, f"{target_day.isoformat()}T00:00:00"
+
+        interval_start, value = row
+        hhmm = interval_start if interval_start else "00:00"
+        kw = round(float(value or 0) / 1000.0, 2)
+        return kw, f"{target_day.isoformat()}T{hhmm}:00"
+
+    @staticmethod
+    def _compute_day_costs(
+        pricing_option: str,
+        prices: dict[str, float],
+        total_kwh: float,
+        hc_kwh: float,
+        hp_kwh: float,
+        tempo_color: str | None,
+    ) -> tuple[float, float, float]:
+        """Return (total_cost, hc_cost, hp_cost) in EUR."""
+        option = pricing_option.upper()
+        color = (tempo_color or "BLUE").upper()
+
+        if "TEMPO" in option:
+            hc_price = prices.get(f"{color.lower()}_hc", 0.0)
+            hp_price = prices.get(f"{color.lower()}_hp", 0.0)
+            hc_cost = hc_kwh * hc_price
+            hp_cost = hp_kwh * hp_price
+            return round(hc_cost + hp_cost, 2), round(hc_cost, 2), round(hp_cost, 2)
+
+        if option in ("HC/HP", "HCHP", "EJP", "HC_HP"):
+            hc_cost = hc_kwh * prices.get("hc", 0.0)
+            hp_cost = hp_kwh * prices.get("hp", 0.0)
+            return round(hc_cost + hp_cost, 2), round(hc_cost, 2), round(hp_cost, 2)
+
+        base_cost = total_kwh * prices.get("base", 0.0)
+        return round(base_cost, 2), 0.0, 0.0
+
+    @staticmethod
+    def _choose_preferred_day_total_kwh(
+        daily_total_kwh: float,
+        hc_kwh: float,
+        hp_kwh: float,
+        detailed_interval_count: int = 0,
+    ) -> float:
+        """Choose a robust day total in kWh.
+
+        Behavior:
+        - Always trust DAILY total for the day when available.
+        - If DAILY is missing/zero, fallback to HC+HP sum from detailed data
+          so the card doesn't show 0 while HC/HP/cost have real values.
+        """
+        daily = round(float(daily_total_kwh), 2)
+        if daily > 0:
+            return daily
+        detailed_sum = round(hc_kwh + hp_kwh, 2)
+        if detailed_sum > 0 and detailed_interval_count >= 10:
+            return detailed_sum
+        return 0.0
+
+    async def _build_linky_card_attributes(
+        self,
+        stats: Any,
+        pdl: str,
+        requested_date: date,
+        data_wh: int,
+        history: dict[str, float],
+    ) -> dict[str, Any]:
+        """Build legacy attributes expected by content-card-linky."""
+        from ...models.tempo_day import TempoDay
+
+        db: AsyncSession = stats.db
+        # Derive today from the caller's requested_date (= yesterday) to avoid
+        # date.today() returning a stale date if the export runs around midnight.
+        today = requested_date + timedelta(days=1)
+        yesterday = requested_date
+
+        pricing_option, offpeak_hours, prices, subscribed_power = await self._resolve_linky_pricing_context(db, pdl)
+
+        # Last 31 days in newest -> oldest order (matches legacy card expectations).
+        days_desc = [today - timedelta(days=i) for i in range(1, 32)]
+        week_days_desc = days_desc[:7]
+
+        # Tempo colors for table (newest -> oldest).
+        tempo_start = min(week_days_desc)
+        tempo_end = max(week_days_desc)
+        tempo_result = await db.execute(
+            select(TempoDay.id, TempoDay.color)
+            .where(cast(TempoDay.id, String) >= tempo_start.isoformat())
+            .where(cast(TempoDay.id, String) <= tempo_end.isoformat())
+        )
+        tempo_by_day = {
+            row.id: (row.color.value if hasattr(row.color, "value") else str(row.color))
+            for row in tempo_result.all()
+        }
+
+        daily_values: list[float] = []
+        dailyweek_dates: list[str] = []
+        dailyweek_cost: list[float] = []
+        dailyweek_cost_hc: list[float] = []
+        dailyweek_cost_hp: list[float] = []
+        dailyweek_hc: list[float] = []
+        dailyweek_hp: list[float] = []
+        dailyweek_tempo: list[str] = []
+        dailyweek_mp: list[float] = []
+        dailyweek_mp_over: list[str] = []
+        dailyweek_mp_time: list[str] = []
+
+        for target_day in days_desc:
+            total_kwh = round(float(history.get(target_day.isoformat(), 0.0)), 2)
+            day_total_kwh = total_kwh
+
+            if target_day in week_days_desc:
+                day_key = target_day.isoformat()
+                dailyweek_dates.append(day_key)
+
+                hc_kwh, hp_kwh, detailed_interval_count = await self._get_day_hp_hc_kwh(
+                    db, pdl, target_day, offpeak_hours
+                )
+                dailyweek_hc.append(round(hc_kwh, 2))
+                dailyweek_hp.append(round(hp_kwh, 2))
+                day_total_kwh = self._choose_preferred_day_total_kwh(
+                    total_kwh,
+                    hc_kwh,
+                    hp_kwh,
+                    detailed_interval_count=detailed_interval_count,
+                )
+
+                tempo_color = tempo_by_day.get(day_key)
+                dailyweek_tempo.append(tempo_color if tempo_color else "-1")
+
+                total_cost, hc_cost, hp_cost = self._compute_day_costs(
+                    pricing_option=pricing_option,
+                    prices=prices,
+                    total_kwh=day_total_kwh,
+                    hc_kwh=hc_kwh,
+                    hp_kwh=hp_kwh,
+                    tempo_color=tempo_color,
+                )
+                dailyweek_cost.append(total_cost)
+                dailyweek_cost_hc.append(hc_cost)
+                dailyweek_cost_hp.append(hp_cost)
+
+                max_power_kw, max_power_time = await self._get_day_max_power(db, pdl, target_day)
+                dailyweek_mp.append(max_power_kw)
+                is_over = bool(subscribed_power is not None and max_power_kw > float(subscribed_power))
+                dailyweek_mp_over.append("true" if is_over else "false")
+                dailyweek_mp_time.append(max_power_time)
+
+            daily_values.append(day_total_kwh)
+
+        yesterday_hc = 0.0
+        yesterday_hp = 0.0
+        if week_days_desc:
+            # week_days_desc[0] is J-1
+            yesterday_hc = dailyweek_hc[0] if len(dailyweek_hc) > 0 else 0.0
+            yesterday_hp = dailyweek_hp[0] if len(dailyweek_hp) > 0 else 0.0
+
+        yesterday_total = daily_values[0] if daily_values else round(data_wh / 1000, 2)
+        day_2_total = daily_values[1] if len(daily_values) > 1 else 0.0
+
+        current_year = round(await stats.get_year_total(pdl, today.year, "consumption") / 1000, 2)
+        current_year_last_year = round(await stats.get_year_total(pdl, today.year - 1, "consumption") / 1000, 2)
+
+        prev_month_date = today.replace(day=1) - timedelta(days=1)
+        last_month = round(
+            await stats.get_month_total(pdl, prev_month_date.year, prev_month_date.month, "consumption") / 1000,
+            2,
+        )
+        last_month_last_year = round(
+            await stats.get_month_total(pdl, prev_month_date.year - 1, prev_month_date.month, "consumption") / 1000,
+            2,
+        )
+        current_month = round(await stats.get_month_total(pdl, today.year, today.month, "consumption") / 1000, 2)
+        current_month_last_year = round(
+            await stats.get_month_total(pdl, today.year - 1, today.month, "consumption") / 1000,
+            2,
+        )
+
+        current_iso_year, current_iso_week, _ = today.isocalendar()
+        current_week = round(await stats.get_week_total(pdl, current_iso_year, current_iso_week, "consumption") / 1000, 2)
+        previous_week_date = today - timedelta(days=7)
+        previous_iso_year, previous_iso_week, _ = previous_week_date.isocalendar()
+        last_week = round(
+            await stats.get_week_total(pdl, previous_iso_year, previous_iso_week, "consumption") / 1000,
+            2,
+        )
+
+        peak_offpeak_percent = 0.0
+        if (yesterday_hp + yesterday_hc) > 0:
+            peak_offpeak_percent = round((yesterday_hp / (yesterday_hp + yesterday_hc)) * 100, 2)
+
+        return {
+            # Existing metadata
+            "pdl": pdl,
+            "date": yesterday.isoformat(),
+            "value_wh": data_wh,
+            "data_date": yesterday.isoformat(),
+            "data_source": "requested_day",
+            "history": history,
+            "last_updated": datetime.now().isoformat(),
+            # Legacy card attributes
+            "unit_of_measurement": "kWh",
+            "daily": daily_values,
+            "dailyweek": dailyweek_dates,
+            "dailyweek_cost": dailyweek_cost,
+            "dailyweek_costHC": dailyweek_cost_hc,
+            "dailyweek_costHP": dailyweek_cost_hp,
+            "dailyweek_HC": dailyweek_hc,
+            "dailyweek_HP": dailyweek_hp,
+            "dailyweek_MP": dailyweek_mp,
+            "dailyweek_MP_over": dailyweek_mp_over,
+            "dailyweek_MP_time": dailyweek_mp_time,
+            "dailyweek_Tempo": dailyweek_tempo,
+            "yesterday": yesterday_total,
+            "day_2": day_2_total,
+            "yesterday_HC": round(yesterday_hc, 2),
+            "yesterday_HP": round(yesterday_hp, 2),
+            "daily_cost": dailyweek_cost[0] if dailyweek_cost else 0.0,
+            "peak_offpeak_percent": peak_offpeak_percent,
+            "current_year": current_year,
+            "current_year_last_year": current_year_last_year,
+            "yearly_evolution": self._safe_evolution_percent(current_year, current_year_last_year),
+            "last_month": last_month,
+            "last_month_last_year": last_month_last_year,
+            "monthly_evolution": self._safe_evolution_percent(last_month, last_month_last_year),
+            "current_month": current_month,
+            "current_month_last_year": current_month_last_year,
+            "current_month_evolution": self._safe_evolution_percent(current_month, current_month_last_year),
+            "current_week": current_week,
+            "last_week": last_week,
+            "current_week_evolution": self._safe_evolution_percent(current_week, last_week),
+            "yesterday_evolution": self._safe_evolution_percent(yesterday_total, day_2_total),
+            # Keep optional legacy fields explicit to avoid undefined in card templates.
+            "errorLastCall": "",
+            "serviceEnedis": "myElectricalData",
+            "versionUpdateAvailable": False,
+            "versionGit": SOFTWARE_VERSION,
+        }
+
     async def _export_consumption_stats(
         self,
         client: aiomqtt.Client,
@@ -638,16 +1118,37 @@ class HomeAssistantExporter(BaseExporter):
         count = 0
         device = self._get_device_linky(pdl)
 
-        # Get yesterday's consumption (most recent complete day)
-        yesterday_wh = await stats.get_day_total(pdl, yesterday, "consumption")
-        yesterday_kwh = round(yesterday_wh / 1000, 2)
+        # Strict behavior: only publish J-1 daily value.
+        # If J-1 is missing, keep 0.
+        requested_date = yesterday
+        data_wh = await stats.get_day_total(pdl, requested_date, "consumption")
+        data_kwh = round(data_wh / 1000, 2)
+
+        _, offpeak_hours, _, _ = await self._resolve_linky_pricing_context(stats.db, pdl)
 
         # Get last N days history for attributes
         history = {}
         for i in range(1, 32):  # Last 31 days
             day = today - timedelta(days=i)
             day_wh = await stats.get_day_total(pdl, day, "consumption")
-            history[day.isoformat()] = round(day_wh / 1000, 2)
+            daily_kwh = round(day_wh / 1000, 2)
+            hc_kwh, hp_kwh, detailed_interval_count = await self._get_day_hp_hc_kwh(
+                stats.db, pdl, day, offpeak_hours
+            )
+            history[day.isoformat()] = self._choose_preferred_day_total_kwh(
+                daily_total_kwh=daily_kwh,
+                hc_kwh=hc_kwh,
+                hp_kwh=hp_kwh,
+                detailed_interval_count=detailed_interval_count,
+            )
+
+        attributes = await self._build_linky_card_attributes(
+            stats=stats,
+            pdl=pdl,
+            requested_date=requested_date,
+            data_wh=data_wh,
+            history=history,
+        )
 
         # Main consumption sensor with history in attributes
         await self._publish_sensor_old_format(
@@ -656,14 +1157,8 @@ class HomeAssistantExporter(BaseExporter):
             name="consumption",
             unique_id=f"{self.prefix}_linky_{pdl}_consumption",
             device=device,
-            state=yesterday_kwh,
-            attributes={
-                "pdl": pdl,
-                "date": yesterday.isoformat(),
-                "value_wh": yesterday_wh,
-                "history": history,
-                "last_updated": datetime.now().isoformat(),
-            },
+            state=attributes.get("yesterday", data_kwh),
+            attributes=attributes,
             unit="kWh",
             device_class="energy",
             state_class="total",
@@ -676,8 +1171,7 @@ class HomeAssistantExporter(BaseExporter):
             total_kwh = 0.0
             for i in range(1, days_count + 1):
                 day = today - timedelta(days=i)
-                day_wh = await stats.get_day_total(pdl, day, "consumption")
-                total_kwh += day_wh / 1000
+                total_kwh += float(history.get(day.isoformat(), 0.0))
 
             await self._publish_sensor_old_format(
                 client,
@@ -732,9 +1226,11 @@ class HomeAssistantExporter(BaseExporter):
             logger.debug(f"[HA-MQTT] PDL {pdl} has no production, skipping")
             return 0
 
-        # Get yesterday's production (most recent complete day)
-        yesterday_wh = await stats.get_day_total(pdl, yesterday, "production")
-        yesterday_kwh = round(yesterday_wh / 1000, 2)
+        # Strict behavior: only publish J-1 daily value.
+        # If J-1 is missing, keep 0.
+        requested_date = yesterday
+        data_wh = await stats.get_day_total(pdl, requested_date, "production")
+        data_kwh = round(data_wh / 1000, 2)
 
         # Get last N days history for attributes
         history = {}
@@ -750,11 +1246,13 @@ class HomeAssistantExporter(BaseExporter):
             name="production",
             unique_id=f"{self.prefix}_linky_{pdl}_production",
             device=device,
-            state=yesterday_kwh,
+            state=data_kwh,
             attributes={
                 "pdl": pdl,
-                "date": yesterday.isoformat(),
-                "value_wh": yesterday_wh,
+                "date": requested_date.isoformat(),
+                "value_wh": data_wh,
+                "data_date": requested_date.isoformat(),
+                "data_source": "requested_day",
                 "history": history,
                 "last_updated": datetime.now().isoformat(),
             },
@@ -800,7 +1298,73 @@ class HomeAssistantExporter(BaseExporter):
     # TEMPO EXPORT (Old MyElectricalData format)
     # =========================================================================
 
-    async def _export_tempo(self, client: aiomqtt.Client, db: AsyncSession) -> int:
+    async def _get_tempo_prices_for_export(
+        self,
+        db: AsyncSession,
+        usage_point_ids: list[str],
+    ) -> tuple[dict[str, float], dict[str, Any]]:
+        """Resolve Tempo prices for HA MQTT export.
+
+        Priority:
+        1. Selected TEMPO offer on one of the exported PDLs.
+        2. Built-in fallback constants (TEMPO_PRICES).
+        """
+        from ...models.energy_provider import EnergyOffer
+        from ...models.pdl import PDL
+
+        if not usage_point_ids:
+            return dict(TEMPO_PRICES), {"source": "fallback_defaults", "reason": "no_usage_point_ids"}
+
+        pdl_result = await db.execute(
+            select(PDL).where(PDL.usage_point_id.in_(usage_point_ids))
+        )
+        pdls = pdl_result.scalars().all()
+
+        for pdl in pdls:
+            if not pdl.selected_offer_id:
+                continue
+
+            offer_result = await db.execute(
+                select(EnergyOffer).where(EnergyOffer.id == pdl.selected_offer_id)
+            )
+            offer = offer_result.scalar_one_or_none()
+
+            if not offer or offer.offer_type != "TEMPO":
+                continue
+
+            price_map: dict[str, float] = {}
+            if offer.tempo_blue_hc is not None:
+                price_map["blue_hc"] = float(offer.tempo_blue_hc)
+            if offer.tempo_blue_hp is not None:
+                price_map["blue_hp"] = float(offer.tempo_blue_hp)
+            if offer.tempo_white_hc is not None:
+                price_map["white_hc"] = float(offer.tempo_white_hc)
+            if offer.tempo_white_hp is not None:
+                price_map["white_hp"] = float(offer.tempo_white_hp)
+            if offer.tempo_red_hc is not None:
+                price_map["red_hc"] = float(offer.tempo_red_hc)
+            if offer.tempo_red_hp is not None:
+                price_map["red_hp"] = float(offer.tempo_red_hp)
+
+            if len(price_map) == len(TEMPO_PRICES):
+                return price_map, {
+                    "source": "selected_offer",
+                    "usage_point_id": pdl.usage_point_id,
+                    "offer_id": offer.id,
+                    "offer_name": offer.name,
+                    "price_updated_at": offer.price_updated_at.isoformat() if offer.price_updated_at else None,
+                }
+
+            logger.warning(
+                "[HA-MQTT] Tempo offer '%s' for PDL %s is incomplete (%d/6 prices), using fallback constants",
+                offer.name,
+                pdl.usage_point_id,
+                len(price_map),
+            )
+
+        return dict(TEMPO_PRICES), {"source": "fallback_defaults", "reason": "no_complete_tempo_offer"}
+
+    async def _export_tempo(self, client: aiomqtt.Client, db: AsyncSession, usage_point_ids: list[str]) -> int:
         """Export Tempo information via MQTT Discovery (old MyElectricalData format)
 
         Creates entities under two devices:
@@ -844,13 +1408,15 @@ class HomeAssistantExporter(BaseExporter):
         today_tempo = result.scalar_one_or_none()
         today_color = today_tempo.color.value if today_tempo else "UNKNOWN"
 
+        today_state = self._get_tempo_state(today_color)
+
         await self._publish_sensor_old_format(
             client,
             topic=f"{self.prefix}_rte/tempo_today",
             name="Today",
             unique_id=f"{self.prefix}_tempo_today",
             device=device_rte,
-            state=today_color,
+            state=today_state,
             attributes={
                 "date": today_str,
                 "color_fr": self._get_tempo_color_fr(today_color),
@@ -866,13 +1432,15 @@ class HomeAssistantExporter(BaseExporter):
         tomorrow_tempo = result.scalar_one_or_none()
         tomorrow_color = tomorrow_tempo.color.value if tomorrow_tempo else "UNKNOWN"
 
+        tomorrow_state = self._get_tempo_state(tomorrow_color)
+
         await self._publish_sensor_old_format(
             client,
             topic=f"{self.prefix}_rte/tempo_tomorrow",
             name="Tomorrow",
             unique_id=f"{self.prefix}_tempo_tomorrow",
             device=device_rte,
-            state=tomorrow_color,
+            state=tomorrow_state,
             attributes={
                 "date": tomorrow_str,
                 "color_fr": self._get_tempo_color_fr(tomorrow_color),
@@ -896,6 +1464,16 @@ class HomeAssistantExporter(BaseExporter):
         season_start_str = season_start.isoformat()
         season_end_str = season_end.isoformat()
 
+        # Known colors for today/tomorrow should be deducted from remaining counters
+        # (legacy behavior expected by existing dashboards/cards).
+        # We rely on the two already-resolved states above to avoid enum-cast
+        # inconsistencies across DB backends.
+        known_future_counts: dict[str, int] = {c.value: 0 for c in TempoColor}
+        if today_color in known_future_counts:
+            known_future_counts[today_color] += 1
+        if tomorrow_color in known_future_counts:
+            known_future_counts[tomorrow_color] += 1
+
         # Days count per color (consumed + remaining)
         days_data: dict[str, dict[str, int]] = {}
 
@@ -911,20 +1489,17 @@ class HomeAssistantExporter(BaseExporter):
             )
             used = result.scalar() or 0
 
-            # Count remaining days (including today until season end)
-            result = await db.execute(
-                select(func.count(TempoDay.id))
-                .where(TempoDay.id >= today_str)
-                .where(TempoDay.id <= season_end_str)
-                .where(cast(TempoDay.color, String) == color.value)
-            )
-            remaining = result.scalar() or 0
-
             quota = TEMPO_QUOTAS.get(color.value, 0)
+            # Tempo "jours restants" is quota-based, not "future known rows in DB".
+            # DB only contains known colors (historical + limited forecast), which can
+            # wrongly produce tiny values like 1/0/1 if used directly.
+            reserved_known = known_future_counts.get(color.value, 0)
+            remaining = max(int(quota) - int(used) - int(reserved_known), 0)
 
             days_data[color_name] = {
                 "used": used,
                 "remaining": remaining,
+                "reserved_known_days": reserved_known,
                 "quota": quota,
             }
 
@@ -935,10 +1510,11 @@ class HomeAssistantExporter(BaseExporter):
                 name=f"Days {color.value.capitalize()}",
                 unique_id=f"{self.prefix}_tempo_days_{color_name}",
                 device=device_edf,
-                state=used,
+                state=remaining,
                 attributes={
                     "used": used,
                     "remaining": remaining,
+                    "reserved_known_days": reserved_known,
                     "quota": quota,
                     "season_start": season_start_str,
                     "season_end": season_end_str,
@@ -964,7 +1540,12 @@ class HomeAssistantExporter(BaseExporter):
                 "tomorrow": tomorrow_color,
                 "season_start": season_start_str,
                 "season_end": season_end_str,
-                **{f"days_{k}": v for k, v in days_data.items()},
+                "days_blue": f"{days_data['blue']['remaining']} / {days_data['blue']['quota']}",
+                "days_white": f"{days_data['white']['remaining']} / {days_data['white']['quota']}",
+                "days_red": f"{days_data['red']['remaining']} / {days_data['red']['quota']}",
+                "days_blue_detail": days_data["blue"],
+                "days_white_detail": days_data["white"],
+                "days_red_detail": days_data["red"],
             },
             icon="mdi:information",
         )
@@ -974,7 +1555,9 @@ class HomeAssistantExporter(BaseExporter):
         # EDF TEMPO: Price sensors
         # =====================================================================
 
-        for price_key, price_value in TEMPO_PRICES.items():
+        tempo_prices, tempo_price_meta = await self._get_tempo_prices_for_export(db, usage_point_ids)
+
+        for price_key, price_value in tempo_prices.items():
             price_name = TEMPO_PRICE_NAMES.get(price_key, price_key)
 
             await self._publish_sensor_old_format(
@@ -987,6 +1570,10 @@ class HomeAssistantExporter(BaseExporter):
                 attributes={
                     "price_type": price_key,
                     "name": price_name,
+                    "source": tempo_price_meta.get("source"),
+                    "offer_name": tempo_price_meta.get("offer_name"),
+                    "usage_point_id": tempo_price_meta.get("usage_point_id"),
+                    "price_updated_at": tempo_price_meta.get("price_updated_at"),
                 },
                 unit="EUR/kWh",
                 icon="mdi:currency-eur",
@@ -1005,6 +1592,12 @@ class HomeAssistantExporter(BaseExporter):
             "UNKNOWN": "Inconnu",
         }
         return names.get(color, "Inconnu")
+
+    def _get_tempo_state(self, color: str) -> str:
+        """Normalize Tempo state value for MQTT (legacy compatibility)."""
+        if (color or "").upper() == "UNKNOWN":
+            return "Inconnu"
+        return color
 
     def _get_tempo_icon(self, color: str) -> str:
         """Get MDI icon for Tempo color"""
@@ -1170,6 +1763,17 @@ class HomeAssistantExporter(BaseExporter):
                 f"{self.discovery_prefix}/sensor/{self.prefix}_production_last_7_day/#",
                 f"{self.discovery_prefix}/sensor/{self.prefix}_production_last_14_day/#",
                 f"{self.discovery_prefix}/sensor/{self.prefix}_production_last_30_day/#",
+                # Legacy compatibility
+                f"{self.discovery_prefix}/sensor/myelectricaldata_rte/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_edf/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_consumption/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_consumption_last_7_day/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_consumption_last_14_day/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_consumption_last_30_day/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_production/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_production_last_7_day/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_production_last_14_day/#",
+                f"{self.discovery_prefix}/sensor/myelectricaldata_production_last_30_day/#",
                 # Fallback pour le préfixe personnalisé
                 f"{self.discovery_prefix}/sensor/{self.prefix}/#",
             ]
@@ -1359,24 +1963,27 @@ class HomeAssistantExporter(BaseExporter):
         - {discovery_prefix}/sensor/myelectricaldata_production/{pdl}/state
         """
         topic_lower = topic.lower()
-        pfx = self.prefix.lower()
+        pref = self.prefix.lower()
+
+        def _match(fragment: str) -> bool:
+            return f"{pref}{fragment}" in topic_lower or f"myelectricaldata{fragment}" in topic_lower
 
         # RTE Tempo sensors
-        if f"{pfx}_rte/tempo_today" in topic_lower:
+        if _match("_rte/tempo_today"):
             return "Tempo Aujourd'hui"
-        elif f"{pfx}_rte/tempo_tomorrow" in topic_lower:
+        elif _match("_rte/tempo_tomorrow"):
             return "Tempo Demain"
 
         # RTE EcoWatt sensors
-        elif f"{pfx}_rte/ecowatt_j0" in topic_lower:
+        elif _match("_rte/ecowatt_j0"):
             return "EcoWatt Aujourd'hui"
-        elif f"{pfx}_rte/ecowatt_j1" in topic_lower:
+        elif _match("_rte/ecowatt_j1"):
             return "EcoWatt Demain"
-        elif f"{pfx}_rte/ecowatt_j2" in topic_lower:
+        elif _match("_rte/ecowatt_j2"):
             return "EcoWatt J+2"
 
         # EDF Tempo sensors
-        elif f"{pfx}_edf/tempo_days_" in topic_lower:
+        elif _match("_edf/tempo_days_"):
             if "blue" in topic_lower:
                 return "Tempo Jours Bleus"
             elif "white" in topic_lower:
@@ -1384,13 +1991,13 @@ class HomeAssistantExporter(BaseExporter):
             elif "red" in topic_lower:
                 return "Tempo Jours Rouges"
             return "Tempo Jours"
-        elif f"{pfx}_edf/tempo_price_" in topic_lower:
+        elif _match("_edf/tempo_price_"):
             return "Tempo Prix"
-        elif f"{pfx}_edf/tempo_info" in topic_lower:
+        elif _match("_edf/tempo_info"):
             return "Tempo Info"
 
         # Consumption sensors
-        elif f"{pfx}_consumption_last_" in topic_lower:
+        elif _match("_consumption_last_"):
             if "7" in topic_lower:
                 return "Conso 7 derniers jours"
             elif "14" in topic_lower:
@@ -1398,11 +2005,11 @@ class HomeAssistantExporter(BaseExporter):
             elif "30" in topic_lower:
                 return "Conso 30 derniers jours"
             return "Conso Période"
-        elif f"{pfx}_consumption/" in topic_lower:
+        elif _match("_consumption/"):
             return "Conso Journalière"
 
         # Production sensors
-        elif f"{pfx}_production_last_" in topic_lower:
+        elif _match("_production_last_"):
             if "7" in topic_lower:
                 return "Prod 7 derniers jours"
             elif "14" in topic_lower:
@@ -1410,7 +2017,7 @@ class HomeAssistantExporter(BaseExporter):
             elif "30" in topic_lower:
                 return "Prod 30 derniers jours"
             return "Prod Période"
-        elif f"{pfx}_production/" in topic_lower:
+        elif _match("_production/"):
             return "Prod Journalière"
 
         # Legacy format fallback

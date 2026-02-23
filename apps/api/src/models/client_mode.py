@@ -52,7 +52,7 @@ class ConsumptionData(Base, TimestampMixin):
 
     __tablename__ = "consumption_data"
     __table_args__ = (
-        UniqueConstraint("usage_point_id", "date", "granularity", "interval_start", name="uq_consumption_data"),
+        UniqueConstraint("usage_point_id", "date", "granularity", "interval_start", name="uq_consumption_data", postgresql_nulls_not_distinct=True),
         Index("ix_consumption_usage_point_date", "usage_point_id", "date"),
         Index("ix_consumption_granularity_date", "granularity", "date"),
     )
@@ -88,7 +88,7 @@ class ProductionData(Base, TimestampMixin):
 
     __tablename__ = "production_data"
     __table_args__ = (
-        UniqueConstraint("usage_point_id", "date", "granularity", "interval_start", name="uq_production_data"),
+        UniqueConstraint("usage_point_id", "date", "granularity", "interval_start", name="uq_production_data", postgresql_nulls_not_distinct=True),
         Index("ix_production_usage_point_date", "usage_point_id", "date"),
         Index("ix_production_granularity_date", "granularity", "date"),
     )
