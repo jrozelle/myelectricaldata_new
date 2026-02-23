@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { Download, BarChart3, Loader2, CalendarDays, CalendarRange } from 'lucide-react'
 import { toast } from '@/stores/notificationStore'
@@ -443,6 +443,32 @@ export function DetailedCurve({
     return mergedData
   }
 
+  // Pre-compute the set of dates that have cached data (O(n) once instead of O(n × cells))
+  const availableDatesSet = useMemo(() => {
+    const dates = new Set<string>()
+    if (!selectedPDL) return dates
+
+    const queryCache = queryClient.getQueryCache()
+    const allDetailQueries = queryCache.findAll({
+      queryKey: [cacheKeyPrefix, selectedPDL],
+      exact: false,
+    })
+
+    for (const query of allDetailQueries) {
+      const responseData = query.state.data as any
+      if (!responseData?.data?.meter_reading?.interval_reading) continue
+
+      for (const reading of responseData.data.meter_reading.interval_reading) {
+        if (reading.date) {
+          dates.add(reading.date.split(' ')[0].split('T')[0])
+        }
+      }
+    }
+    return dates
+  // detailByDayData + detailWeekOffset: recalculate when the parent loads new data
+  // (covers week navigation, PDL switch, and initial fetch)
+  }, [selectedPDL, cacheKeyPrefix, queryClient, detailByDayData, detailWeekOffset])
+
   const renderCalendar = () => {
     const todayUTC = new Date()
     const yesterdayUTC = new Date(Date.UTC(
@@ -476,33 +502,13 @@ export function DetailedCurve({
       ))
       const isInRange = dayDate && dayDate <= yesterdayUTC && dayDate >= twoYearsAgoUTC
 
-      // Check if data exists for this day
+      // O(1) lookup instead of scanning all readings
       let hasData = false
-      if (isInRange && dayDate && selectedPDL) {
+      if (isInRange && dayDate) {
         const dateStr = dayDate.getFullYear() + '-' +
                        String(dayDate.getMonth() + 1).padStart(2, '0') + '-' +
                        String(dayDate.getDate()).padStart(2, '0')
-
-        // Search through all cached queries for this date
-        const queryCache = queryClient.getQueryCache()
-        const allDetailQueries = queryCache.findAll({
-          queryKey: [cacheKeyPrefix, selectedPDL],
-          exact: false,
-        })
-
-        for (const query of allDetailQueries) {
-          const responseData = query.state.data as any
-          if (!responseData?.data?.meter_reading?.interval_reading) continue
-
-          const readings = responseData.data.meter_reading.interval_reading
-          hasData = readings.some((reading: any) => {
-            if (!reading.date) return false
-            const readingDate = reading.date.split(' ')[0].split('T')[0]
-            return readingDate === dateStr
-          })
-
-          if (hasData) break
-        }
+        hasData = availableDatesSet.has(dateStr)
       }
 
       // Calculate currently selected date in UTC

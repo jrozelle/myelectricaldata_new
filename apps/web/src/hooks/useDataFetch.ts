@@ -59,7 +59,8 @@ export function useDataFetch(selectedPDL: string, pdlDetails: PDL | undefined): 
       ))
 
       const startDate = startDate_obj.toISOString().split('T')[0]
-      const endDate = yesterdayUTC.toISOString().split('T')[0]
+      // Use today (not yesterday) because backend uses exclusive end: date < end_date
+      const endDate = todayUTC.toISOString().split('T')[0]
 
       logger.log('[DataFetch] Fetching data for PDL:', selectedPDL, {
         has_consumption: pdlDetails.has_consumption,
@@ -85,7 +86,7 @@ export function useDataFetch(selectedPDL: string, pdlDetails: PDL | undefined): 
           name: 'Puissance maximale',
           fn: async () => {
             setProgress(prev => ({ ...prev, message: 'Récupération puissance maximale...' }))
-            return enedisApi.getMaxPower(selectedPDL, { start: startDate, end: endDate })
+            return enedisApi.getMaxPower(selectedPDL, { start: startDate, end: endDate, use_cache: true })
           },
           queryKey: ['maxPower', selectedPDL, startDate, endDate]
         })

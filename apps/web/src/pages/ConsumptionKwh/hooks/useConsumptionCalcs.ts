@@ -406,6 +406,7 @@ export function useConsumptionCalcs({
         : `${comp.current.startDate.getFullYear() - 1}-${comp.current.startDate.getFullYear()}`
       const previousMonths = aggregateMonthly(comp.previous.startDate, comp.previous.endDate)
 
+
       const entries = []
 
       if (currentMonths.length >= 2) {
@@ -690,7 +691,7 @@ export function useConsumptionCalcs({
 
     const uniqueReadings = Array.from(uniqueReadingsMap.values())
 
-    const mostRecentDate = new Date(Math.max(...uniqueReadings.map(r => r.date.getTime())))
+    const mostRecentDate = uniqueReadings.reduce((max, r) => r.date > max ? r.date : max, uniqueReadings[0].date)
 
     // Define 3 rolling 365-day periods (aligned with byYear calculation)
     const periods = []
@@ -797,7 +798,7 @@ export function useConsumptionCalcs({
 
     const uniqueReadings = Array.from(uniqueReadingsMap.values())
 
-    const mostRecentDate = new Date(Math.max(...uniqueReadings.map(r => r.date.getTime())))
+    const mostRecentDate = uniqueReadings.reduce((max, r) => r.date > max ? r.date : max, uniqueReadings[0].date)
 
     // Define 2 rolling 365-day periods (max 730 days from API)
     // Period 1: Most recent 365 days (from yesterday back 365 days)
