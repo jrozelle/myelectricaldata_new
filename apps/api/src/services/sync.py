@@ -492,7 +492,8 @@ class SyncService:
             granularity=DataGranularity.DAILY,
         )
 
-        end_date = date.today()
+        # Enedis requires end_date < today (today's data isn't available yet)
+        end_date = date.today() - timedelta(days=1)
         start_date = end_date - timedelta(days=MAX_DAILY_DAYS)
 
         now_utc = datetime.now(UTC)
@@ -704,6 +705,7 @@ class SyncService:
             meter_reading = response.get("meter_reading", {})
 
         interval_reading = meter_reading.get("interval_reading", [])
+
         if not isinstance(interval_reading, list):
             return []
 
