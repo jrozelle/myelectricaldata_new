@@ -245,7 +245,7 @@ class HomeAssistantExporter(BaseExporter):
         # Discovery config
         discovery_config = {
             "unique_id": unique_id,
-            "object_id": unique_id,
+            "default_entity_id": f"sensor.{unique_id}",
             "name": f"Consommation {usage_point_id} ({granularity})",
             "state_topic": state_topic,
             "unit_of_measurement": "kWh",
@@ -311,7 +311,7 @@ class HomeAssistantExporter(BaseExporter):
 
         discovery_config = {
             "unique_id": unique_id,
-            "object_id": unique_id,
+            "default_entity_id": f"sensor.{unique_id}",
             "name": f"Production {usage_point_id} ({granularity})",
             "state_topic": state_topic,
             "unit_of_measurement": "kWh",
@@ -519,7 +519,7 @@ class HomeAssistantExporter(BaseExporter):
         # Build discovery config
         discovery_config: dict[str, Any] = {
             "unique_id": unique_id,
-            "object_id": unique_id,
+            "default_entity_id": f"sensor.{unique_id}",
             "name": name,
             "state_topic": state_topic,
             "value_template": "{{ value_json.state }}",
@@ -586,7 +586,7 @@ class HomeAssistantExporter(BaseExporter):
         """
         discovery_config: dict[str, Any] = {
             "unique_id": unique_id,
-            "object_id": unique_id,
+            "default_entity_id": f"binary_sensor.{unique_id}",
             "name": name,
             "state_topic": state_topic,
             "value_template": "{{ value_json.state }}",
@@ -2442,10 +2442,13 @@ class HomeAssistantExporter(BaseExporter):
                         # The "start" field contains the timestamp
                         start_ts = last_entry.get("start")
                         if start_ts:
-                            # Parse ISO format timestamp
+                            # Parse timestamp — HA `recorder/statistics_during_period`
+                            # returns `start` as a numeric epoch in MILLISECONDS (since
+                            # HA core 2023+), not seconds. Auto-detect: any value > 1e12
+                            # is treated as ms (safe until year ~33658 in seconds).
                             if isinstance(start_ts, (int, float)):
-                                # Unix timestamp in seconds
-                                last_dates[stat_id] = datetime.fromtimestamp(start_ts, tz=tz_paris)
+                                ts = start_ts / 1000 if start_ts > 1e12 else start_ts
+                                last_dates[stat_id] = datetime.fromtimestamp(ts, tz=tz_paris)
                             else:
                                 # ISO format string
                                 try:
