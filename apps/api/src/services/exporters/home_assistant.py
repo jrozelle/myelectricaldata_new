@@ -2614,6 +2614,7 @@ class HomeAssistantExporter(BaseExporter):
         # in the Energy dashboard).
         since_date: datetime | None = None
         last_sums_raw: dict[str, float] = {}
+        last_dates_raw: dict[str, str] = {}
         if incremental:
             last_dates_result = await self.get_last_statistic_dates()
             if last_dates_result.get("success") and last_dates_result.get("oldest_date"):
@@ -2621,6 +2622,7 @@ class HomeAssistantExporter(BaseExporter):
                 oldest_date_str = last_dates_result["oldest_date"]
                 since_date = datetime.fromisoformat(oldest_date_str)
                 last_sums_raw = last_dates_result.get("last_sums", {}) or {}
+                last_dates_raw = last_dates_result.get("last_dates", {}) or {}
                 logger.info(f"[HA-WS] Incremental mode: importing data since {since_date}")
             else:
                 # No existing data, fall back to full import
@@ -2679,16 +2681,23 @@ class HomeAssistantExporter(BaseExporter):
                 mode_str = "incremental" if incremental else "full"
                 logger.info(f"[HA-WS] Processing {len(usage_point_ids)} PDLs ({mode_str} mode): {usage_point_ids}")
                 for pdl in usage_point_ids:
-                    # Build per-PDL initial sums (consumption / cost / production)
-                    # from the global last_sums_raw map keyed by full statistic_id.
-                    init_consumption_sums, init_cost_sums, init_production_sum = self._extract_initial_sums_for_pdl(
-                        prefix, pdl, last_sums_raw
-                    )
+                    # Build per-PDL state (sums + last dates) from the global maps.
+                    # Per-tariff last dates are critical to skip already-exported
+                    # records in incremental mode (anti double-counting).
+                    (
+                        init_consumption_sums,
+                        init_cost_sums,
+                        init_production_sum,
+                        last_dates_consumption,
+                        last_date_production,
+                    ) = self._extract_per_pdl_state(prefix, pdl, last_sums_raw, last_dates_raw)
 
                     # Get consumption data by tariff
                     logger.info(f"[HA-WS] Getting consumption data for PDL {pdl}" + (f" (since {since_date})" if since_date else ""))
                     consumption_by_tariff = await self._get_consumption_statistics_by_tariff(
-                        db, pdl, since_date, initial_sums=init_consumption_sums
+                        db, pdl, since_date,
+                        initial_sums=init_consumption_sums,
+                        last_dates_by_tariff=last_dates_consumption,
                     )
                     logger.info(f"[HA-WS] Got {len(consumption_by_tariff)} tariff buckets for {pdl}: {list(consumption_by_tariff.keys())}")
 
@@ -2755,7 +2764,9 @@ class HomeAssistantExporter(BaseExporter):
                     # Get production data (production has no tariff distinction)
                     # Import même si vide pour créer l'entité dans HA
                     production_stats = await self._get_production_statistics(
-                        db, pdl, since_date, initial_sum=init_production_sum
+                        db, pdl, since_date,
+                        initial_sum=init_production_sum,
+                        last_date=last_date_production,
                     )
                     statistic_id = f"{prefix}:production_{pdl}"
 
@@ -2851,10 +2862,12 @@ class HomeAssistantExporter(BaseExporter):
                     "production": production,
                 })
 
-        # For incremental mode, get the last imported date AND last sums for
-        # cumulative continuity (see import_statistics for full rationale).
+        # For incremental mode, get the last imported date AND last sums + last
+        # dates per stat for cumulative continuity AND per-tariff filtering.
+        # See import_statistics for the full rationale.
         since_date: datetime | None = None
         last_sums_raw: dict[str, float] = {}
+        last_dates_raw: dict[str, str] = {}
         if incremental:
             last_dates_result = await self.get_last_statistic_dates()
             if last_dates_result.get("success") and last_dates_result.get("oldest_date"):
@@ -2862,6 +2875,7 @@ class HomeAssistantExporter(BaseExporter):
                 oldest_date_str = last_dates_result["oldest_date"]
                 since_date = dt.fromisoformat(oldest_date_str)
                 last_sums_raw = last_dates_result.get("last_sums", {}) or {}
+                last_dates_raw = last_dates_result.get("last_dates", {}) or {}
                 logger.info(f"[HA-WS] Incremental mode: importing data since {since_date}")
             else:
                 # No existing data, fall back to full import
@@ -2930,10 +2944,15 @@ class HomeAssistantExporter(BaseExporter):
                 }
 
                 for pdl_idx, pdl in enumerate(usage_point_ids):
-                    # Build per-PDL initial sums for cumulative continuity
-                    init_consumption_sums, init_cost_sums, init_production_sum = self._extract_initial_sums_for_pdl(
-                        prefix, pdl, last_sums_raw
-                    )
+                    # Build per-PDL state (sums + last dates) — last dates are
+                    # critical to avoid double-counting in incremental mode.
+                    (
+                        init_consumption_sums,
+                        init_cost_sums,
+                        init_production_sum,
+                        last_dates_consumption,
+                        last_date_production,
+                    ) = self._extract_per_pdl_state(prefix, pdl, last_sums_raw, last_dates_raw)
 
                     # Étape: Lecture des données de consommation
                     await emit_progress(
@@ -2942,7 +2961,9 @@ class HomeAssistantExporter(BaseExporter):
                         results["consumption"], results["cost"], results["production"]
                     )
                     consumption_by_tariff = await self._get_consumption_statistics_by_tariff(
-                        db, pdl, since_date, initial_sums=init_consumption_sums
+                        db, pdl, since_date,
+                        initial_sums=init_consumption_sums,
+                        last_dates_by_tariff=last_dates_consumption,
                     )
                     current_step += 1
 
@@ -3021,7 +3042,9 @@ class HomeAssistantExporter(BaseExporter):
                         results["consumption"], results["cost"], results["production"]
                     )
                     production_stats = await self._get_production_statistics(
-                        db, pdl, since_date, initial_sum=init_production_sum
+                        db, pdl, since_date,
+                        initial_sum=init_production_sum,
+                        last_date=last_date_production,
                     )
                     statistic_id = f"{prefix}:production_{pdl}"
                     imported, msg_id, chunk_errors = await self._import_stats_in_chunks(
@@ -3060,27 +3083,49 @@ class HomeAssistantExporter(BaseExporter):
             }
 
     @staticmethod
-    def _extract_initial_sums_for_pdl(
+    def _extract_per_pdl_state(
         prefix: str,
         pdl: str,
         last_sums_raw: dict[str, float],
-    ) -> tuple[dict[str, float], dict[str, float], float]:
-        """Build per-PDL initial sums from a global last_sums map.
+        last_dates_raw: dict[str, str],
+    ) -> tuple[
+        dict[str, float],
+        dict[str, float],
+        float,
+        dict[str, datetime],
+        datetime | None,
+    ]:
+        """Build per-PDL state (sums + last dates) from global maps.
 
-        Splits the flat {statistic_id: sum} map (returned by
-        get_last_statistic_dates) into 3 buckets matching the 3 export functions:
-        - consumption: dict[tariff_tag, sum_kwh]
-        - cost:        dict[tariff_tag, sum_eur]
-        - production:  single float (no tariff)
+        Splits the flat {statistic_id: sum/date} maps (returned by
+        get_last_statistic_dates) into per-category buckets needed by the
+        3 export functions:
+        - consumption: per-tariff init sums + per-tariff last dates (filter)
+        - cost:        per-tariff init sums (no filter, derived from consumption)
+        - production:  single init sum + single last date (filter)
+
+        The per-tariff last_dates are crucial in incremental mode: the global
+        since_date used in the SQL fetch is the OLDEST across all stats, so
+        records ALREADY exported for individual tariffs (with newer last_dates)
+        would otherwise be re-processed and overwrite existing entries.
 
         Args:
             prefix: statistic_id prefix used by MED (e.g. "med")
             pdl: usage point ID
-            last_sums_raw: flat map keyed by full statistic_id
+            last_sums_raw: flat map {statistic_id: last_sum}
+            last_dates_raw: flat map {statistic_id: last_date_isoformat}
 
         Returns:
-            (initial_consumption_sums, initial_cost_sums, initial_production_sum)
+            (
+                init_consumption_sums,
+                init_cost_sums,
+                init_production_sum,
+                last_dates_by_consumption_tariff,
+                last_date_production,
+            )
         """
+        from datetime import datetime as _dt
+
         consumption_prefix = f"{prefix}:consumption_{pdl}_"
         cost_prefix = f"{prefix}:cost_{pdl}_"
         production_id = f"{prefix}:production_{pdl}"
@@ -3088,6 +3133,8 @@ class HomeAssistantExporter(BaseExporter):
         init_consumption: dict[str, float] = {}
         init_cost: dict[str, float] = {}
         init_production: float = 0.0
+        last_dates_consumption: dict[str, datetime] = {}
+        last_date_production: datetime | None = None
 
         for stat_id, sum_v in last_sums_raw.items():
             if stat_id.startswith(consumption_prefix):
@@ -3099,7 +3146,26 @@ class HomeAssistantExporter(BaseExporter):
             elif stat_id == production_id:
                 init_production = sum_v
 
-        return init_consumption, init_cost, init_production
+        for stat_id, date_str in last_dates_raw.items():
+            if not date_str:
+                continue
+            try:
+                parsed = _dt.fromisoformat(date_str)
+            except ValueError:
+                continue
+            if stat_id.startswith(consumption_prefix):
+                tag = stat_id[len(consumption_prefix):]
+                last_dates_consumption[tag] = parsed
+            elif stat_id == production_id:
+                last_date_production = parsed
+
+        return (
+            init_consumption,
+            init_cost,
+            init_production,
+            last_dates_consumption,
+            last_date_production,
+        )
 
     async def _get_consumption_statistics_by_tariff(
         self,
@@ -3107,6 +3173,7 @@ class HomeAssistantExporter(BaseExporter):
         pdl: str,
         since_date: datetime | None = None,
         initial_sums: dict[str, float] | None = None,
+        last_dates_by_tariff: dict[str, datetime] | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         """Get consumption statistics grouped by tariff type for Energy Dashboard
 
@@ -3119,11 +3186,18 @@ class HomeAssistantExporter(BaseExporter):
         Args:
             db: Database session
             pdl: Usage point ID
-            since_date: Only include records after this date (for incremental import)
+            since_date: Only include records after this date (for incremental import).
+                This is the GLOBAL oldest date across all tariffs — needed because
+                we fetch records per PDL, not per tariff.
             initial_sums: Per-tariff starting sums (kWh) to seed the cumulative
                 series. Required in incremental mode so the exported sums continue
                 the existing history in HA — otherwise the sums restart at 0,
                 HA Energy sees a giant negative delta and the dashboard breaks.
+            last_dates_by_tariff: Per-tariff last date already in HA. When provided,
+                records whose hour is <= this date are SKIPPED for that tariff
+                (they are already exported). This prevents double-counting in
+                incremental mode where the global since_date is older than some
+                tariffs' last_date.
 
         Returns:
             Dict of tariff_tag -> list of statistics records
@@ -3131,6 +3205,7 @@ class HomeAssistantExporter(BaseExporter):
             or for TEMPO: {"blue_hc": [...], "blue_hp": [...], "white_hc": [...], ...}
         """
         initial_sums = initial_sums or {}
+        last_dates_by_tariff = last_dates_by_tariff or {}
         from datetime import timedelta
         from zoneinfo import ZoneInfo
 
@@ -3382,6 +3457,15 @@ class HomeAssistantExporter(BaseExporter):
             start_dt = datetime.combine(record_date, datetime.min.time().replace(hour=hour, minute=0, second=0))
             start_dt = start_dt.replace(tzinfo=tz_paris)
 
+            # Skip records already exported to HA for THIS specific tariff.
+            # The global since_date is the OLDEST among all tariffs (so the SQL
+            # fetch is wide enough to catch every tariff's new records), but each
+            # individual tariff has its own last_date — we must skip records
+            # that are <= that tariff's last_date to avoid double-counting.
+            tariff_last_date = last_dates_by_tariff.get(tariff_tag)
+            if tariff_last_date is not None and start_dt <= tariff_last_date:
+                continue
+
             # Ensure bucket exists (safety)
             if tariff_tag not in stats_by_tariff:
                 stats_by_tariff[tariff_tag] = []
@@ -3522,6 +3606,7 @@ class HomeAssistantExporter(BaseExporter):
         pdl: str,
         since_date: datetime | None = None,
         initial_sum: float = 0.0,
+        last_date: datetime | None = None,
     ) -> list[dict[str, Any]]:
         """Get production statistics for Energy Dashboard
 
@@ -3534,6 +3619,9 @@ class HomeAssistantExporter(BaseExporter):
             since_date: Only include records after this date (for incremental import)
             initial_sum: Starting sum (kWh) to seed the cumulative production
                 series. Required in incremental mode for sum continuity.
+            last_date: Production-specific last date already in HA. Records whose
+                hour is <= this date are skipped (already exported). Same anti
+                double-counting logic as _get_consumption_statistics_by_tariff.
 
         Returns:
             List of statistics records [{start, state, sum}, ...]
@@ -3638,6 +3726,16 @@ class HomeAssistantExporter(BaseExporter):
         stats = []
         cumulative_kwh = initial_sum
         sorted_keys = sorted(hourly_aggregation.keys(), key=lambda k: (k[0], k[1]))
+
+        # If a last_date is provided, skip every record at or before it (already
+        # in HA — same anti double-counting logic as the consumption builder).
+        if last_date is not None:
+            from zoneinfo import ZoneInfo as _ZI
+            _tz = _ZI("Europe/Paris")
+            def _skip(rd, h):
+                start = datetime.combine(rd, datetime.min.time().replace(hour=h, minute=0, second=0))
+                return start.replace(tzinfo=_tz) <= last_date
+            sorted_keys = [k for k in sorted_keys if not _skip(k[0], k[1])]
 
         for record_date, hour in sorted_keys:
             value_kwh = hourly_aggregation[(record_date, hour)]
