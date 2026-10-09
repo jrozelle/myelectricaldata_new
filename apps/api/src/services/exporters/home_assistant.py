@@ -2466,11 +2466,86 @@ class HomeAssistantExporter(BaseExporter):
                             except (TypeError, ValueError):
                                 logger.warning(f"[HA-WS] Could not parse sum for {stat_id}: {sum_v}")
 
+                # Second pass: for stats with NO data in the last 30 days (typically
+                # rare TEMPO tariffs like Blanc HC/HP — only ~43 days/year), the
+                # hourly query above returns nothing → last_sums is missing → the
+                # caller seeds cumulative_by_tariff at 0 → on the next import the
+                # series drops from HA's real last sum (e.g. 5000 kWh) to ~0,
+                # producing a huge negative bar in the Energy dashboard.
+                #
+                # Workaround: query the same stats with `period: "month"` over a
+                # wide window. Monthly aggregates are cheap (1 entry/month/stat)
+                # and the `sum` field is the cumulative sum at the END of each
+                # month, so the LAST monthly entry's `sum` is still the current
+                # cumulative even when there has been no activity for months.
+                #
+                # We deliberately do NOT populate `last_dates` from this pass:
+                # month-precision dates aren't usable as a per-tariff skip filter
+                # (we'd lose whole months of legitimate new data). The caller
+                # leaves the filter disabled for these stats — that's safe
+                # because `since_date` is computed from active stats only, and
+                # the SQL fetch starts there.
+                missing_sum_ids = [s for s in statistic_ids if s not in last_sums]
+                if missing_sum_ids:
+                    start_time_wide = (now - timedelta(days=5 * 365)).isoformat()
+                    monthly_response = await self._ws_send_and_receive(
+                        ws,
+                        {
+                            "type": "recorder/statistics_during_period",
+                            "start_time": start_time_wide,
+                            "statistic_ids": missing_sum_ids,
+                            "period": "month",
+                        },
+                        msg_id=2,
+                    )
+
+                    if monthly_response.get("success", True):
+                        monthly_data = monthly_response.get("result", {})
+                        recovered = 0
+                        for stat_id, entries in monthly_data.items():
+                            if entries and isinstance(entries, list):
+                                sum_v = entries[-1].get("sum")
+                                if sum_v is not None:
+                                    try:
+                                        last_sums[stat_id] = float(sum_v)
+                                        recovered += 1
+                                    except (TypeError, ValueError):
+                                        logger.warning(
+                                            f"[HA-WS] Could not parse monthly sum for {stat_id}: {sum_v}"
+                                        )
+                        if recovered:
+                            logger.info(
+                                f"[HA-WS] Recovered last_sum for {recovered}/{len(missing_sum_ids)} "
+                                f"inactive stats via monthly fallback (TEMPO Blanc/Rouge etc.)"
+                            )
+                    else:
+                        logger.warning(
+                            f"[HA-WS] Monthly fallback query failed: "
+                            f"{monthly_response.get('error', {}).get('message', 'unknown')}"
+                        )
+
                 # Find the oldest "last date" - this is where we need to start the incremental import
                 oldest_date = min(last_dates.values()) if last_dates else None
 
+                # Safeguard: any stat present in HA's metadata (list_statistics)
+                # but for which BOTH the 30-day hourly and the 5-year monthly
+                # queries returned no `sum` is suspicious — the caller MUST NOT
+                # seed cumulative_by_tariff at 0 for these (would corrupt the
+                # Energy dashboard exactly like the bug we're fixing). We expose
+                # the list so import_statistics can skip these tariffs entirely
+                # rather than overwriting HA's existing series with garbage.
+                untrusted_stat_ids = [s for s in statistic_ids if s not in last_sums]
+                if untrusted_stat_ids:
+                    logger.error(
+                        f"[HA-WS] {len(untrusted_stat_ids)} stats are listed by HA but no "
+                        f"last_sum could be retrieved after 2 passes: {untrusted_stat_ids[:5]}"
+                        f"{'...' if len(untrusted_stat_ids) > 5 else ''}. "
+                        f"These tariffs will be SKIPPED to avoid corruption."
+                    )
+
                 logger.info(
-                    f"[HA-WS] Found last dates for {len(last_dates)}/{len(statistic_ids)} statistics. "
+                    f"[HA-WS] Found last dates for {len(last_dates)}/{len(statistic_ids)} statistics, "
+                    f"last_sums for {len(last_sums)}/{len(statistic_ids)}. "
                     f"Oldest: {oldest_date.isoformat() if oldest_date else 'None'}"
                 )
 
@@ -2479,6 +2554,7 @@ class HomeAssistantExporter(BaseExporter):
                     "message": f"Dernières dates récupérées pour {len(last_dates)} statistiques",
                     "last_dates": {k: v.isoformat() for k, v in last_dates.items()},
                     "last_sums": last_sums,
+                    "untrusted_stat_ids": untrusted_stat_ids,
                     "oldest_date": oldest_date.isoformat() if oldest_date else None,
                 }
 
@@ -2576,6 +2652,251 @@ class HomeAssistantExporter(BaseExporter):
                 "message": f"Erreur: {str(e)}",
             }
 
+    async def auto_repair_negative_jumps(
+        self,
+        threshold_kwh: float = 100.0,
+        threshold_eur: float = 10.0,
+        scan_days: int = 365,
+    ) -> dict[str, Any]:
+        """Detect and repair negative jumps in HA cumulative `sum` series.
+
+        Scans every statistic_id matching our prefix over the last `scan_days`
+        at daily resolution, looking for consecutive entries where the cumulative
+        `sum` decreased by more than the unit-specific threshold. For each drop,
+        calls `recorder/adjust_sum_statistics` with `adjustment = -delta`
+        (positive) starting at the drop's timestamp — this rebases every
+        subsequent entry back up to its correct level without rewriting
+        individual hourly points.
+
+        Cost stats are scanned with `threshold_eur` (in EUR) since the kWh
+        threshold doesn't apply. Both consumption and cost can show the same
+        bug pattern: if the kWh series drops, the derived EUR series drops
+        proportionally to the tariff price.
+
+        Why daily resolution: the bug we fix typically produces a single big
+        drop between the last pre-bug entry and the first post-bug entry, so
+        day-level scanning catches it while keeping payload light (~365
+        entries/stat instead of ~8760).
+
+        Args:
+            threshold_kwh: Minimum |delta| (kWh) to flag a drop on kWh series.
+            threshold_eur: Minimum |delta| (EUR) to flag a drop on cost series.
+            scan_days: How far back to scan. 1 year covers all TEMPO tariffs.
+
+        Returns:
+            Dict with per-stat repair counts: {
+                "success": bool,
+                "scanned_stat_ids": int,
+                "jumps_detected": int,
+                "jumps_repaired": int,
+                "details": [{statistic_id, start_time, delta, adjustment, unit}, ...],
+            }
+        """
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        if not self._has_websocket_config():
+            return {
+                "success": False,
+                "message": "Configuration WebSocket manquante (ha_url, ha_token)",
+                "scanned_stat_ids": 0,
+                "jumps_detected": 0,
+                "jumps_repaired": 0,
+                "details": [],
+            }
+
+        prefix = self.config.get("statistic_id_prefix", "myelectricaldata")
+
+        list_result = await self.list_statistics(prefix)
+        if not list_result.get("success"):
+            return {
+                "success": False,
+                "message": list_result.get("message", "Failed to list statistics"),
+                "scanned_stat_ids": 0,
+                "jumps_detected": 0,
+                "jumps_repaired": 0,
+                "details": [],
+            }
+
+        statistic_ids = list_result.get("statistic_ids", [])
+        if not statistic_ids:
+            return {
+                "success": True,
+                "message": "Aucune statistique à scanner",
+                "scanned_stat_ids": 0,
+                "jumps_detected": 0,
+                "jumps_repaired": 0,
+                "details": [],
+            }
+
+        # Scan both kWh (consumption/production) and EUR (cost) series. Each
+        # uses its own threshold; the per-stat unit is detected from the
+        # statistic_id (":cost_" → EUR, anything else → kWh).
+        def _unit_for(stat_id: str) -> str:
+            return "EUR" if ":cost_" in stat_id else "kWh"
+
+        def _threshold_for(stat_id: str) -> float:
+            return threshold_eur if _unit_for(stat_id) == "EUR" else threshold_kwh
+
+        ws_url = self._get_ws_url()
+        token = self.config.get("ha_token")
+        tz_paris = ZoneInfo("Europe/Paris")
+        now = datetime.now(tz_paris)
+        start_time = (now - timedelta(days=scan_days)).isoformat()
+
+        jumps_detected: list[dict[str, Any]] = []
+        repaired_count = 0
+
+        try:
+            async with websockets.connect(ws_url) as ws:
+                auth_req = json.loads(await ws.recv())
+                if auth_req.get("type") != "auth_required":
+                    return {
+                        "success": False,
+                        "message": "Unexpected HA response",
+                        "scanned_stat_ids": 0,
+                        "jumps_detected": 0,
+                        "jumps_repaired": 0,
+                        "details": [],
+                    }
+
+                await ws.send(json.dumps({"type": "auth", "access_token": token}))
+                auth_result = json.loads(await ws.recv())
+                if auth_result.get("type") != "auth_ok":
+                    return {
+                        "success": False,
+                        "message": f"Authentification échouée: {auth_result.get('message', 'Unknown error')}",
+                        "scanned_stat_ids": 0,
+                        "jumps_detected": 0,
+                        "jumps_repaired": 0,
+                        "details": [],
+                    }
+
+                # 1. Daily scan
+                scan_response = await self._ws_send_and_receive(
+                    ws,
+                    {
+                        "type": "recorder/statistics_during_period",
+                        "start_time": start_time,
+                        "statistic_ids": statistic_ids,
+                        "period": "day",
+                    },
+                    msg_id=1,
+                )
+
+                if not scan_response.get("success", True):
+                    return {
+                        "success": False,
+                        "message": scan_response.get("error", {}).get("message", "Scan failed"),
+                        "scanned_stat_ids": 0,
+                        "jumps_detected": 0,
+                        "jumps_repaired": 0,
+                        "details": [],
+                    }
+
+                scan_data = scan_response.get("result", {})
+
+                # 2. Detect drops
+                def _parse_start(start_ts: Any) -> datetime | None:
+                    if isinstance(start_ts, (int, float)):
+                        ts = start_ts / 1000 if start_ts > 1e12 else start_ts
+                        return datetime.fromtimestamp(ts, tz=tz_paris)
+                    if start_ts:
+                        try:
+                            return datetime.fromisoformat(str(start_ts).replace("Z", "+00:00"))
+                        except ValueError:
+                            return None
+                    return None
+
+                for stat_id, entries in scan_data.items():
+                    if not entries or not isinstance(entries, list):
+                        continue
+                    unit = _unit_for(stat_id)
+                    threshold = _threshold_for(stat_id)
+                    for i in range(1, len(entries)):
+                        prev_sum = entries[i - 1].get("sum")
+                        cur_sum = entries[i].get("sum")
+                        if prev_sum is None or cur_sum is None:
+                            continue
+                        try:
+                            delta = float(cur_sum) - float(prev_sum)
+                        except (TypeError, ValueError):
+                            continue
+                        if delta < -threshold:
+                            start_dt = _parse_start(entries[i].get("start"))
+                            if start_dt is None:
+                                continue
+                            jumps_detected.append({
+                                "statistic_id": stat_id,
+                                "start_time": start_dt.isoformat(),
+                                "delta": round(delta, 4),
+                                "adjustment": round(-delta, 4),
+                                "unit": unit,
+                            })
+
+                # 3. Repair each jump via recorder/adjust_sum_statistic
+                # We process sequentially to keep msg_id counters simple and let
+                # HA recompute its internal indices between adjustments. Each
+                # adjustment shifts every entry >= start_time by `adjustment`.
+                msg_id = 2
+                for jump in jumps_detected:
+                    adjust_response = await self._ws_send_and_receive(
+                        ws,
+                        {
+                            "type": "recorder/adjust_sum_statistics",
+                            "statistic_id": jump["statistic_id"],
+                            "start_time": jump["start_time"],
+                            "adjustment": jump["adjustment"],
+                            "adjustment_unit_of_measurement": jump["unit"],
+                        },
+                        msg_id=msg_id,
+                    )
+                    msg_id += 1
+                    if adjust_response.get("success", True) is False:
+                        logger.warning(
+                            f"[HA-WS] adjust_sum_statistics failed for {jump['statistic_id']} "
+                            f"@ {jump['start_time']}: "
+                            f"{adjust_response.get('error', {}).get('message', 'unknown')}"
+                        )
+                        jump["repaired"] = False
+                    else:
+                        repaired_count += 1
+                        jump["repaired"] = True
+                        logger.info(
+                            f"[HA-WS] Repaired negative jump on {jump['statistic_id']} "
+                            f"@ {jump['start_time']}: delta={jump['delta']:.2f} {jump['unit']}, "
+                            f"adjustment=+{jump['adjustment']:.2f} {jump['unit']}"
+                        )
+
+                summary = (
+                    f"Scanned {len(statistic_ids)} stats, detected {len(jumps_detected)} jumps, "
+                    f"repaired {repaired_count}"
+                )
+                if jumps_detected:
+                    logger.warning(f"[HA-WS] Auto-repair: {summary}")
+                else:
+                    logger.info(f"[HA-WS] Auto-repair: {summary} — series look clean")
+
+                return {
+                    "success": True,
+                    "message": summary,
+                    "scanned_stat_ids": len(statistic_ids),
+                    "jumps_detected": len(jumps_detected),
+                    "jumps_repaired": repaired_count,
+                    "details": jumps_detected,
+                }
+
+        except Exception as e:
+            logger.error(f"[HA-WS] Auto-repair failed: {e}")
+            return {
+                "success": False,
+                "message": f"Erreur: {str(e)}",
+                "scanned_stat_ids": 0,
+                "jumps_detected": 0,
+                "jumps_repaired": 0,
+                "details": [],
+            }
+
     async def import_statistics(
         self,
         db: AsyncSession,
@@ -2615,7 +2936,22 @@ class HomeAssistantExporter(BaseExporter):
         since_date: datetime | None = None
         last_sums_raw: dict[str, float] = {}
         last_dates_raw: dict[str, str] = {}
+        untrusted_stat_ids: list[str] = []
         if incremental:
+            # Auto-repair MUST run BEFORE get_last_statistic_dates: it rewrites
+            # past negative jumps in HA, so the next query returns the corrected
+            # last_sums. Any failure here is non-fatal — we still proceed with
+            # the (possibly drift-prone) sums HA returns.
+            try:
+                repair_result = await self.auto_repair_negative_jumps()
+                if repair_result.get("jumps_repaired", 0) > 0:
+                    logger.warning(
+                        f"[HA-WS] Pre-import auto-repair fixed "
+                        f"{repair_result['jumps_repaired']} negative jump(s) in HA"
+                    )
+            except Exception as e:
+                logger.warning(f"[HA-WS] Auto-repair pre-import skipped: {e}")
+
             last_dates_result = await self.get_last_statistic_dates()
             if last_dates_result.get("success") and last_dates_result.get("oldest_date"):
                 from datetime import datetime
@@ -2623,6 +2959,7 @@ class HomeAssistantExporter(BaseExporter):
                 since_date = datetime.fromisoformat(oldest_date_str)
                 last_sums_raw = last_dates_result.get("last_sums", {}) or {}
                 last_dates_raw = last_dates_result.get("last_dates", {}) or {}
+                untrusted_stat_ids = last_dates_result.get("untrusted_stat_ids", []) or []
                 logger.info(f"[HA-WS] Incremental mode: importing data since {since_date}")
             else:
                 # No existing data, fall back to full import
@@ -2690,7 +3027,12 @@ class HomeAssistantExporter(BaseExporter):
                         init_production_sum,
                         last_dates_consumption,
                         last_date_production,
-                    ) = self._extract_per_pdl_state(prefix, pdl, last_sums_raw, last_dates_raw)
+                        untrusted_consumption_tags,
+                        untrusted_cost_tags,
+                        production_untrusted,
+                    ) = self._extract_per_pdl_state(
+                        prefix, pdl, last_sums_raw, last_dates_raw, untrusted_stat_ids
+                    )
 
                     # Get consumption data by tariff
                     logger.info(f"[HA-WS] Getting consumption data for PDL {pdl}" + (f" (since {since_date})" if since_date else ""))
@@ -2698,6 +3040,7 @@ class HomeAssistantExporter(BaseExporter):
                         db, pdl, since_date,
                         initial_sums=init_consumption_sums,
                         last_dates_by_tariff=last_dates_consumption,
+                        untrusted_tags=untrusted_consumption_tags,
                     )
                     logger.info(f"[HA-WS] Got {len(consumption_by_tariff)} tariff buckets for {pdl}: {list(consumption_by_tariff.keys())}")
 
@@ -2731,7 +3074,9 @@ class HomeAssistantExporter(BaseExporter):
                     # Get cost data from consumption and energy offer prices
                     logger.info(f"[HA-WS] Calculating costs for PDL {pdl}")
                     cost_by_tariff = await self._get_cost_statistics_by_tariff(
-                        db, pdl, consumption_by_tariff, initial_sums=init_cost_sums
+                        db, pdl, consumption_by_tariff,
+                        initial_sums=init_cost_sums,
+                        untrusted_tags=untrusted_cost_tags,
                     )
 
                     for tariff_tag, cost_stats in cost_by_tariff.items():
@@ -2767,29 +3112,34 @@ class HomeAssistantExporter(BaseExporter):
                         db, pdl, since_date,
                         initial_sum=init_production_sum,
                         last_date=last_date_production,
+                        untrusted=production_untrusted,
                     )
                     statistic_id = f"{prefix}:production_{pdl}"
 
-                    # Import in chunks to avoid WebSocket timeout
-                    imported, msg_id, chunk_errors = await self._import_stats_in_chunks(
-                        ws,
-                        production_stats,
-                        {
-                            "has_mean": False,
-                            "has_sum": True,
-                            "statistic_id": statistic_id,
-                            "name": f"Production {pdl}",
-                            "source": prefix,
-                            "unit_of_measurement": "kWh",
-                        },
-                        msg_id_start=msg_id,
-                        chunk_size=chunk_size,
-                        sync_delay_ms=sync_delay_ms,
-                    )
-                    results["production"] += imported
-                    results["errors"].extend(chunk_errors)
-                    if imported > 0:
-                        logger.debug(f"[HA-WS] Imported {imported} production stats for {pdl}")
+                    # Skip when production is untrusted — _get_production_statistics
+                    # already returned [] and logged the reason. Don't even create
+                    # the metadata: HA's existing series stays untouched.
+                    if not production_untrusted:
+                        # Import in chunks to avoid WebSocket timeout
+                        imported, msg_id, chunk_errors = await self._import_stats_in_chunks(
+                            ws,
+                            production_stats,
+                            {
+                                "has_mean": False,
+                                "has_sum": True,
+                                "statistic_id": statistic_id,
+                                "name": f"Production {pdl}",
+                                "source": prefix,
+                                "unit_of_measurement": "kWh",
+                            },
+                            msg_id_start=msg_id,
+                            chunk_size=chunk_size,
+                            sync_delay_ms=sync_delay_ms,
+                        )
+                        results["production"] += imported
+                        results["errors"].extend(chunk_errors)
+                        if imported > 0:
+                            logger.debug(f"[HA-WS] Imported {imported} production stats for {pdl}")
 
                 logger.info(f"[HA-WS] Import completed: {results['consumption']} consumption, {results['cost']} cost, {results['production']} production")
 
@@ -2868,7 +3218,19 @@ class HomeAssistantExporter(BaseExporter):
         since_date: datetime | None = None
         last_sums_raw: dict[str, float] = {}
         last_dates_raw: dict[str, str] = {}
+        untrusted_stat_ids: list[str] = []
         if incremental:
+            # See import_statistics for the auto-repair rationale.
+            try:
+                repair_result = await self.auto_repair_negative_jumps()
+                if repair_result.get("jumps_repaired", 0) > 0:
+                    logger.warning(
+                        f"[HA-WS] Pre-import auto-repair fixed "
+                        f"{repair_result['jumps_repaired']} negative jump(s) in HA"
+                    )
+            except Exception as e:
+                logger.warning(f"[HA-WS] Auto-repair pre-import skipped: {e}")
+
             last_dates_result = await self.get_last_statistic_dates()
             if last_dates_result.get("success") and last_dates_result.get("oldest_date"):
                 from datetime import datetime as dt
@@ -2876,6 +3238,7 @@ class HomeAssistantExporter(BaseExporter):
                 since_date = dt.fromisoformat(oldest_date_str)
                 last_sums_raw = last_dates_result.get("last_sums", {}) or {}
                 last_dates_raw = last_dates_result.get("last_dates", {}) or {}
+                untrusted_stat_ids = last_dates_result.get("untrusted_stat_ids", []) or []
                 logger.info(f"[HA-WS] Incremental mode: importing data since {since_date}")
             else:
                 # No existing data, fall back to full import
@@ -2952,7 +3315,12 @@ class HomeAssistantExporter(BaseExporter):
                         init_production_sum,
                         last_dates_consumption,
                         last_date_production,
-                    ) = self._extract_per_pdl_state(prefix, pdl, last_sums_raw, last_dates_raw)
+                        untrusted_consumption_tags,
+                        untrusted_cost_tags,
+                        production_untrusted,
+                    ) = self._extract_per_pdl_state(
+                        prefix, pdl, last_sums_raw, last_dates_raw, untrusted_stat_ids
+                    )
 
                     # Étape: Lecture des données de consommation
                     await emit_progress(
@@ -2964,6 +3332,7 @@ class HomeAssistantExporter(BaseExporter):
                         db, pdl, since_date,
                         initial_sums=init_consumption_sums,
                         last_dates_by_tariff=last_dates_consumption,
+                        untrusted_tags=untrusted_consumption_tags,
                     )
                     current_step += 1
 
@@ -3003,7 +3372,9 @@ class HomeAssistantExporter(BaseExporter):
                         results["consumption"], results["cost"], results["production"]
                     )
                     cost_by_tariff = await self._get_cost_statistics_by_tariff(
-                        db, pdl, consumption_by_tariff, initial_sums=init_cost_sums
+                        db, pdl, consumption_by_tariff,
+                        initial_sums=init_cost_sums,
+                        untrusted_tags=untrusted_cost_tags,
                     )
                     current_step += 1
 
@@ -3045,25 +3416,27 @@ class HomeAssistantExporter(BaseExporter):
                         db, pdl, since_date,
                         initial_sum=init_production_sum,
                         last_date=last_date_production,
+                        untrusted=production_untrusted,
                     )
                     statistic_id = f"{prefix}:production_{pdl}"
-                    imported, msg_id, chunk_errors = await self._import_stats_in_chunks(
-                        ws,
-                        production_stats,
-                        {
-                            "has_mean": False,
-                            "has_sum": True,
-                            "statistic_id": statistic_id,
-                            "name": f"Production {pdl}",
-                            "source": prefix,
-                            "unit_of_measurement": "kWh",
-                        },
-                        msg_id_start=msg_id,
-                        chunk_size=chunk_size,
-                        sync_delay_ms=sync_delay_ms,
-                    )
-                    results["production"] += imported
-                    results["errors"].extend(chunk_errors)
+                    if not production_untrusted:
+                        imported, msg_id, chunk_errors = await self._import_stats_in_chunks(
+                            ws,
+                            production_stats,
+                            {
+                                "has_mean": False,
+                                "has_sum": True,
+                                "statistic_id": statistic_id,
+                                "name": f"Production {pdl}",
+                                "source": prefix,
+                                "unit_of_measurement": "kWh",
+                            },
+                            msg_id_start=msg_id,
+                            chunk_size=chunk_size,
+                            sync_delay_ms=sync_delay_ms,
+                        )
+                        results["production"] += imported
+                        results["errors"].extend(chunk_errors)
                     current_step += 1
 
                 logger.info(f"[HA-WS] Import completed: {results['consumption']} consumption, {results['cost']} cost, {results['production']} production")
@@ -3088,12 +3461,16 @@ class HomeAssistantExporter(BaseExporter):
         pdl: str,
         last_sums_raw: dict[str, float],
         last_dates_raw: dict[str, str],
+        untrusted_stat_ids: list[str] | None = None,
     ) -> tuple[
         dict[str, float],
         dict[str, float],
         float,
         dict[str, datetime],
         datetime | None,
+        set[str],
+        set[str],
+        bool,
     ]:
         """Build per-PDL state (sums + last dates) from global maps.
 
@@ -3114,6 +3491,9 @@ class HomeAssistantExporter(BaseExporter):
             pdl: usage point ID
             last_sums_raw: flat map {statistic_id: last_sum}
             last_dates_raw: flat map {statistic_id: last_date_isoformat}
+            untrusted_stat_ids: stat_ids listed by HA but with no recoverable
+                last_sum. The corresponding tariff/production buckets must be
+                skipped by the export pipeline (would corrupt HA otherwise).
 
         Returns:
             (
@@ -3122,6 +3502,9 @@ class HomeAssistantExporter(BaseExporter):
                 init_production_sum,
                 last_dates_by_consumption_tariff,
                 last_date_production,
+                untrusted_consumption_tags,
+                untrusted_cost_tags,
+                production_untrusted,
             )
         """
         from datetime import datetime as _dt
@@ -3135,6 +3518,9 @@ class HomeAssistantExporter(BaseExporter):
         init_production: float = 0.0
         last_dates_consumption: dict[str, datetime] = {}
         last_date_production: datetime | None = None
+        untrusted_consumption: set[str] = set()
+        untrusted_cost: set[str] = set()
+        production_untrusted = False
 
         for stat_id, sum_v in last_sums_raw.items():
             if stat_id.startswith(consumption_prefix):
@@ -3159,12 +3545,23 @@ class HomeAssistantExporter(BaseExporter):
             elif stat_id == production_id:
                 last_date_production = parsed
 
+        for stat_id in untrusted_stat_ids or []:
+            if stat_id.startswith(consumption_prefix):
+                untrusted_consumption.add(stat_id[len(consumption_prefix):])
+            elif stat_id.startswith(cost_prefix):
+                untrusted_cost.add(stat_id[len(cost_prefix):])
+            elif stat_id == production_id:
+                production_untrusted = True
+
         return (
             init_consumption,
             init_cost,
             init_production,
             last_dates_consumption,
             last_date_production,
+            untrusted_consumption,
+            untrusted_cost,
+            production_untrusted,
         )
 
     async def _get_consumption_statistics_by_tariff(
@@ -3174,6 +3571,7 @@ class HomeAssistantExporter(BaseExporter):
         since_date: datetime | None = None,
         initial_sums: dict[str, float] | None = None,
         last_dates_by_tariff: dict[str, datetime] | None = None,
+        untrusted_tags: set[str] | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         """Get consumption statistics grouped by tariff type for Energy Dashboard
 
@@ -3198,6 +3596,11 @@ class HomeAssistantExporter(BaseExporter):
                 (they are already exported). This prevents double-counting in
                 incremental mode where the global since_date is older than some
                 tariffs' last_date.
+            untrusted_tags: Tariff tags whose HA series exists but no last_sum
+                could be recovered. These buckets are NOT produced (would write
+                a sum=0 series and corrupt HA). The export is silently incomplete
+                for these tariffs this run; the next run with a healthy HA query
+                will resume normally.
 
         Returns:
             Dict of tariff_tag -> list of statistics records
@@ -3206,6 +3609,7 @@ class HomeAssistantExporter(BaseExporter):
         """
         initial_sums = initial_sums or {}
         last_dates_by_tariff = last_dates_by_tariff or {}
+        untrusted_tags = untrusted_tags or set()
         from datetime import timedelta
         from zoneinfo import ZoneInfo
 
@@ -3297,18 +3701,28 @@ class HomeAssistantExporter(BaseExporter):
             for color in ["blue", "white", "red"]:
                 for period in ["hc", "hp"]:
                     key = f"{color}_{period}"
+                    if key in untrusted_tags:
+                        continue
                     stats_by_tariff[key] = []
                     cumulative_by_tariff[key] = initial_sums.get(key, 0.0)
         elif pricing_option in ("HC/HP", "HCHP", "EJP"):
             # 2 buckets: hc, hp
-            stats_by_tariff["hc"] = []
-            stats_by_tariff["hp"] = []
-            cumulative_by_tariff["hc"] = initial_sums.get("hc", 0.0)
-            cumulative_by_tariff["hp"] = initial_sums.get("hp", 0.0)
+            for key in ("hc", "hp"):
+                if key in untrusted_tags:
+                    continue
+                stats_by_tariff[key] = []
+                cumulative_by_tariff[key] = initial_sums.get(key, 0.0)
         else:
             # BASE: 1 bucket
-            stats_by_tariff["base"] = []
-            cumulative_by_tariff["base"] = initial_sums.get("base", 0.0)
+            if "base" not in untrusted_tags:
+                stats_by_tariff["base"] = []
+                cumulative_by_tariff["base"] = initial_sums.get("base", 0.0)
+
+        if untrusted_tags:
+            logger.warning(
+                f"[HA-WS] {pdl}: skipping {len(untrusted_tags)} untrusted consumption "
+                f"tariff(s) (no recoverable last_sum): {sorted(untrusted_tags)}"
+            )
 
         # 5. Helper to determine if an hour is in off-peak period
         def is_offpeak_hour(hour: int, minute: int = 0) -> bool:
@@ -3466,6 +3880,10 @@ class HomeAssistantExporter(BaseExporter):
             if tariff_last_date is not None and start_dt <= tariff_last_date:
                 continue
 
+            # Skip untrusted tariffs (would corrupt HA — see initialization block).
+            if tariff_tag in untrusted_tags:
+                continue
+
             # Ensure bucket exists (safety)
             if tariff_tag not in stats_by_tariff:
                 stats_by_tariff[tariff_tag] = []
@@ -3493,6 +3911,7 @@ class HomeAssistantExporter(BaseExporter):
         pdl: str,
         consumption_by_tariff: dict[str, list[dict[str, Any]]],
         initial_sums: dict[str, float] | None = None,
+        untrusted_tags: set[str] | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         """Calculate cost statistics from consumption data and energy offer prices
 
@@ -3574,9 +3993,16 @@ class HomeAssistantExporter(BaseExporter):
         # Calculate cost for each tariff bucket
         cost_by_tariff: dict[str, list[dict[str, Any]]] = {}
 
+        untrusted_tags = untrusted_tags or set()
+
         for tariff_tag, consumption_stats in consumption_by_tariff.items():
             if tariff_tag not in prices:
                 logger.debug(f"[HA-WS] No price for tariff {tariff_tag}, skipping cost calculation")
+                continue
+            if tariff_tag in untrusted_tags:
+                logger.warning(
+                    f"[HA-WS] {pdl}: skipping untrusted cost tariff {tariff_tag} (no recoverable last_sum)"
+                )
                 continue
 
             price_per_kwh = prices[tariff_tag]
@@ -3607,6 +4033,7 @@ class HomeAssistantExporter(BaseExporter):
         since_date: datetime | None = None,
         initial_sum: float = 0.0,
         last_date: datetime | None = None,
+        untrusted: bool = False,
     ) -> list[dict[str, Any]]:
         """Get production statistics for Energy Dashboard
 
@@ -3622,10 +4049,18 @@ class HomeAssistantExporter(BaseExporter):
             last_date: Production-specific last date already in HA. Records whose
                 hour is <= this date are skipped (already exported). Same anti
                 double-counting logic as _get_consumption_statistics_by_tariff.
+            untrusted: If True, HA's production series exists but no last_sum
+                could be recovered — skip the export to avoid corruption.
 
         Returns:
             List of statistics records [{start, state, sum}, ...]
         """
+        if untrusted:
+            logger.warning(
+                f"[HA-WS] {pdl}: skipping production export (no recoverable last_sum)"
+            )
+            return []
+
         from zoneinfo import ZoneInfo
 
         from ...models.client_mode import ProductionData, DataGranularity
