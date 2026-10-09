@@ -2205,6 +2205,12 @@ class HomeAssistantExporter(BaseExporter):
         errors: list[str] = []
         msg_id = msg_id_start
 
+        # HA >= 2025.11 exige mean_type / unit_class (obligatoires en 2026.11)
+        metadata = {**metadata}
+        metadata.setdefault("mean_type", 0)  # StatisticMeanType.NONE
+        unit = metadata.get("unit_of_measurement")
+        metadata.setdefault("unit_class", "energy" if unit in ("Wh", "kWh", "MWh") else None)
+
         # Si stats est vide, envoyer quand même pour créer l'entité dans HA
         if not stats:
             response = await self._ws_send_and_receive(
